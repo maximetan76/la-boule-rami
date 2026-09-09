@@ -1,0 +1,67 @@
+// Schéma de persistance de « La Boule ».
+//
+// L'état d'une Boule est déjà un objet TypeScript cohérent : il est stocké en
+// JSON plutôt qu'éclaté en tables. Voir src/persistence/serialisation.ts, seul
+// endroit qui écrit et relit ce JSON.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Joueur {
+  id               String   @id @default(uuid())
+  /// Identifiant stable fourni par Sign in with Apple (claim `sub`).
+  identifiantApple String   @unique
+  pseudo           String
+  creeLe           DateTime @default(now())
+
+  parties JoueurSurPartie[]
+
+  @@map("joueurs")
+}
+
+model Partie {
+  id         String    @id
+  creeeLe    DateTime  @default(now())
+  termineeLe DateTime?
+
+  joueurs JoueurSurPartie[]
+  boule   Boule?
+
+  @@index([termineeLe])
+  @@map("parties")
+}
+
+/// Place d'un joueur autour d'une partie. `position` fige l'ordre de la table
+/// issu du tirage d'ouverture.
+model JoueurSurPartie {
+  partieId String
+  joueurId String
+  position Int
+
+  partie Partie @relation(fields: [partieId], references: [id], onDelete: Cascade)
+  joueur Joueur @relation(fields: [joueurId], references: [id], onDelete: Cascade)
+
+  @@id([partieId, joueurId])
+  @@map("joueurs_sur_partie")
+}
+
+model Boule {
+  id       String @id @default(uuid())
+  partieId String @unique
+
+  /// État complet sérialisé : ordre de table, scores cumulés, croix, coups
+  /// joués. Le coup en cours n'y figure pas, il est redistribué au démarrage.
+  etat Json
+
+  misAJourLe DateTime @updatedAt
+
+  partie Partie @relation(fields: [partieId], references: [id], onDelete: Cascade)
+
+  @@map("boules")
+}

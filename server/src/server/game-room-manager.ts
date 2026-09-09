@@ -7,6 +7,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Boule, Carte, Coup, Joueur, JoueurId } from '../models/index.js';
+import type { Depot } from '../persistence/depot.js';
+import { deserialiserBoule, serialiserBoule } from '../persistence/serialisation.js';
 import {
   construirePaquet,
   determinerJoueursAssis,
@@ -81,73 +83,165 @@ export interface Table {
   readonly cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
 }
 
-export interface PlaceCreee {
-  readonly joueurId: JoueurId;
+/** Un joueur inscrit, tel qu'il existe en base, prêt à s'asseoir. */
+export interface JoueurInscrit {
+  readonly id: JoueurId;
   readonly nom: string;
-  readonly jeton: Jeton;
+}
+
+export interface TableCreee {
+  readonly tableId: TableId;
+  readonly ordreTable: JoueurId[];
+  readonly donneurInitial: JoueurId;
 }
 
 /**
- * Authentification volontairement minimale à ce stade : un jeton opaque par
- * place, remis à la création de la table. Il identifie le joueur de façon
- * stable, ce qui suffit à la reconnexion. Une vraie authentification viendra
- * plus tard.
+ * Tables actives, en mémoire, adossées à un dépôt.
+ *
+ * L'état de jeu vit en mémoire — c'est lui qui doit répondre à chaque action —
+ * et n'est écrit en base qu'aux moments qui comptent : fin de coup et fin de
+ * Boule. Un redémarrage ne perd donc jamais plus que le coup en cours, qui est
+ * redistribué.
+ *
+ * L'identité vient du jeton de session applicatif (voir `src/auth`) : c'est lui
+ * qui désigne le joueur, et non un jeton propre à la table. C'est ce qui permet
+ * de retrouver sa place après un redémarrage du serveur.
  */
 export class GameRoomManager {
   private readonly tables = new Map<TableId, Table>();
-  private readonly places = new Map<Jeton, { tableId: TableId; joueurId: JoueurId }>();
   private readonly sockets = new Map<string, { tableId: TableId; joueurId: JoueurId }>();
 
-  constructor(readonly minuteur: Minuteur = minuteurSysteme) {}
+  readonly minuteur: Minuteur;
+  private readonly depot: Depot | null;
 
-  creerTable(
-    noms: readonly string[],
+  constructor(options: { readonly minuteur?: Minuteur; readonly depot?: Depot } = {}) {
+    this.minuteur = options.minuteur ?? minuteurSysteme;
+    this.depot = options.depot ?? null;
+  }
+
+  async creerTable(
+    joueurs: readonly JoueurInscrit[],
     options: {
       readonly nombreCoupsFriches?: number;
       readonly alea?: () => number;
       readonly gestionDeconnexion?: GestionDeconnexion;
     } = {},
-  ): { tableId: TableId; places: PlaceCreee[]; donneurInitial: JoueurId } {
+  ): Promise<TableCreee> {
     const tableId = randomUUID();
     const alea = options.alea ?? Math.random;
-    const joueurs: Joueur[] = noms.map((nom, index) => ({
-      id: `j${String(index + 1)}`,
-      nom,
+    const inscrits: Joueur[] = joueurs.map((joueur) => ({
+      id: joueur.id,
+      nom: joueur.nom,
       croix: 0,
     }));
 
     // Tirage d'ouverture : il fixe les sièges, le donneur initial, et laisse à
     // qui a tiré un joker sa carte pour la donne du premier coup.
-    const tirage = tirerSiegesEtDonneurInitial(joueurs, melangerPaquet(construirePaquet(), alea));
+    const tirage = tirerSiegesEtDonneurInitial(inscrits, melangerPaquet(construirePaquet(), alea));
     const assis = tirage.ordreTable.map(
-      (joueurId) => joueurs.find((joueur) => joueur.id === joueurId) as Joueur,
+      (joueurId) => inscrits.find((joueur) => joueur.id === joueurId) as Joueur,
     );
 
-    const table: Table = {
+    const table = this.installer({
       id: tableId,
       joueurs: assis,
       boule: initialiserBoule(assis, options.nombreCoupsFriches),
+      alea,
+      ...(options.gestionDeconnexion === undefined
+        ? {}
+        : { gestionDeconnexion: options.gestionDeconnexion }),
+      cartesConserveesParJoueur: tirage.cartesConserveesParJoueur,
+    });
+
+    await this.depot?.creerPartie(
+      tableId,
+      table.joueurs.map((joueur) => joueur.id),
+    );
+
+    return {
+      tableId,
+      ordreTable: tirage.ordreTable,
+      donneurInitial: tirage.donneurInitial,
+    };
+  }
+
+  private installer(donnees: {
+    id: TableId;
+    joueurs: Joueur[];
+    boule: Boule;
+    alea: () => number;
+    gestionDeconnexion?: GestionDeconnexion;
+    cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
+  }): Table {
+    const table: Table = {
+      id: donnees.id,
+      joueurs: donnees.joueurs,
+      boule: donnees.boule,
       coup: null,
       tourEnCours: null,
-      connexions: new Map(joueurs.map((joueur) => [joueur.id, null])),
-      alea,
-      gestionDeconnexion: options.gestionDeconnexion ?? {
+      connexions: new Map(donnees.joueurs.map((joueur) => [joueur.id, null])),
+      alea: donnees.alea,
+      gestionDeconnexion: donnees.gestionDeconnexion ?? {
         type: 'delai',
         dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS,
       },
       annulerMinuteur: null,
       joueurEnSursis: null,
-      cartesConserveesParJoueur: tirage.cartesConserveesParJoueur,
+      cartesConserveesParJoueur: donnees.cartesConserveesParJoueur,
     };
-    this.tables.set(tableId, table);
+    this.tables.set(table.id, table);
+    return table;
+  }
 
-    const places = joueurs.map((joueur) => {
-      const jeton = randomUUID();
-      this.places.set(jeton, { tableId, joueurId: joueur.id });
-      return { joueurId: joueur.id, nom: joueur.nom, jeton };
-    });
+  /**
+   * Recharge les parties non terminées depuis le dépôt.
+   *
+   * Le coup en cours n'est pas restauré : il sera redistribué dès que la table
+   * sera de nouveau au complet.
+   */
+  async recharger(
+    options: { readonly alea?: () => number; readonly gestionDeconnexion?: GestionDeconnexion } = {},
+  ): Promise<TableId[]> {
+    if (this.depot === null) return [];
 
-    return { tableId, places, donneurInitial: tirage.donneurInitial };
+    const actives = await this.depot.chargerPartiesActives();
+    const rechargees: TableId[] = [];
+
+    for (const { partie, joueurs, etatBoule } of actives) {
+      if (joueurs.length === 0) continue;
+
+      const inscrits: Joueur[] = joueurs.map((joueur) => ({
+        id: joueur.id,
+        nom: joueur.pseudo,
+        croix: 0,
+      }));
+      const boule = etatBoule === null ? initialiserBoule(inscrits) : deserialiserBoule(etatBoule);
+
+      this.installer({
+        id: partie.id,
+        joueurs: inscrits,
+        boule,
+        alea: options.alea ?? Math.random,
+        ...(options.gestionDeconnexion === undefined
+          ? {}
+          : { gestionDeconnexion: options.gestionDeconnexion }),
+        // Les jokers du tirage d'ouverture appartiennent au premier coup, déjà
+        // joué si la Boule a un historique.
+        cartesConserveesParJoueur: new Map(),
+      });
+      rechargees.push(partie.id);
+    }
+
+    return rechargees;
+  }
+
+  /** Écrit l'état de la Boule. Appelé aux fins de coup et de Boule, pas plus souvent. */
+  async persister(table: Table): Promise<void> {
+    await this.depot?.enregistrerBoule(table.id, serialiserBoule(table.boule));
+  }
+
+  async cloreLaPartie(table: Table): Promise<void> {
+    await this.depot?.terminerPartie(table.id);
   }
 
   table(tableId: TableId): Table {
@@ -156,22 +250,23 @@ export class GameRoomManager {
     return table;
   }
 
-  /** Rattache une socket à la place désignée par le jeton. */
-  attacherSocket(jeton: Jeton, socketId: string): { table: Table; joueurId: JoueurId } {
-    const place = this.places.get(jeton);
-    if (place === undefined) throw new Error('Jeton de session inconnu');
+  /** Rattache une socket à la place d'un joueur, une fois son identité vérifiée. */
+  attacherSocket(tableId: TableId, joueurId: JoueurId, socketId: string): Table {
+    const table = this.table(tableId);
+    if (!table.connexions.has(joueurId)) {
+      throw new Error(`${joueurId} n'a pas de place a cette table`);
+    }
 
-    const table = this.table(place.tableId);
     // Une reconnexion remplace la socket précédente sans toucher au jeu, et
     // désamorce l'abandon automatique de son tour s'il était en sursis.
-    if (table.joueurEnSursis === place.joueurId) {
+    if (table.joueurEnSursis === joueurId) {
       table.annulerMinuteur?.();
       table.annulerMinuteur = null;
       table.joueurEnSursis = null;
     }
-    table.connexions.set(place.joueurId, socketId);
-    this.sockets.set(socketId, place);
-    return { table, joueurId: place.joueurId };
+    table.connexions.set(joueurId, socketId);
+    this.sockets.set(socketId, { tableId, joueurId });
+    return table;
   }
 
   detacherSocket(socketId: string): { table: Table; joueurId: JoueurId } | null {

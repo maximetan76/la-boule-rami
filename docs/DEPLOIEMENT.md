@@ -1,0 +1,110 @@
+# Déploiement sur Render
+
+Procédure à suivre depuis ton compte Render. Rien ici ne suppose d'accès
+particulier : tout se fait depuis l'interface web et le dépôt Git.
+
+## 1. Préparer le dépôt
+
+Le serveur vit dans `server/`. Render doit donc être configuré avec ce
+sous-répertoire comme racine, sans quoi il ne trouvera pas `package.json`.
+
+Vérifie avant de pousser :
+
+```bash
+cd server && npm run typecheck && npm test && npm run build
+```
+
+## 2. Créer la base PostgreSQL
+
+1. Dans le tableau de bord Render : **New** → **Postgres**.
+2. Nom : `la-boule-db`. Région : la même que le service web (sinon la latence
+   entre les deux double, et l'« Internal Database URL » n'est pas utilisable).
+3. Plan : le gratuit suffit pour commencer. Attention, un plan gratuit est
+   supprimé après 30 jours d'inactivité — passer en payant avant la mise en
+   service réelle.
+4. Une fois la base créée, relève l'**Internal Database URL**. C'est celle-ci
+   qu'il faut utiliser, pas l'externe : elle reste dans le réseau privé de
+   Render et ne traverse pas l'Internet public.
+
+## 3. Créer le service web
+
+1. **New** → **Web Service**, puis connecte le dépôt Git.
+2. Réglages :
+   - **Root Directory** : `server`
+   - **Runtime** : Node
+   - **Build Command** : `npm ci && npm run build && npm run db:migrate`
+   - **Start Command** : `npm start`
+   - **Health Check Path** : `/sante`
+3. Instance : le plan gratuit s'endort après inactivité, ce qui coupe les
+   WebSocket ouvertes. Pour une partie réelle, prendre au minimum le premier
+   plan payant.
+
+`npm run build` lance `prisma generate` avant la compilation TypeScript :
+le client Prisma est régénéré à chaque déploiement, il n'a pas à être commité.
+`npm run db:migrate` applique les migrations en attente (`prisma migrate
+deploy`), sans jamais rien détruire.
+
+## 4. Variables d'environnement
+
+Dans **Environment** du service web, ajoute :
+
+| Variable | Valeur |
+| --- | --- |
+| `DATABASE_URL` | l'*Internal Database URL* de l'étape 2 |
+| `JWT_SECRET` | un secret aléatoire long, par ex. `openssl rand -base64 48` |
+| `APPLE_CLIENT_ID` | le Bundle ID de l'app iOS, ou le Services ID Apple |
+| `CORS_ORIGIN` | `*` tant que le seul client est l'app iOS |
+
+Ne définis **pas** `PORT` : Render l'injecte lui-même et le serveur le lit.
+
+Voir `server/.env.example` pour le détail de chaque variable.
+
+Changer `JWT_SECRET` invalide toutes les sessions ouvertes : les joueurs
+devront se reconnecter via Apple. C'est le levier à utiliser en cas de fuite.
+
+## 5. Première migration
+
+Tant qu'aucune migration n'existe dans `server/prisma/migrations/`, il faut en
+créer une depuis ta machine, une seule fois :
+
+```bash
+cd server
+DATABASE_URL="<External Database URL>" npx prisma migrate dev --name initial
+```
+
+Commite le dossier `prisma/migrations/` produit. Les déploiements suivants se
+contenteront de `prisma migrate deploy`, qui applique ce qui manque.
+
+## 6. Côté Apple
+
+1. Sur le portail développeur Apple, active **Sign in with Apple** pour l'App
+   ID de l'application.
+2. `APPLE_CLIENT_ID` doit valoir exactement l'audience que l'app iOS demande —
+   son Bundle ID dans le cas d'une app native. Une valeur qui ne correspond pas
+   fait échouer toutes les authentifications en 401, sans autre symptôme.
+
+Le serveur n'a besoin d'aucune clé privée Apple : il ne fait que vérifier la
+signature des jetons d'identité avec les clés publiques publiées par Apple, qu'il
+récupère et met en cache tout seul.
+
+## 7. Vérifier
+
+```bash
+curl https://<service>.onrender.com/sante
+```
+
+Doit répondre `{"ok":true}`.
+
+Les journaux du service affichent `Parties reprises : N` au démarrage lorsqu'il
+restait des parties en cours — c'est la reprise décrite ci-dessous.
+
+## Ce qu'un redémarrage coûte
+
+L'état de jeu vit en mémoire et n'est écrit en base qu'à la fin de chaque coup
+et à la fin de chaque Boule. Un redémarrage — déploiement, mise en veille,
+incident — reprend donc chaque partie au dernier coup terminé : scores cumulés,
+croix, ordre de table et coups joués sont intacts, seul le coup en cours est
+perdu et redistribué.
+
+Conséquence pratique : un déploiement en pleine partie fait recommencer la donne
+en cours aux joueurs. Déployer entre deux parties reste préférable.

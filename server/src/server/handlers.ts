@@ -37,6 +37,7 @@ import {
   recupererJoker,
   reformerTalon,
 } from '../game-engine/index.js';
+import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import { demarrerCoup, GameRoomManager, redistribuerCoup, type Table } from './game-room-manager.js';
 
@@ -185,8 +186,18 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
   }
 };
 
-/** Clôt le coup : score, cumul dans la Boule, et coup suivant s'il y a lieu. */
-const cloturerCoup = (table: Table, coup: Coup): void => {
+/**
+ * Clôt le coup : score, cumul dans la Boule, coup suivant s'il y a lieu.
+ *
+ * C'est l'un des deux moments où l'état part en base — l'autre étant la fin de
+ * Boule. Entre deux, tout vit en mémoire : un redémarrage ne coûte que le coup
+ * en cours, qui sera redistribué.
+ */
+const cloturerCoup = async (
+  manager: GameRoomManager,
+  table: Table,
+  coup: Coup,
+): Promise<void> => {
   const gagnantId = coup.gagnantId;
   if (gagnantId === null) return;
 
@@ -194,7 +205,13 @@ const cloturerCoup = (table: Table, coup: Coup): void => {
   const scoreCoup = calculerScoreCoup(coup, gagnantId, typeVictoire, coup.estFriche);
   table.boule = enregistrerResultatCoup(table.boule, coup.numero, scoreCoup);
 
-  if (!estBouleTerminee(table.boule)) demarrerCoup(table);
+  await manager.persister(table);
+
+  if (estBouleTerminee(table.boule)) {
+    await manager.cloreLaPartie(table);
+    return;
+  }
+  demarrerCoup(table);
 };
 
 /**
@@ -210,18 +227,18 @@ const cloturerCoup = (table: Table, coup: Coup): void => {
  *   combinaison ; on lui sert donc une carte du talon qu'il rejette aussitôt ;
  * - il n'avait encore rien fait : on pioche pour lui, et on défausse.
  */
-const abandonnerTour = (table: Table, joueurId: JoueurId): void => {
+const abandonnerTour = (table: Table, joueurId: JoueurId): Coup | null => {
   const coup = table.coup;
-  if (coup === null || coup.phase !== 'jeu') return;
-  if (coup.joueurActifId !== joueurId) return;
-  if (table.tourEnCours !== null && table.tourEnCours.joueurId !== joueurId) return;
+  if (coup === null || coup.phase !== 'jeu') return null;
+  if (coup.joueurActifId !== joueurId) return null;
+  if (table.tourEnCours !== null && table.tourEnCours.joueurId !== joueurId) return null;
 
   const talon = reformerTalon(coup.pioche, coup.defausse, table.alea);
   coup.pioche = talon.pioche;
   coup.defausse = talon.defausse;
 
   const aDefausser = coup.pioche[0];
-  if (aDefausser === undefined) return;
+  if (aDefausser === undefined) return null;
 
   const { coup: apres } = jouerTour(
     coup,
@@ -232,14 +249,18 @@ const abandonnerTour = (table: Table, joueurId: JoueurId): void => {
 
   table.coup = apres;
   table.tourEnCours = null;
-  if (apres.gagnantId !== null) cloturerCoup(table, apres);
+  return apres;
 };
 
 /**
  * Ce que devient le tour d'un joueur absent quand son délai expire : un
  * « friche » pendant les annonces, l'abandon de son tour pendant le jeu.
  */
-const expirerTour = (table: Table, joueurId: JoueurId): void => {
+const expirerTour = async (
+  manager: GameRoomManager,
+  table: Table,
+  joueurId: JoueurId,
+): Promise<void> => {
   const coup = table.coup;
   if (coup === null || joueurAttendu(coup) !== joueurId) return;
 
@@ -249,7 +270,8 @@ const expirerTour = (table: Table, joueurId: JoueurId): void => {
     appliquerAnnonce(table, joueurId, 'friche');
     return;
   }
-  abandonnerTour(table, joueurId);
+  const apres = abandonnerTour(table, joueurId);
+  if (apres !== null && apres.gagnantId !== null) await cloturerCoup(manager, table, apres);
 };
 
 /**
@@ -282,14 +304,14 @@ const reevaluerSursis = (io: Server, manager: GameRoomManager, table: Table): vo
   table.annulerMinuteur = manager.minuteur.programmer(() => {
     table.annulerMinuteur = null;
     table.joueurEnSursis = null;
-    try {
-      expirerTour(table, attendu);
-    } catch {
-      // Une expiration impossible ne doit pas faire tomber le serveur : la
-      // table reste en l'état et le joueur peut encore revenir.
-      return;
-    }
-    publier(io, manager, table);
+    expirerTour(manager, table, attendu)
+      .then(() => {
+        publier(io, manager, table);
+      })
+      .catch(() => {
+        // Une expiration impossible ne doit pas faire tomber le serveur : la
+        // table reste en l'état et le joueur peut encore revenir.
+      });
   }, dureeMs);
 };
 
@@ -302,25 +324,41 @@ const publier = (io: Server, manager: GameRoomManager, table: Table): void => {
   diffuserEtat(io, manager, table);
 };
 
-const repondre = (ack: unknown, action: () => void): void => {
+const repondre = (ack: unknown, action: () => void | Promise<void>): void => {
   const acquitter = typeof ack === 'function' ? (ack as Acquittement) : null;
-  try {
-    action();
-    acquitter?.({ ok: true });
-  } catch (erreur) {
+  const echouer = (erreur: unknown): void => {
     acquitter?.({
       ok: false,
       erreur: erreur instanceof Error ? erreur.message : 'Erreur inconnue',
     });
+  };
+
+  try {
+    const resultat = action();
+    if (resultat instanceof Promise) {
+      resultat.then(() => acquitter?.({ ok: true })).catch(echouer);
+      return;
+    }
+    acquitter?.({ ok: true });
+  } catch (erreur) {
+    echouer(erreur);
   }
 };
 
-export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void => {
+export const enregistrerHandlers = (
+  io: Server,
+  manager: GameRoomManager,
+  session: ConfigSession,
+): void => {
   io.on('connection', (socket: Socket) => {
-    socket.on('rejoindre-table', (payload: { jeton?: string }, ack: unknown) => {
-      repondre(ack, () => {
-        if (typeof payload?.jeton !== 'string') throw new Error('Jeton manquant');
-        const { table } = manager.attacherSocket(payload.jeton, socket.id);
+    socket.on('rejoindre-table', (payload: { jeton?: string; tableId?: string }, ack: unknown) => {
+      repondre(ack, async () => {
+        if (typeof payload?.jeton !== 'string') throw new Error('Jeton de session manquant');
+        if (typeof payload.tableId !== 'string') throw new Error('Table non precisee');
+
+        // L'identité vient du jeton de session, jamais du client lui-même.
+        const { joueurId } = await verifierJetonSession(payload.jeton, session);
+        const table = manager.attacherSocket(payload.tableId, joueurId, socket.id);
 
         // Le premier coup part dès que tout le monde est là.
         if (table.coup === null && manager.tousConnectes(table)) demarrerCoup(table);
@@ -434,7 +472,7 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
     );
 
     socket.on('defausser', (payload: { carteId?: string }, ack: unknown) => {
-      repondre(ack, () => {
+      repondre(ack, async () => {
         const { table, joueurId } = manager.placeDeLaSocket(socket.id);
         const coup = coupEnCours(table);
         const tour = table.tourEnCours;
@@ -460,7 +498,7 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
 
         table.coup = apres;
         table.tourEnCours = null;
-        if (apres.gagnantId !== null) cloturerCoup(table, apres);
+        if (apres.gagnantId !== null) await cloturerCoup(manager, table, apres);
 
         publier(io, manager, table);
       });

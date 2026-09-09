@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
+import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
+import { DepotMemoire } from '../persistence/depot-memoire.js';
 import type { GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
@@ -12,6 +14,17 @@ import type { EtatCoupFiltre } from '../server/etat-filtre.js';
  * reçus par chacun sont interceptés et fouillés. Aucun ne doit jamais contenir
  * une carte de la main d'un autre joueur ni du talon de pioche.
  */
+
+/** Configuration d'authentification des tests : un secret local suffit. */
+const SESSION = { secret: secretDepuisTexte('secret-de-test-du-serveur-de-la-boule') };
+const APPLE = { clientId: 'fr.tb-formations.laboule' };
+
+/** Les trois joueurs inscrits qui s'assoient dans tous les scénarios. */
+const JOUEURS = [
+  { id: 'p-ana', nom: 'Ana' },
+  { id: 'p-bo', nom: 'Bo' },
+  { id: 'p-cy', nom: 'Cy' },
+];
 
 /** Aléa déterministe, pour que la partie soit rejouable à l'identique. */
 const aleaFixe = (): (() => number) => {
@@ -41,6 +54,18 @@ const patienter = async (ms: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+
+/**
+ * Attend que chaque client ait reçu au moins un état. L'acquittement de
+ * `rejoindre-table` revient à l'émetteur avant que la diffusion vers les autres
+ * sockets ne soit arrivée.
+ */
+const attendrePremiersEtats = async (espions: readonly Espion[]) => {
+  for (let essai = 0; essai < 200; essai += 1) {
+    if (espions.every((espion) => espion.etatsRecus > 0)) return;
+    await patienter(5);
+  }
+};
 
 const identifiantsDans = (valeur: unknown): Set<string> =>
   new Set(
@@ -81,7 +106,12 @@ describe('serveur socket.io', () => {
 
   beforeEach(async () => {
     horloge = minuteurFactice();
-    serveur = creerServeur({ minuteur: horloge.minuteur });
+    serveur = creerServeur({
+      minuteur: horloge.minuteur,
+      session: SESSION,
+      apple: APPLE,
+      depot: new DepotMemoire(),
+    });
     await new Promise<void>((resolve) => {
       serveur.httpServer.listen(0, resolve);
     });
@@ -99,7 +129,7 @@ describe('serveur socket.io', () => {
     });
   });
 
-  const connecter = async (jeton: string, joueurId: JoueurId): Promise<Espion> => {
+  const connecter = async (tableId: string, joueurId: JoueurId): Promise<Espion> => {
     const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
     const espion: Espion = { socket, joueurId, recus: [], dernierEtat: null, etatsRecus: 0 };
 
@@ -116,7 +146,8 @@ describe('serveur socket.io', () => {
         resolve();
       });
     });
-    const reponse = await emettre(socket, 'rejoindre-table', { jeton });
+    const jeton = await signerJetonSession(joueurId, SESSION);
+    const reponse = await emettre(socket, 'rejoindre-table', { jeton, tableId });
     expect(reponse.ok).toBe(true);
 
     espions.push(espion);
@@ -141,12 +172,13 @@ describe('serveur socket.io', () => {
   };
 
   const ouvrirTable = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
+    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
-    for (const place of places) await connecter(place.jeton, place.joueurId);
-    return { tableId, places };
+    for (const joueur of JOUEURS) await connecter(tableId, joueur.id);
+    await attendrePremiersEtats(espions);
+    return { tableId };
   };
 
   it('distribue un coup des que tous les joueurs ont rejoint la table', async () => {
@@ -272,22 +304,24 @@ describe('serveur socket.io', () => {
   });
 
   it('rend sa place et son jeu a un joueur qui se reconnecte', async () => {
-    const { tableId, places } = await ouvrirTable();
-    const place = places[0] as { joueurId: JoueurId; jeton: string };
-    const avant = espions.find((espion) => espion.joueurId === place.joueurId) as Espion;
+    const { tableId } = await ouvrirTable();
+    const place = JOUEURS[0] as { id: JoueurId };
+    const avant = espions.find((espion) => espion.joueurId === place.id) as Espion;
     const mainAvant = avant.dernierEtat?.moi.main.map((carte) => carte.id);
 
     avant.socket.disconnect();
     await patienter(50);
     expect(serveur.manager.joueursConnectes(serveur.manager.table(tableId))).toHaveLength(2);
 
-    const revenu = await connecter(place.jeton, place.joueurId);
-    expect(revenu.dernierEtat?.moi.joueurId).toBe(place.joueurId);
+    const revenu = await connecter(tableId, place.id);
+    await attendrePremiersEtats([revenu]);
+    expect(revenu.dernierEtat?.moi.joueurId).toBe(place.id);
     expect(revenu.dernierEtat?.moi.main.map((carte) => carte.id)).toEqual(mainAvant);
     expect(serveur.manager.joueursConnectes(serveur.manager.table(tableId))).toHaveLength(3);
   });
 
-  it('refuse un jeton inconnu', async () => {
+  it('refuse un jeton de session invalide', async () => {
+    const { tableId } = await ouvrirTable();
     const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
     await new Promise<void>((resolve) => {
       socket.on('connect', () => {
@@ -295,9 +329,25 @@ describe('serveur socket.io', () => {
       });
     });
 
-    const reponse = await emettre(socket, 'rejoindre-table', { jeton: 'pas-un-jeton' });
+    const reponse = await emettre(socket, 'rejoindre-table', { jeton: 'pas-un-jeton', tableId });
     expect(reponse.ok).toBe(false);
     expect(reponse.erreur).toMatch(/jeton/i);
+    socket.disconnect();
+  });
+
+  it('refuse un joueur qui n a pas de place a cette table', async () => {
+    const { tableId } = await ouvrirTable();
+    const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
+    await new Promise<void>((resolve) => {
+      socket.on('connect', () => {
+        resolve();
+      });
+    });
+
+    const jeton = await signerJetonSession('p-intrus', SESSION);
+    const reponse = await emettre(socket, 'rejoindre-table', { jeton, tableId });
+    expect(reponse.ok).toBe(false);
+    expect(reponse.erreur).toMatch(/place/i);
     socket.disconnect();
   });
 
@@ -332,7 +382,12 @@ describe('gestion des deconnexions', () => {
 
   beforeEach(async () => {
     horloge = minuteurFactice();
-    serveur = creerServeur({ minuteur: horloge.minuteur });
+    serveur = creerServeur({
+      minuteur: horloge.minuteur,
+      session: SESSION,
+      apple: APPLE,
+      depot: new DepotMemoire(),
+    });
     await new Promise<void>((resolve) => {
       serveur.httpServer.listen(0, resolve);
     });
@@ -350,7 +405,7 @@ describe('gestion des deconnexions', () => {
     });
   });
 
-  const connecter = async (jeton: string, joueurId: JoueurId): Promise<Espion> => {
+  const connecter = async (tableId: string, joueurId: JoueurId): Promise<Espion> => {
     const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
     const espion: Espion = { socket, joueurId, recus: [], dernierEtat: null, etatsRecus: 0 };
     socket.on('etat', (etat: EtatCoupFiltre) => {
@@ -362,17 +417,19 @@ describe('gestion des deconnexions', () => {
         resolve();
       });
     });
-    expect((await emettre(socket, 'rejoindre-table', { jeton })).ok).toBe(true);
+    const jeton = await signerJetonSession(joueurId, SESSION);
+    expect((await emettre(socket, 'rejoindre-table', { jeton, tableId })).ok).toBe(true);
     espions.push(espion);
     return espion;
   };
 
   const preparerTourPioche = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
+    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
-    for (const place of places) await connecter(place.jeton, place.joueurId);
+    for (const joueur of JOUEURS) await connecter(tableId, joueur.id);
+    await attendrePremiersEtats(espions);
 
     const ordre = serveur.manager.table(tableId).coup?.ordreJoueurs ?? [];
     const actif = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
@@ -381,16 +438,17 @@ describe('gestion des deconnexions', () => {
     await patienter(20);
 
     const table = serveur.manager.table(tableId);
-    return { tableId, places, ordre, actif, cartePiochee: table.tourEnCours?.cartePiochee };
+    return { tableId, ordre, actif, cartePiochee: table.tourEnCours?.cartePiochee };
   };
 
   /** Amène le joueur actif à son tour, sans qu'il ait encore pioché. */
   const preparerTourSansAction = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
+    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
-    for (const place of places) await connecter(place.jeton, place.joueurId);
+    for (const joueur of JOUEURS) await connecter(tableId, joueur.id);
+    await attendrePremiersEtats(espions);
 
     const ordre = serveur.manager.table(tableId).coup?.ordreJoueurs ?? [];
     const actif = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
@@ -398,7 +456,7 @@ describe('gestion des deconnexions', () => {
     await patienter(20);
 
     const table = serveur.manager.table(tableId);
-    return { tableId, places, ordre, actif, sommetDuTalon: table.coup?.pioche[0] };
+    return { tableId, ordre, actif, sommetDuTalon: table.coup?.pioche[0] };
   };
 
   it('applique un delai de 90 secondes par defaut', async () => {
@@ -468,17 +526,16 @@ describe('gestion des deconnexions', () => {
   });
 
   it('desamorce le minuteur quand le joueur revient a temps', async () => {
-    const { tableId, places, ordre, actif } = await preparerTourPioche({
+    const { tableId, ordre, actif } = await preparerTourPioche({
       type: 'delai',
       dureeMs: 90000,
     });
-    const jeton = (places.find((place) => place.joueurId === ordre[0]) as { jeton: string }).jeton;
 
     actif.socket.disconnect();
     await patienter(50);
     expect(horloge.programmes).toHaveLength(1);
 
-    const revenu = await connecter(jeton, ordre[0] as JoueurId);
+    const revenu = await connecter(tableId, ordre[0] as JoueurId);
     expect(horloge.programmes[0]?.annule).toBe(true);
 
     horloge.declencher();
@@ -550,17 +607,16 @@ describe('gestion des deconnexions', () => {
   });
 
   it('desamorce le minuteur si le joueur revient avant d avoir joue', async () => {
-    const { tableId, places, ordre, actif } = await preparerTourSansAction({
+    const { tableId, ordre, actif } = await preparerTourSansAction({
       type: 'delai',
       dureeMs: 90000,
     });
-    const jeton = (places.find((place) => place.joueurId === ordre[0]) as { jeton: string }).jeton;
 
     actif.socket.disconnect();
     await patienter(50);
     expect(horloge.programmes).toHaveLength(1);
 
-    await connecter(jeton, ordre[0] as JoueurId);
+    await connecter(tableId, ordre[0] as JoueurId);
     expect(horloge.programmes[0]?.annule).toBe(true);
 
     horloge.declencher();
@@ -579,7 +635,12 @@ describe('deconnexion pendant la phase d annonces', () => {
 
   beforeEach(async () => {
     horloge = minuteurFactice();
-    serveur = creerServeur({ minuteur: horloge.minuteur });
+    serveur = creerServeur({
+      minuteur: horloge.minuteur,
+      session: SESSION,
+      apple: APPLE,
+      depot: new DepotMemoire(),
+    });
     await new Promise<void>((resolve) => {
       serveur.httpServer.listen(0, resolve);
     });
@@ -597,7 +658,7 @@ describe('deconnexion pendant la phase d annonces', () => {
     });
   });
 
-  const connecter = async (jeton: string, joueurId: JoueurId): Promise<Espion> => {
+  const connecter = async (tableId: string, joueurId: JoueurId): Promise<Espion> => {
     const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
     const espion: Espion = { socket, joueurId, recus: [], dernierEtat: null, etatsRecus: 0 };
     socket.on('etat', (etat: EtatCoupFiltre) => {
@@ -609,21 +670,22 @@ describe('deconnexion pendant la phase d annonces', () => {
         resolve();
       });
     });
-    expect((await emettre(socket, 'rejoindre-table', { jeton })).ok).toBe(true);
+    const jeton = await signerJetonSession(joueurId, SESSION);
+    expect((await emettre(socket, 'rejoindre-table', { jeton, tableId })).ok).toBe(true);
     espions.push(espion);
     return espion;
   };
 
   const ouvrir = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
+    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
-    for (const place of places) await connecter(place.jeton, place.joueurId);
-    await patienter(20);
+    for (const joueur of JOUEURS) await connecter(tableId, joueur.id);
+    await attendrePremiersEtats(espions);
 
     const ordre = serveur.manager.table(tableId).coup?.ordreJoueurs ?? [];
-    return { tableId, places, ordre };
+    return { tableId, ordre };
   };
 
   it('friche automatiquement pour le joueur absent et passe la parole', async () => {
@@ -684,15 +746,14 @@ describe('deconnexion pendant la phase d annonces', () => {
   });
 
   it('desamorce le minuteur quand le joueur revient parler lui-meme', async () => {
-    const { tableId, places, ordre } = await ouvrir({ type: 'delai', dureeMs: 90000 });
+    const { tableId, ordre } = await ouvrir({ type: 'delai', dureeMs: 90000 });
     const aParler = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
-    const jeton = (places.find((place) => place.joueurId === ordre[0]) as { jeton: string }).jeton;
 
     aParler.socket.disconnect();
     await patienter(50);
     expect(horloge.programmes).toHaveLength(1);
 
-    const revenu = await connecter(jeton, ordre[0] as JoueurId);
+    const revenu = await connecter(tableId, ordre[0] as JoueurId);
     expect(horloge.programmes[0]?.annule).toBe(true);
     expect(serveur.manager.table(tableId).joueurEnSursis).toBeNull();
 
@@ -720,6 +781,8 @@ describe('deconnexion pendant la phase d annonces', () => {
     expect(horloge.programmes).toHaveLength(1);
 
     horloge.declencher();
+    // Le reamorcage passe par la publication de l etat, qui est asynchrone.
+    await patienter(20);
 
     const table = serveur.manager.table(tableId);
     expect(table.coup?.annonces[ordre[0] as string]).toBe('friche');
@@ -729,6 +792,7 @@ describe('deconnexion pendant la phase d annonces', () => {
     expect(horloge.programmes[1]?.annule).toBe(false);
 
     horloge.declencher();
+    await patienter(20);
     expect(serveur.manager.table(tableId).coup?.annonces[ordre[1] as string]).toBe('friche');
   });
 });
