@@ -121,6 +121,28 @@ export class DepotPrisma implements Depot {
   }
 
   /**
+   * Libère une place et renumérote les autres, en une seule transaction : un
+   * salon ne doit jamais laisser voir deux joueurs au même rang.
+   */
+  async retirerJoueur(
+    partieId: string,
+    joueurId: JoueurId,
+    placesRestantes: readonly JoueurId[],
+  ): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.joueurSurPartie.delete({
+        where: { partieId_joueurId: { partieId, joueurId } },
+      }),
+      ...placesRestantes.map((restant, position) =>
+        this.prisma.joueurSurPartie.update({
+          where: { partieId_joueurId: { partieId, joueurId: restant } },
+          data: { position },
+        }),
+      ),
+    ]);
+  }
+
+  /**
    * Fige l'ordre issu du tirage d'ouverture : les places sont réécrites dans
    * cet ordre, qui devient celui de la table pour toute la partie.
    */

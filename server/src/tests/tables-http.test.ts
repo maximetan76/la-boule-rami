@@ -301,6 +301,232 @@ describe('API des tables', () => {
     });
   });
 
+  /** Connecte une socket à une table et enregistre ce qu'elle reçoit. */
+  const connecterSocket = async (compte: Compte, tableId: string) => {
+    const socket = clientIo(base, { transports: ['websocket'] });
+    const recus: { evenement: string; charge: unknown }[] = [];
+    socket.onAny((evenement: string, charge: unknown) => {
+      recus.push({ evenement, charge });
+    });
+
+    await new Promise<void>((resolve) => {
+      socket.on('connect', () => {
+        resolve();
+      });
+    });
+    await new Promise<void>((resolve) => {
+      socket.emit('rejoindre-table', { jeton: compte.jeton, tableId }, () => {
+        resolve();
+      });
+    });
+    return { socket, recus };
+  };
+
+  const patienter = async (ms: number) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  describe('abandon poussé aux joueurs connectés', () => {
+    it('previent immediatement les sockets encore ouvertes', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { corps: salon } = await appeler('POST', '/tables', {
+        compte: ana,
+        corps: { nombreJoueurs: 3 },
+      });
+      const tableId = salon['tableId'] as string;
+      await appeler('POST', '/tables/rejoindre', {
+        compte: bo,
+        corps: { code: salon['codeInvitation'] },
+      });
+
+      const cliente = await connecterSocket(ana, tableId);
+      await patienter(40);
+      cliente.recus.length = 0;
+
+      // Bo abandonne : Ana l'apprend sans avoir rien demande.
+      await appeler('POST', `/tables/${tableId}/abandonner`, { compte: bo });
+      await patienter(60);
+
+      const annonce = cliente.recus.find((recu) => recu.evenement === 'partie-abandonnee');
+      expect(annonce).toBeDefined();
+      const charge = annonce?.charge as Record<string, unknown>;
+      expect(charge['tableId']).toBe(tableId);
+      expect(charge['motif']).toBe('abandon');
+      expect(charge['parJoueurId']).toBe(bo.id);
+      expect(typeof charge['termineeLe']).toBe('string');
+
+      cliente.socket.disconnect();
+    });
+
+    it('previent aussi celui qui declenche l abandon', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { corps: salon } = await appeler('POST', '/tables', {
+        compte: ana,
+        corps: { nombreJoueurs: 3 },
+      });
+      const tableId = salon['tableId'] as string;
+      await appeler('POST', '/tables/rejoindre', {
+        compte: bo,
+        corps: { code: salon['codeInvitation'] },
+      });
+
+      const cliente = await connecterSocket(bo, tableId);
+      await patienter(40);
+
+      await appeler('POST', `/tables/${tableId}/abandonner`, { compte: bo });
+      await patienter(60);
+
+      expect(cliente.recus.some((recu) => recu.evenement === 'partie-abandonnee')).toBe(true);
+      cliente.socket.disconnect();
+    });
+  });
+
+  describe('POST /tables/:id/quitter', () => {
+    const ouvrirSalonA = async (compte: Compte, nombreJoueurs = 3) => {
+      const { corps } = await appeler('POST', '/tables', { compte, corps: { nombreJoueurs } });
+      return { tableId: corps['tableId'] as string, code: corps['codeInvitation'] as string };
+    };
+
+    it('libere la place, le salon continuant pour les autres', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { tableId, code } = await ouvrirSalonA(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+
+      const { statut, corps } = await appeler('POST', `/tables/${tableId}/quitter`, { compte: bo });
+
+      expect(statut).toBe(200);
+      expect(corps['statut']).toBe('salon');
+      expect(corps['placesOccupees']).toBe(1);
+      // Le salon existe toujours, avec la place vacante.
+      const table = serveur.manager.table(tableId);
+      expect(table.joueurs.map((joueur) => joueur.id)).toEqual([ana.id]);
+      expect(table.statut).toBe('salon');
+    });
+
+    it('rend la place reprenable par le meme joueur', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { tableId, code } = await ouvrirSalonA(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+      await appeler('POST', `/tables/${tableId}/quitter`, { compte: bo });
+
+      const { statut } = await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+      expect(statut).toBe(200);
+      expect(serveur.manager.table(tableId).joueurs).toHaveLength(2);
+    });
+
+    it('rend la place reprenable par quelqu un d autre', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const cy = await ouvrirCompte('001.cy', 'Cy');
+      const { tableId, code } = await ouvrirSalonA(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+      await appeler('POST', `/tables/${tableId}/quitter`, { compte: bo });
+
+      const { statut } = await appeler('POST', '/tables/rejoindre', { compte: cy, corps: { code } });
+      expect(statut).toBe(200);
+      expect(serveur.manager.table(tableId).joueurs.map((joueur) => joueur.id)).toEqual([
+        ana.id,
+        cy.id,
+      ]);
+    });
+
+    it('libere le joueur, qui peut alors rejoindre une AUTRE table', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const cy = await ouvrirCompte('001.cy', 'Cy');
+
+      const premier = await ouvrirSalonA(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: premier.code } });
+      // Tant qu'il est assis, la contrainte « une seule table » s'applique.
+      const second = await ouvrirSalonA(cy);
+      expect(
+        (await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: second.code } }))
+          .statut,
+      ).toBe(400);
+
+      await appeler('POST', `/tables/${premier.tableId}/quitter`, { compte: bo });
+
+      const { statut } = await appeler('POST', '/tables/rejoindre', {
+        compte: bo,
+        corps: { code: second.code },
+      });
+      expect(statut).toBe(200);
+      expect(serveur.manager.table(second.tableId).joueurs).toHaveLength(2);
+      // Et il peut aussi ouvrir sa propre table apres etre reparti.
+      expect((await appeler('GET', '/tables/moi', { compte: bo })).corps['statut']).toBe('salon');
+    });
+
+    it('clot le salon quand le dernier joueur s en va', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const { tableId } = await ouvrirSalonA(ana);
+
+      await appeler('POST', `/tables/${tableId}/quitter`, { compte: ana });
+
+      expect(await depot.chargerPartiesActives()).toEqual([]);
+      expect((await appeler('GET', '/tables/moi', { compte: ana })).corps['statut']).toBe('aucune');
+    });
+
+    it('refuse de quitter une partie deja commencee', async () => {
+      const comptes = await Promise.all([
+        ouvrirCompte('001.ana', 'Ana'),
+        ouvrirCompte('001.bo', 'Bo'),
+        ouvrirCompte('001.cy', 'Cy'),
+      ]);
+      const { tableId, code } = await ouvrirSalonA(comptes[0] as Compte);
+      for (const compte of comptes.slice(1)) {
+        await appeler('POST', '/tables/rejoindre', { compte, corps: { code } });
+      }
+
+      const { statut, corps } = await appeler('POST', `/tables/${tableId}/quitter`, {
+        compte: comptes[1] as Compte,
+      });
+      expect(statut).toBe(400);
+      expect(corps['erreur']).toMatch(/abandon/i);
+    });
+
+    it('refuse de quitter une partie terminee', async () => {
+      const comptes = await Promise.all([
+        ouvrirCompte('001.ana', 'Ana'),
+        ouvrirCompte('001.bo', 'Bo'),
+        ouvrirCompte('001.cy', 'Cy'),
+      ]);
+      const { tableId, code } = await ouvrirSalonA(comptes[0] as Compte);
+      for (const compte of comptes.slice(1)) {
+        await appeler('POST', '/tables/rejoindre', { compte, corps: { code } });
+      }
+      await serveur.manager.cloreLaPartie(serveur.manager.table(tableId));
+
+      const { statut, corps } = await appeler('POST', `/tables/${tableId}/quitter`, {
+        compte: comptes[1] as Compte,
+      });
+      expect(statut).toBe(400);
+      expect(corps['erreur']).toMatch(/terminee/i);
+    });
+
+    it('refuse un joueur qui n est pas a cette table', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const intrus = await ouvrirCompte('001.zed', 'Zed');
+      const { tableId } = await ouvrirSalonA(ana);
+
+      expect(
+        (await appeler('POST', `/tables/${tableId}/quitter`, { compte: intrus })).statut,
+      ).toBe(403);
+    });
+
+    it('repond 404 pour une table inconnue, et 401 sans jeton', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      expect(
+        (await appeler('POST', '/tables/inexistante/quitter', { compte: ana })).statut,
+      ).toBe(404);
+      expect((await appeler('POST', '/tables/peu-importe/quitter')).statut).toBe(401);
+    });
+  });
+
   describe('GET /tables/moi', () => {
     const ouvrirSalon = async (compte: Compte, nombreJoueurs = 3) => {
       const { corps } = await appeler('POST', '/tables', { compte, corps: { nombreJoueurs } });

@@ -70,6 +70,15 @@ export interface Depot {
    */
   dernierePartieDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null>;
   asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void>;
+  /**
+   * Libère la place d'un joueur et renumérote celles qui restent, pour que la
+   * position reste le rang du joueur dans le salon.
+   */
+  retirerJoueur(
+    partieId: string,
+    joueurId: JoueurId,
+    placesRestantes: readonly JoueurId[],
+  ): Promise<void>;
   /** Fige l'ordre de la table issu du tirage et marque la partie démarrée. */
   demarrerPartie(partieId: string, ordreTable: readonly JoueurId[]): Promise<void>;
   terminerPartie(id: string, motif: MotifFin): Promise<void>;

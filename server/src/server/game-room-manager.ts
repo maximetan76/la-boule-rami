@@ -255,9 +255,15 @@ export class GameRoomManager {
   /**
    * Abandon définitif d'une partie interrompue. La table est close et ses
    * joueurs redeviennent libres d'en rejoindre ou d'en créer une autre.
+   *
+   * Les sockets encore rattachées sont rendues à l'appelant : c'est à lui de
+   * les prévenir, avant qu'elles ne soient détachées ici.
    */
-  async abandonner(tableId: TableId): Promise<Table> {
+  async abandonner(tableId: TableId): Promise<{ table: Table; socketsPrevenues: string[] }> {
     const table = this.table(tableId);
+    const socketsPrevenues = [...table.connexions.values()].filter(
+      (socketId): socketId is string => socketId !== null,
+    );
     table.annulerMinuteur?.();
     table.annulerMinuteur = null;
     table.joueurEnSursis = null;
@@ -275,6 +281,42 @@ export class GameRoomManager {
     // Le motif est ce qui permettra de dire à un joueur absent, à son retour,
     // que sa partie a été abandonnée plutôt qu'achevée.
     await this.depot?.terminerPartie(tableId, 'abandon');
+    return { table, socketsPrevenues };
+  }
+
+  /**
+   * Un joueur libère sa place dans un salon qui n'a pas encore démarré.
+   *
+   * Le salon continue d'exister pour les autres, la place redevient libre, et
+   * le partant n'est plus engagé nulle part. Si personne ne reste, le salon est
+   * clos : une table sans joueur n'a plus de raison d'être.
+   */
+  async quitterSalon(tableId: TableId, joueurId: JoueurId): Promise<Table> {
+    const table = this.table(tableId);
+
+    if (table.statut !== 'salon') {
+      throw new Error(
+        table.statut === 'en-cours'
+          ? "La partie a commence : c'est un abandon, pas un depart de salon"
+          : 'La partie est terminee',
+      );
+    }
+    if (!table.connexions.has(joueurId)) throw new Error("Vous n'etes pas a cette table");
+
+    const socketId = table.connexions.get(joueurId) ?? null;
+    if (socketId !== null) this.sockets.delete(socketId);
+    table.connexions.delete(joueurId);
+    table.joueurs = table.joueurs.filter((joueur) => joueur.id !== joueurId);
+
+    await this.depot?.retirerJoueur(
+      tableId,
+      joueurId,
+      table.joueurs.map((joueur) => joueur.id),
+    );
+
+    if (table.joueurs.length === 0) {
+      await this.abandonner(tableId);
+    }
     return table;
   }
 

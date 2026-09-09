@@ -97,6 +97,19 @@ export class DepotMemoire implements Depot {
     return Promise.resolve();
   }
 
+  retirerJoueur(
+    partieId: string,
+    joueurId: JoueurId,
+    placesRestantes: readonly JoueurId[],
+  ): Promise<void> {
+    const partie = this.parties.get(partieId);
+    if (partie === undefined) throw new Error(`Partie ${partieId} introuvable`);
+
+    void joueurId;
+    this.parties.set(partieId, { ...partie, joueursIds: [...placesRestantes] });
+    return Promise.resolve();
+  }
+
   demarrerPartie(partieId: string, ordreTable: readonly JoueurId[]): Promise<void> {
     const partie = this.parties.get(partieId);
     if (partie === undefined) throw new Error(`Partie ${partieId} introuvable`);

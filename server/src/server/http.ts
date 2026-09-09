@@ -36,6 +36,11 @@ export interface DependancesHttp {
   readonly apple: ConfigApple;
   /** Prévient les joueurs connectés qu'une table a changé. */
   readonly notifier?: (table: Table) => void;
+  /**
+   * Pousse l'abandon aux sockets encore ouvertes au moment où il est décidé.
+   * Sans cela, l'app ne l'apprendrait qu'au prochain `GET /tables/moi`.
+   */
+  readonly annoncerAbandon?: (socketIds: readonly string[], charge: unknown) => void;
 }
 
 /** Erreur destinée au client, avec le code HTTP qui va avec. */
@@ -206,9 +211,46 @@ const abandonner = async (
     throw new ErreurHttp(403, "Vous n'etes pas a cette table");
   }
 
-  const abandonnee = await deps.manager.abandonner(tableId);
-  deps.notifier?.(abandonnee);
+  const { table: abandonnee, socketsPrevenues } = await deps.manager.abandonner(tableId);
+  deps.annoncerAbandon?.(socketsPrevenues, {
+    tableId,
+    motif: 'abandon',
+    parJoueurId: joueur.id,
+    termineeLe: new Date().toISOString(),
+  });
+
   return { tableId, statut: abandonnee.statut };
+};
+
+/**
+ * Départ d'un salon : la place se libère et le salon poursuit sans le partant.
+ * Une partie déjà commencée ne se quitte pas, elle s'abandonne.
+ */
+const quitterSalon = async (
+  tableId: string,
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): Promise<unknown> => {
+  let table: Table;
+  try {
+    table = deps.manager.table(tableId);
+  } catch {
+    throw new ErreurHttp(404, 'Table introuvable');
+  }
+  if (!table.connexions.has(joueur.id)) {
+    throw new ErreurHttp(403, "Vous n'etes pas a cette table");
+  }
+
+  const restante = await deps.manager.quitterSalon(tableId, joueur.id);
+  // Les joueurs restants voient la place se libérer.
+  deps.notifier?.(restante);
+
+  return {
+    tableId,
+    statut: restante.statut,
+    placesOccupees: restante.joueurs.length,
+    capacite: restante.capacite,
+  };
 };
 
 const changerPseudo = async (
@@ -321,6 +363,7 @@ const decrirePartie = async (partie: PartieEnregistree, depot: Depot) => {
 };
 
 const ABANDON = /^\/tables\/([^/]+)\/abandonner$/;
+const QUITTER = /^\/tables\/([^/]+)\/quitter$/;
 
 /**
  * Gestionnaire de requêtes, à brancher sur le serveur HTTP que socket.io
@@ -368,6 +411,12 @@ export const gererRequeteHttp =
       if (methode === 'POST' && abandon !== null) {
         const joueur = await authentifier(requete, deps);
         return { code: 200, corps: await abandonner(abandon[1] as string, deps, joueur) };
+      }
+
+      const depart = QUITTER.exec(chemin);
+      if (methode === 'POST' && depart !== null) {
+        const joueur = await authentifier(requete, deps);
+        return { code: 200, corps: await quitterSalon(depart[1] as string, deps, joueur) };
       }
 
       if (methode === 'PATCH' && chemin === '/joueur/pseudo') {

@@ -62,6 +62,9 @@ export const creerServeur = (options: OptionsServeur = {}): Serveur => {
       notifier: (table) => {
         if (io !== null) publierTable(io, manager, table);
       },
+      annoncerAbandon: (socketIds, charge) => {
+        for (const socketId of socketIds) io?.to(socketId).emit('partie-abandonnee', charge);
+      },
     }),
   );
 

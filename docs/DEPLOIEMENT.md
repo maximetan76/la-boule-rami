@@ -99,6 +99,7 @@ récupère et met en cache tout seul.
 | `GET` | `/tables/moi` | où en est le joueur : salon, partie en cours, partie abandonnée, ou rien |
 | `POST` | `/tables` | ouvre un salon et rend son code d'invitation |
 | `POST` | `/tables/rejoindre` | rejoint un salon par son code |
+| `POST` | `/tables/:id/quitter` | libère sa place dans un salon pas encore démarré |
 | `POST` | `/tables/:id/abandonner` | clôt définitivement une partie interrompue |
 | `PATCH` | `/joueur/pseudo` | change le pseudo du joueur |
 | `GET` | `/sante` | sonde de disponibilité |
@@ -106,7 +107,14 @@ récupère et met en cache tout seul.
 Toutes sauf `/auth/*` et `/sante` attendent l'en-tête
 `Authorization: Bearer <jeton de session>`.
 
-Le jeu lui-même passe par les WebSocket, jamais par HTTP.
+Le jeu lui-même passe par les WebSocket, jamais par HTTP. Deux événements
+sortent du serveur en dehors du jeu proprement dit : `salon`, chaque fois que la
+composition d'une table change, et `partie-abandonnee`, poussé aux joueurs
+encore connectés au moment où l'un d'eux abandonne.
+
+`quitter` et `abandonner` ne se confondent pas : on quitte un salon qui n'a pas
+démarré, en laissant la table vivre sans soi ; on abandonne une partie
+commencée, ce qui la clôt pour tout le monde.
 
 `GET /tables/moi` est le point d'entrée d'un client qui n'a gardé que son jeton
 de session — après un redémarrage du serveur ou une réinstallation de l'app. Il
