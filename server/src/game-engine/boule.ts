@@ -83,6 +83,13 @@ export const initialiserBoule = (
  * compatible avec la règle ci-dessus, puisqu'elle garantit qu'un donneur n'est
  * jamais sur le côté au moment de servir. Elle fixe aussi, par prolongement
  * vers l'arrière, quels joueurs sont sur le côté au tout premier coup.
+ *
+ * Tout ne dépend ici que de `numeroCoup`. C'est ce qui fait qu'un coup rejoué
+ * pour friche généralisée garde son donneur et sa composition : le numéro de
+ * coup n'avance pas, donc rien ne tourne. Un donneur maintenu en place n'est
+ * pas non plus compté deux fois dans la rotation des joueurs sur le côté, qui
+ * se lit elle aussi sur les numéros de coups et non sur les donneurs passés.
+ * Utiliser `numeroCoupCourant` évite au appelant de se tromper de numéro.
  */
 export const determinerJoueursAssis = (boule: Boule, numeroCoup: number): CompositionCoup => {
   const taille = boule.ordreTable.length;
@@ -136,10 +143,10 @@ const estFricheGeneralisee = (
  * Cas normal : les scores et les croix du coup s'ajoutent aux cumuls et le coup
  * rejoint l'historique.
  *
- * Friche généralisée : § « ce coup est rejoué : on n'avance pas au coup
- * suivant, on ajoute un coup supplémentaire et on décale d'un cran le nombre de
- * coups frichés ». Rien n'est marqué, l'historique ne bouge pas, et le même
- * numéro de coup reste attendu.
+ * Friche généralisée : § « ce coup est rejoué à la même place, avec le MÊME
+ * donneur [...] seul le nombre de coups frichés augmente d'un cran ». Rien
+ * n'est marqué, l'historique ne bouge pas, et le même numéro de coup reste
+ * attendu — c'est ce qui fait rester le donneur en place.
  */
 export const enregistrerResultatCoup = (
   boule: Boule,
@@ -152,10 +159,12 @@ export const enregistrerResultatCoup = (
   }
 
   if (estFricheGeneralisee(resultat)) {
+    // La Boule garde son nombre de coups scorés : le coup est simplement
+    // rejoué à la même place, avec le même donneur. Seul le compteur de coups
+    // frichés avance, ce qui décale les numéros concernés en partant de la fin.
     return {
       ...boule,
-      nombreCoupsTotal: boule.nombreCoupsTotal + 1,
-      nombreCoupsFriches: boule.nombreCoupsFriches + 1,
+      nombreCoupsFriches: Math.min(boule.nombreCoupsFriches + 1, boule.nombreCoupsTotal),
     };
   }
 
@@ -184,6 +193,13 @@ export const enregistrerResultatCoup = (
   };
 };
 
-/** Tous les coups prévus, rallonges comprises, ont-ils été joués ? */
+/**
+ * Numéro du coup à jouer. Il n'avance qu'une fois le coup effectivement joué
+ * et enregistré : une friche généralisée le laisse en place, et avec lui le
+ * donneur et la composition de la table.
+ */
+export const numeroCoupCourant = (boule: Boule): number => boule.historique.length + 1;
+
+/** Tous les coups de la Boule ont-ils été joués ? */
 export const estBouleTerminee = (boule: Boule): boolean =>
   boule.historique.length >= boule.nombreCoupsTotal;

@@ -64,5 +64,6 @@ export {
   estCoupFriche,
   initialiserBoule,
   JOUEURS_SUR_LE_COTE,
+  numeroCoupCourant,
 } from './boule.js';
 export type { CompositionCoup, FricheGeneralisee } from './boule.js';

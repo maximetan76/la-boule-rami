@@ -77,13 +77,15 @@ export interface Boule {
    */
   readonly ordreTable: JoueurId[];
   /**
-   * Nombre total de coups. Augmente d'un cran à chaque friche généralisée
-   * (§ « Structure d'une Boule »).
+   * Nombre total de coups scorés, fixé par le nombre de joueurs
+   * (§ « Structure d'une Boule »). Une friche généralisée ne l'allonge pas :
+   * le coup est rejoué à la même place.
    */
   nombreCoupsTotal: number;
   /**
    * Nombre de coups frichés, décompté depuis la FIN de la Boule. Augmente
-   * lui aussi d'un cran à chaque friche généralisée.
+   * d'un cran à chaque friche généralisée, ce qui décale d'autant les numéros
+   * de coups concernés.
    */
   nombreCoupsFriches: number;
   coupEnCours: Coup | null;

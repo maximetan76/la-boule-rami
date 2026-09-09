@@ -5,6 +5,7 @@ import {
   estBouleTerminee,
   estCoupFriche,
   initialiserBoule,
+  numeroCoupCourant,
 } from '../game-engine/boule.js';
 import { calculerFinDeBoule } from '../game-engine/fin-de-boule.js';
 import { joueur } from './fixtures.js';
@@ -175,17 +176,17 @@ describe('enregistrerResultatCoup', () => {
   });
 
   it('exemple des regles : 4 joueurs, 8 coups, 2 friches, une friche generalisee', () => {
-    // § « on ajoute un coup supplementaire et on decale d un cran le nombre de
-    // coups friches ».
+    // § « la Boule reste a 8 coups et on passe a 3 coups friches en partant de
+    // la fin ».
     const apres = enregistrerResultatCoup(bouleA4(), 1, { toutLeMondeAFriche: true });
 
-    expect(apres.nombreCoupsTotal).toBe(9);
+    expect(apres.nombreCoupsTotal).toBe(8);
     expect(apres.nombreCoupsFriches).toBe(3);
-    // Les 3 derniers coups sont desormais friches.
-    expect(estCoupFriche(apres, 6)).toBe(false);
+    // Les 3 derniers coups des 8 sont desormais friches.
+    expect(estCoupFriche(apres, 5)).toBe(false);
+    expect(estCoupFriche(apres, 6)).toBe(true);
     expect(estCoupFriche(apres, 7)).toBe(true);
     expect(estCoupFriche(apres, 8)).toBe(true);
-    expect(estCoupFriche(apres, 9)).toBe(true);
   });
 
   it('ne fait ni avancer le coup ni bouger les scores lors d une friche generalisee', () => {
@@ -197,14 +198,68 @@ describe('enregistrerResultatCoup', () => {
     expect(() => enregistrerResultatCoup(apres, 2, score())).toThrow();
   });
 
-  it('rallonge encore la Boule si la friche generalisee se reproduit', () => {
+  it('friche un coup de plus a chaque friche generalisee, sans jamais allonger la Boule', () => {
     const une = enregistrerResultatCoup(bouleA4(), 1, { toutLeMondeAFriche: true });
     const deux = enregistrerResultatCoup(une, 1, { toutLeMondeAFriche: true });
 
-    expect(deux.nombreCoupsTotal).toBe(10);
+    expect(deux.nombreCoupsTotal).toBe(8);
     expect(deux.nombreCoupsFriches).toBe(4);
-    expect(estCoupFriche(deux, 7)).toBe(true);
-    expect(estCoupFriche(deux, 6)).toBe(false);
+    expect(estCoupFriche(deux, 4)).toBe(false);
+    expect(estCoupFriche(deux, 5)).toBe(true);
+    expect(estCoupFriche(deux, 8)).toBe(true);
+  });
+
+  it('ne friche jamais plus de coups que la Boule n en compte', () => {
+    let boule = initialiserBoule(table('j1', 'j2', 'j3', 'j4'), 7);
+    boule = enregistrerResultatCoup(boule, 1, { toutLeMondeAFriche: true });
+    expect(boule.nombreCoupsFriches).toBe(8);
+    boule = enregistrerResultatCoup(boule, 1, { toutLeMondeAFriche: true });
+    expect(boule.nombreCoupsFriches).toBe(8);
+    expect(estCoupFriche(boule, 1)).toBe(true);
+  });
+});
+
+describe('donneur et friche generalisee', () => {
+  it('garde le meme donneur sur un coup rejoue, puis avance une fois le coup joue', () => {
+    // § « ce coup est rejoue a la meme place, avec le MEME donneur ».
+    let boule = initialiserBoule(table('j1', 'j2', 'j3', 'j4'));
+    expect(numeroCoupCourant(boule)).toBe(1);
+    const donneurAvant = determinerJoueursAssis(boule, numeroCoupCourant(boule)).donneurId;
+    expect(donneurAvant).toBe('j1');
+
+    // Tout le monde friche : le coup 1 est rejoue, meme donneur.
+    boule = enregistrerResultatCoup(boule, numeroCoupCourant(boule), { toutLeMondeAFriche: true });
+    expect(numeroCoupCourant(boule)).toBe(1);
+    expect(determinerJoueursAssis(boule, numeroCoupCourant(boule)).donneurId).toBe('j1');
+
+    // Deuxieme friche generalisee : toujours le meme donneur.
+    boule = enregistrerResultatCoup(boule, numeroCoupCourant(boule), { toutLeMondeAFriche: true });
+    expect(determinerJoueursAssis(boule, numeroCoupCourant(boule)).donneurId).toBe('j1');
+
+    // Le coup est enfin joue : le donneur avance d un siege.
+    boule = enregistrerResultatCoup(boule, numeroCoupCourant(boule), score({ scores: { j1: 10 } }));
+    expect(numeroCoupCourant(boule)).toBe(2);
+    expect(determinerJoueursAssis(boule, numeroCoupCourant(boule)).donneurId).toBe('j2');
+  });
+
+  it('ne fausse pas la rotation des joueurs sur le cote a 5 joueurs', () => {
+    let boule = initialiserBoule(table('j1', 'j2', 'j3', 'j4', 'j5'));
+    const avant = determinerJoueursAssis(boule, numeroCoupCourant(boule));
+
+    boule = enregistrerResultatCoup(boule, numeroCoupCourant(boule), { toutLeMondeAFriche: true });
+    const pendantRejeu = determinerJoueursAssis(boule, numeroCoupCourant(boule));
+
+    // Le rejeu ne bouge ni le donneur ni la composition de la table.
+    expect(pendantRejeu).toEqual(avant);
+
+    boule = enregistrerResultatCoup(boule, numeroCoupCourant(boule), score({ scores: { j1: 10 } }));
+    const suivant = determinerJoueursAssis(boule, numeroCoupCourant(boule));
+
+    // Le donneur maintenu en place n est compte qu une fois : il part sur le
+    // cote au coup suivant, comme apres n importe quel coup joue.
+    expect(suivant.joueursAssis).toContain(avant.donneurId);
+    expect(suivant.joueursAssis).toHaveLength(2);
+    expect(new Set(suivant.joueursAssis).size).toBe(2);
   });
 });
 
@@ -225,17 +280,17 @@ describe('estBouleTerminee', () => {
     expect(estBouleTerminee(jouerCoups(8))).toBe(true);
   });
 
-  it('tient compte de la rallonge due a une friche generalisee', () => {
+  it('reste a 8 coups malgre une friche generalisee', () => {
     let boule = initialiserBoule(table('j1', 'j2', 'j3', 'j4'));
     boule = enregistrerResultatCoup(boule, 1, { toutLeMondeAFriche: true });
-    for (let numeroCoup = 1; numeroCoup <= 8; numeroCoup += 1) {
+    for (let numeroCoup = 1; numeroCoup <= 7; numeroCoup += 1) {
       boule = enregistrerResultatCoup(boule, numeroCoup, score({ scores: { j1: 10 } }));
     }
 
-    // 9 coups sont attendus depuis la friche generalisee.
     expect(estBouleTerminee(boule)).toBe(false);
-    boule = enregistrerResultatCoup(boule, 9, score({ scores: { j1: 10 } }));
+    boule = enregistrerResultatCoup(boule, 8, score({ scores: { j1: 10 } }));
     expect(estBouleTerminee(boule)).toBe(true);
+    expect(boule.historique).toHaveLength(8);
   });
 });
 

@@ -8,7 +8,7 @@
 ### Structure d'une Boule
 - Une Boule est une série de coups dont le nombre dépend du nombre de joueurs : 3 joueurs → 9 coups, 4 joueurs → 8 coups, 5 joueurs → 10 coups, 6 joueurs → 12 coups.
 - Au début de la Boule, les joueurs choisissent le nombre de coups "frichés d'office" (par défaut 2). Ce sont toujours les DERNIERS coups de la Boule qui sont frichés (points doublés), le décompte partant de la fin.
-- Si, lors d'un coup, TOUS les joueurs "frichent" (passent, voir plus bas), ce coup est rejoué : on n'avance pas au coup suivant, on ajoute un coup supplémentaire et on décale d'un cran (en partant de la fin) le nombre de coups frichés. Exemple à 4 joueurs (8 coups, 2 frichés au départ) : si un coup est intégralement friché, on passe à 3 coups frichés en partant de la fin, et ainsi de suite si ça se reproduit.
+- Si, lors d'un coup, TOUS les joueurs "frichent" (passent, voir plus bas), ce coup est rejoué à la même place, avec le MÊME donneur : on n'avance pas au coup suivant et le nombre total de coups de la Boule ne change pas. Seul le nombre de coups frichés augmente d'un cran, toujours décompté en partant de la fin. Exemple à 4 joueurs (8 coups, 2 frichés au départ) : si un coup est intégralement friché, la Boule reste à 8 coups et on passe à 3 coups frichés en partant de la fin, et ainsi de suite si ça se reproduit.
 
 ### Phase "Friche / Je joue" en début de coup
 - Le joueur à la gauche du donneur parle en premier et annonce soit "Friche" (il passe) soit "Je joue".
