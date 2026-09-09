@@ -41,7 +41,7 @@ describe('peutPoser', () => {
   });
 
   it('refuse une tierce contenant un joker normal comme tierce de validation', () => {
-    // 5 + joker + 7 de trefle = 12, + brelan d as 33 + brelan de valets 30 = 75 points,
+    // 5 + joker (le 6) + 7 de trefle = 18, + brelan d as 33 + brelan de valets 30 = 81 points,
     // mais aucune tierce sans joker normal : la pose est refusee.
     const jokerPosee = jokerPour('trefle', 6);
     const suite = [c('trefle', 5), jokerPosee, c('trefle', 7)];
@@ -53,7 +53,7 @@ describe('peutPoser', () => {
   });
 
   it('accepte le coucou dans la tierce de validation : seule exception des regles', () => {
-    // 10 + V + D + coucou (a la place du R) + A = 41, + brelan d as 33 = 74.
+    // 10 + V + D + coucou (a la place du R) + A = 51, + brelan d as 33 = 84.
     const coucouPosee = coucouPour('coeur', 'R');
     const quinte = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D'), coucouPosee, c('coeur', 'A')];
     const as = [c('pique', 'A'), c('carreau', 'A'), c('trefle', 'A')];
@@ -72,13 +72,24 @@ describe('peutPoser', () => {
   it('accepte une tierce pure accompagnee d une autre combinaison contenant un joker', () => {
     // Explicitement autorise : « si le joueur a une tierce pure ET un joker dans
     // une autre combinaison posee en meme temps, c est autorise ».
-    // Tierce pure D-R-A de coeur = 31, brelan de valets avec joker = 10 + 10 + 0 = 20,
-    // soit 51 points pile : la tierce de validation est pure, le joker est ailleurs.
+    // Tierce pure D-R-A de coeur = 31, brelan de valets avec joker = 10 + 10 + 10 = 30,
+    // soit 61 points : la tierce de validation est pure, le joker est ailleurs.
     const suite = [c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
     const valets = [c('pique', 'V'), c('trefle', 'V'), joker()];
     const main = mainDe(...suite, ...valets);
 
     expect(peutPoser(main, [tierce('coeur', suite), ensemble('V', valets)])).toBe(true);
+  });
+
+  it('atteint les 51 points grace a la valeur de la carte remplacee par un joker', () => {
+    // Tierce V-joker(D)-R de pique = 30 et tierce pure 7-8-9 de coeur = 24, soit 54.
+    // Avec un joker compte pour 0, le total serait de 44 et la pose refusee.
+    const jokerDame = jokerPour('pique', 'D');
+    const figures = [c('pique', 'V'), jokerDame, c('pique', 'R')];
+    const suite = [c('coeur', 7), c('coeur', 8), c('coeur', 9)];
+    const main = mainDe(figures[0] as Carte, jokerDame.carte, figures[2] as Carte, ...suite);
+
+    expect(peutPoser(main, [tierce('pique', figures), tierce('coeur', suite)])).toBe(true);
   });
 
   it('refuse si une carte proposee n est pas dans la main', () => {

@@ -9,7 +9,7 @@
  */
 import type { Carte, Combinaison, CartePosee, Couleur, Tierce, Valeur } from '../models/index.js';
 import { TIERCE_LONGUEUR_MAX, TIERCE_LONGUEUR_MIN } from '../models/index.js';
-import { estJoker, pointsDePose, rang, RANG_MAX, RANG_MIN } from './cartes.js';
+import { estJoker, pointsDeValeur, pointsDuRang, rang, RANG_MAX, RANG_MIN } from './cartes.js';
 
 /** Carte effectivement représentée par une carte posée, `null` si le joker ne déclare rien. */
 interface CarteResolue {
@@ -135,26 +135,41 @@ export const estTierceValidante = (combinaison: Combinaison): boolean =>
 /**
  * Points de pose d'une combinaison.
  *
- * L'as est chiffré selon sa lecture réelle dans la combinaison : 1 point dans
- * une tierce As-2-3, 11 points dans une tierce D-R-A ou un brelan d'as.
+ * Un joker, coucou compris, compte pour la carte qu'il remplace : un joker à
+ * la place d'une dame vaut 10 points, à la place de l'as d'une tierce As-2-3
+ * il vaut 1 point, et 11 points dans une tierce D-R-A ou un brelan d'as. Sa
+ * valeur de 20 points ne concerne que les cartes restées en main à la fin
+ * d'un coup (§ « Fin d'un coup et scoring »), pas ce calcul.
  *
- * @throws si la combinaison n'est pas valide — un chiffrage silencieux
- * fausserait la condition des 51 points.
+ * La carte remplacée vient du champ `remplace` déclaré à la pose ; quand un
+ * joker est encadré par des cartes qui ne laissent qu'une lecture possible,
+ * elle est déduite de la combinaison.
+ *
+ * @throws si la combinaison n'est pas valide, ou si un joker non déclaré rend
+ * sa position ambiguë — un chiffrage silencieux fausserait la condition des
+ * 51 points.
  */
 export const calculerValeurCombinaison = (combinaison: Combinaison): number => {
   if (combinaison.type === 'tierce') {
-    const asHaut = resoudreTierce(combinaison);
-    if (asHaut === null) {
-      throw new Error(`Tierce invalide : ${decrire(combinaison)}`);
+    const fenetre = fenetreTierce(combinaison);
+    if (fenetre === null) {
+      throw new Error(`Tierce invalide ou position ambigue : ${decrire(combinaison)}`);
     }
-    return combinaison.cartes.reduce((total, cp) => total + pointsDePose(cp.carte, asHaut), 0);
+    // Chaque rang de la suite est occupé par exactement une carte, réelle ou
+    // remplacée par un joker : le total ne dépend donc que de la fenêtre.
+    let total = 0;
+    for (let r = fenetre.debut; r <= fenetre.fin; r += 1) {
+      total += pointsDuRang(r);
+    }
+    return total;
   }
 
   if (!estEnsembleValide(combinaison)) {
     throw new Error(`Brelan ou carre invalide : ${decrire(combinaison)}`);
   }
-  // Dans un brelan ou un carré, l'as vaut toujours 11.
-  return combinaison.cartes.reduce((total, cp) => total + pointsDePose(cp.carte, true), 0);
+  // Toutes les cartes d'un brelan ou d'un carré ont la même valeur, jokers
+  // compris ; l'as y vaut toujours 11.
+  return combinaison.cartes.length * pointsDeValeur(combinaison.valeur, true);
 };
 
 const nommer = (carte: Carte): string => {

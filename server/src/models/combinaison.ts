@@ -18,9 +18,14 @@ export const TIERCE_LONGUEUR_MIN = 3;
 export const TIERCE_LONGUEUR_MAX = 5;
 
 /**
- * Une carte telle qu'elle est posée sur la table. Un joker (ou le coucou) posé
- * déclare la carte qu'il remplace : c'est ce qui rend possible l'échange décrit
- * au § « Récupération d'un joker posé ».
+ * Une carte telle qu'elle est posée sur la table.
+ *
+ * Un joker (ou le coucou) posé déclare la carte qu'il remplace. Cette
+ * déclaration sert deux fois : elle rend possible l'échange décrit au
+ * § « Récupération d'un joker posé », et elle donne au joker sa valeur au
+ * moment du calcul des 51 points, un joker valant exactement la carte qu'il
+ * remplace (§ « Conditions pour poser »). Elle doit donc être renseignée à la
+ * pose, sauf lorsque la combinaison ne laisse qu'une lecture possible.
  */
 export interface CartePosee {
   readonly carte: Carte;

@@ -59,13 +59,19 @@ describe('calculerValeurCombinaison', () => {
     expect(calculerValeurCombinaison(carre)).toBe(32);
   });
 
-  it('ne compte aucun point de pose pour un joker normal', () => {
-    // 5 + (joker a la place du 6) + 7 = 12
-    expect(calculerValeurCombinaison(tierce('trefle', [c('trefle', 5), jokerPour('trefle', 6), c('trefle', 7)]))).toBe(12);
+  it('compte un joker a la place d une dame pour 10 points', () => {
+    // V + (joker a la place de la D) + R = 10 + 10 + 10 = 30
+    const t = tierce('pique', [c('pique', 'V'), jokerPour('pique', 'D'), c('pique', 'R')]);
+    expect(calculerValeurCombinaison(t)).toBe(30);
   });
 
-  it('ne compte aucun point de pose pour le coucou', () => {
-    // 10 + V + D + (coucou a la place du R) + A = 10 + 10 + 10 + 0 + 11 = 41
+  it('compte un joker a sa valeur faciale de remplacement', () => {
+    // 5 + (joker a la place du 6) + 7 = 18
+    expect(calculerValeurCombinaison(tierce('trefle', [c('trefle', 5), jokerPour('trefle', 6), c('trefle', 7)]))).toBe(18);
+  });
+
+  it('compte le coucou a la valeur de la carte qu il remplace', () => {
+    // 10 + V + D + (coucou a la place du R) + A = 10 + 10 + 10 + 10 + 11 = 51
     const quinte = tierce('coeur', [
       c('coeur', 10),
       c('coeur', 'V'),
@@ -73,11 +79,34 @@ describe('calculerValeurCombinaison', () => {
       coucouPour('coeur', 'R'),
       c('coeur', 'A'),
     ]);
-    expect(calculerValeurCombinaison(quinte)).toBe(41);
+    expect(calculerValeurCombinaison(quinte)).toBe(51);
+  });
+
+  it('compte un joker remplacant l as pour 1 point dans une tierce As-2-3', () => {
+    expect(calculerValeurCombinaison(tierce('pique', [jokerPour('pique', 'A'), c('pique', 2), c('pique', 3)]))).toBe(6);
+  });
+
+  it('compte un joker remplacant l as pour 11 points dans une tierce D-R-A', () => {
+    expect(calculerValeurCombinaison(tierce('coeur', [c('coeur', 'D'), c('coeur', 'R'), jokerPour('coeur', 'A')]))).toBe(31);
+  });
+
+  it('compte un joker remplacant un as pour 11 points dans un brelan d as', () => {
+    const brelan = ensemble('A', [c('pique', 'A'), c('coeur', 'A'), jokerPour('trefle', 'A')]);
+    expect(calculerValeurCombinaison(brelan)).toBe(33);
+  });
+
+  it('deduit la carte remplacee quand le joker est encadre et ne declare rien', () => {
+    // 7 + (joker, forcement le 8) + 9 = 24
+    expect(calculerValeurCombinaison(tierce('coeur', [c('coeur', 7), joker(), c('coeur', 9)]))).toBe(24);
   });
 
   it('refuse de chiffrer une combinaison invalide', () => {
     expect(() => calculerValeurCombinaison(tierce('coeur', [c('coeur', 2), c('coeur', 5), c('coeur', 9)]))).toThrow();
+  });
+
+  it('refuse de chiffrer une tierce dont un joker non declare rend la position ambigue', () => {
+    // 7, 8 et un joker : la suite peut se lire 6-7-8 ou 7-8-9, le joker doit etre declare.
+    expect(() => calculerValeurCombinaison(tierce('coeur', [c('coeur', 7), c('coeur', 8), joker()]))).toThrow();
   });
 });
 

@@ -28,29 +28,38 @@ export const rang = (valeur: Valeur, asHaut: boolean): number => {
 };
 
 /**
- * Points d'une carte au moment de la pose.
+ * Points d'une valeur au moment de la pose.
  *
  * § « Conditions pour poser » : l'as vaut 1 point dans une tierce As-2-3 et
  * 11 points dans une tierce D-R-A ou un brelan d'as ; les figures valent 10 ;
- * les autres cartes leur valeur faciale. Un joker ou le coucou ne rapportent
- * aucun point de pose puisqu'ils ne font que remplacer une autre carte.
+ * les autres cartes leur valeur faciale.
+ *
+ * Un joker (ou le coucou) posé n'a pas de valeur propre : il compte pour la
+ * carte qu'il remplace, résolue par le moteur de combinaisons.
  */
-export const pointsDePose = (carte: Carte, asHaut: boolean): number => {
-  if (estJoker(carte)) return 0;
-  const { valeur } = carte;
+export const pointsDeValeur = (valeur: Valeur, asHaut: boolean): number => {
   if (valeur === 'A') return asHaut ? 11 : 1;
   if (valeur === 'V' || valeur === 'D' || valeur === 'R') return 10;
   return valeur;
+};
+
+/** Points de pose de la carte occupant un rang donné dans une suite. */
+export const pointsDuRang = (rangCarte: number): number => {
+  if (rangCarte === RANG_MIN) return 1;
+  if (rangCarte === RANG_MAX) return 11;
+  if (rangCarte >= 11) return 10;
+  return rangCarte;
 };
 
 /**
  * Points d'une carte restée en main à la fin d'un coup.
  *
  * § « Fin d'un coup et scoring » : as = 11, figures = 10, joker normal = 20,
- * coucou = 20, autres cartes = valeur faciale. Contrairement aux points de
- * pose, l'as vaut toujours 11 ici.
+ * coucou = 20, autres cartes = valeur faciale. Ici le joker vaut 20 points
+ * fixes, sans rapport avec la valeur qu'il aurait eue une fois posé, et l'as
+ * vaut toujours 11.
  */
 export const pointsEnMain = (carte: Carte): number => {
   if (estJoker(carte)) return 20;
-  return pointsDePose(carte, true);
+  return pointsDeValeur(carte.valeur, true);
 };

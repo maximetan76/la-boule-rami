@@ -1,4 +1,11 @@
-export { estCarteNormale, estJoker, pointsDePose, pointsEnMain, rang } from './cartes.js';
+export {
+  estCarteNormale,
+  estJoker,
+  pointsDeValeur,
+  pointsDuRang,
+  pointsEnMain,
+  rang,
+} from './cartes.js';
 export {
   calculerValeurCombinaison,
   cartesDe,
