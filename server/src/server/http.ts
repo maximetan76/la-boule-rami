@@ -1,40 +1,64 @@
 /**
- * Endpoints HTTP d'authentification.
+ * Endpoints HTTP : authentification, salons, compte joueur.
  *
- * L'app iOS obtient un jeton d'identité auprès d'Apple, le poste ici, et reçoit
- * en échange un jeton de session applicatif — celui qu'elle présentera ensuite
- * à `rejoindre-table`.
+ * Tout ce qui touche au jeu passe par les sockets ; le HTTP sert à ce qui se
+ * fait hors table — s'authentifier, ouvrir un salon, le rejoindre par code,
+ * abandonner une partie, changer de pseudo.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifierJetonApple, type ConfigApple } from '../auth/apple.js';
-import { renouvelerJetonSession, signerJetonSession, type ConfigSession } from '../auth/session.js';
-import type { Depot } from '../persistence/depot.js';
+import {
+  renouvelerJetonSession,
+  signerJetonSession,
+  verifierJetonSession,
+  type ConfigSession,
+} from '../auth/session.js';
+import type { Depot, GestionDeconnexion, JoueurEnregistre } from '../persistence/depot.js';
+import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../persistence/depot.js';
+import type { GameRoomManager, Table } from './game-room-manager.js';
 
 /** Au-delà, la requête est rejetée : un jeton d'identité tient largement dedans. */
 const TAILLE_CORPS_MAX = 16 * 1024;
 
+export const PSEUDO_LONGUEUR_MIN = 2;
+export const PSEUDO_LONGUEUR_MAX = 24;
+
 export interface DependancesHttp {
   readonly depot: Depot;
+  readonly manager: GameRoomManager;
   readonly session: ConfigSession;
   readonly apple: ConfigApple;
+  /** Prévient les joueurs connectés qu'une table a changé. */
+  readonly notifier?: (table: Table) => void;
 }
 
-const lireCorps = async (requete: IncomingMessage): Promise<unknown> => {
+/** Erreur destinée au client, avec le code HTTP qui va avec. */
+class ErreurHttp extends Error {
+  constructor(
+    readonly statut: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ErreurHttp';
+  }
+}
+
+const lireCorps = async (requete: IncomingMessage): Promise<Record<string, unknown>> => {
   const morceaux: Buffer[] = [];
   let taille = 0;
 
   for await (const morceau of requete) {
     const bloc = morceau as Buffer;
     taille += bloc.length;
-    if (taille > TAILLE_CORPS_MAX) throw new Error('Corps de requete trop volumineux');
+    if (taille > TAILLE_CORPS_MAX) throw new ErreurHttp(413, 'Corps de requete trop volumineux');
     morceaux.push(bloc);
   }
 
   if (morceaux.length === 0) return {};
   try {
-    return JSON.parse(Buffer.concat(morceaux).toString('utf8')) as unknown;
+    return JSON.parse(Buffer.concat(morceaux).toString('utf8')) as Record<string, unknown>;
   } catch {
-    throw new Error('Corps de requete illisible');
+    throw new ErreurHttp(400, 'Corps de requete illisible');
   }
 };
 
@@ -50,6 +74,27 @@ const repondreJson = (reponse: ServerResponse, code: number, corps: unknown): vo
 const texteOuNull = (valeur: unknown): string | null =>
   typeof valeur === 'string' && valeur.length > 0 ? valeur : null;
 
+/** Identifie l'appelant à partir de l'en-tête `Authorization: Bearer`. */
+const authentifier = async (
+  requete: IncomingMessage,
+  deps: DependancesHttp,
+): Promise<JoueurEnregistre> => {
+  const entete = requete.headers.authorization ?? '';
+  const jeton = entete.startsWith('Bearer ') ? entete.slice('Bearer '.length) : null;
+  if (jeton === null) throw new ErreurHttp(401, 'Jeton de session manquant');
+
+  let joueurId: string;
+  try {
+    ({ joueurId } = await verifierJetonSession(jeton, deps.session));
+  } catch {
+    throw new ErreurHttp(401, 'Jeton de session refuse');
+  }
+
+  const joueur = await deps.depot.trouverJoueur(joueurId);
+  if (joueur === null) throw new ErreurHttp(401, 'Compte inconnu');
+  return joueur;
+};
+
 /**
  * Ouvre une session à partir d'un jeton d'identité Apple.
  *
@@ -57,16 +102,21 @@ const texteOuNull = (valeur: unknown): string | null =>
  * quand elle l'a, et le pseudo déjà enregistré sert ensuite.
  */
 const ouvrirSession = async (
-  corps: unknown,
+  corps: Record<string, unknown>,
   deps: DependancesHttp,
-): Promise<{ jetonSession: string; joueur: { id: string; pseudo: string } }> => {
-  const charge = (corps ?? {}) as Record<string, unknown>;
-  const jetonIdentite = texteOuNull(charge['jetonIdentite']);
-  if (jetonIdentite === null) throw new Error("Jeton d'identite Apple manquant");
+): Promise<unknown> => {
+  const jetonIdentite = texteOuNull(corps['jetonIdentite']);
+  if (jetonIdentite === null) throw new ErreurHttp(401, "Jeton d'identite Apple manquant");
 
-  const identite = await verifierJetonApple(jetonIdentite, deps.apple);
-  const pseudo = texteOuNull(charge['pseudo']) ?? 'Joueur';
-  const joueur = await deps.depot.trouverOuCreerJoueurApple(identite.identifiantApple, pseudo);
+  let identifiantApple: string;
+  try {
+    ({ identifiantApple } = await verifierJetonApple(jetonIdentite, deps.apple));
+  } catch {
+    throw new ErreurHttp(401, 'Authentification Apple refusee');
+  }
+
+  const pseudo = texteOuNull(corps['pseudo']) ?? 'Joueur';
+  const joueur = await deps.depot.trouverOuCreerJoueurApple(identifiantApple, pseudo);
 
   return {
     jetonSession: await signerJetonSession(joueur.id, deps.session),
@@ -74,48 +124,174 @@ const ouvrirSession = async (
   };
 };
 
+/** Lit la configuration de déconnexion envoyée par le client. */
+const lireGestionDeconnexion = (valeur: unknown): GestionDeconnexion | undefined => {
+  if (valeur === undefined || valeur === null) return undefined;
+  const brut = valeur as Record<string, unknown>;
+
+  if (brut['type'] === 'illimite') return { type: 'illimite' };
+  if (brut['type'] === 'delai') {
+    const dureeMs = brut['dureeMs'];
+    if (dureeMs === undefined) return { type: 'delai', dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS };
+    if (typeof dureeMs !== 'number' || !Number.isFinite(dureeMs) || dureeMs <= 0) {
+      throw new ErreurHttp(400, 'Delai de deconnexion invalide');
+    }
+    return { type: 'delai', dureeMs };
+  }
+  throw new ErreurHttp(400, 'Gestion de deconnexion invalide : « delai » ou « illimite » attendus');
+};
+
+const decrireTable = (table: Table) => ({
+  tableId: table.id,
+  codeInvitation: table.codeInvitation,
+  capacite: table.capacite,
+  statut: table.statut,
+  createurId: table.createurId,
+  joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
+});
+
+const creerTable = async (
+  corps: Record<string, unknown>,
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): Promise<unknown> => {
+  const capacite = corps['nombreJoueurs'];
+  if (capacite !== undefined && typeof capacite !== 'number') {
+    throw new ErreurHttp(400, 'Nombre de joueurs invalide');
+  }
+
+  const creee = await deps.manager.creerTable(joueur, {
+    ...(capacite === undefined ? {} : { capacite }),
+    ...(() => {
+      const gestion = lireGestionDeconnexion(corps['gestionDeconnexion']);
+      return gestion === undefined ? {} : { gestionDeconnexion: gestion };
+    })(),
+  });
+
+  return decrireTable(deps.manager.table(creee.tableId));
+};
+
+const rejoindreTable = async (
+  corps: Record<string, unknown>,
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): Promise<unknown> => {
+  const code = texteOuNull(corps['code']);
+  if (code === null) throw new ErreurHttp(400, "Code d'invitation manquant");
+
+  const table = await deps.manager.rejoindreParCode(code, joueur);
+  // Les joueurs déjà assis voient la place se remplir, et la partie démarrer.
+  deps.notifier?.(table);
+  return decrireTable(table);
+};
+
+const abandonner = async (
+  tableId: string,
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): Promise<unknown> => {
+  let table: Table;
+  try {
+    table = deps.manager.table(tableId);
+  } catch {
+    throw new ErreurHttp(404, 'Table introuvable');
+  }
+  if (!table.connexions.has(joueur.id)) {
+    throw new ErreurHttp(403, "Vous n'etes pas a cette table");
+  }
+
+  const abandonnee = await deps.manager.abandonner(tableId);
+  deps.notifier?.(abandonnee);
+  return { tableId, statut: abandonnee.statut };
+};
+
+const changerPseudo = async (
+  corps: Record<string, unknown>,
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): Promise<unknown> => {
+  const pseudo = (texteOuNull(corps['pseudo']) ?? '').trim();
+  if (pseudo.length < PSEUDO_LONGUEUR_MIN || pseudo.length > PSEUDO_LONGUEUR_MAX) {
+    throw new ErreurHttp(
+      400,
+      `Pseudo invalide : entre ${String(PSEUDO_LONGUEUR_MIN)} et ${String(PSEUDO_LONGUEUR_MAX)} caracteres`,
+    );
+  }
+
+  const renomme = await deps.depot.renommerJoueur(joueur.id, pseudo);
+  // Le nouveau pseudo vaut aussi pour les tables déjà en mémoire.
+  deps.manager.renommerDansLesTables(joueur.id, pseudo);
+
+  return { joueur: { id: renomme.id, pseudo: renomme.pseudo } };
+};
+
+const ABANDON = /^\/tables\/([^/]+)\/abandonner$/;
+
 /**
  * Gestionnaire de requêtes, à brancher sur le serveur HTTP que socket.io
- * partage. Les erreurs remontent en 400 avec un message court : rien de ce que
- * dit `jose` sur l'échec de vérification n'est renvoyé tel quel.
+ * partage. Les échecs d'authentification remontent en 401 avec un message
+ * court : rien de ce que dit `jose` sur la vérification n'est renvoyé tel quel.
  */
 export const gererRequeteHttp =
   (deps: DependancesHttp) =>
   (requete: IncomingMessage, reponse: ServerResponse): void => {
-    const chemin = (requete.url ?? '').split('?')[0];
+    const chemin = (requete.url ?? '').split('?')[0] ?? '';
+    const methode = requete.method ?? 'GET';
 
-    if (requete.method === 'GET' && chemin === '/sante') {
-      repondreJson(reponse, 200, { ok: true });
-      return;
-    }
+    const traiter = async (): Promise<{ code: number; corps: unknown }> => {
+      if (methode === 'GET' && chemin === '/sante') return { code: 200, corps: { ok: true } };
 
-    if (requete.method === 'POST' && chemin === '/auth/apple') {
-      lireCorps(requete)
-        .then((corps) => ouvrirSession(corps, deps))
-        .then((resultat) => {
-          repondreJson(reponse, 200, resultat);
-        })
-        .catch(() => {
-          repondreJson(reponse, 401, { erreur: 'Authentification Apple refusee' });
+      if (methode === 'POST' && chemin === '/auth/apple') {
+        return { code: 200, corps: await ouvrirSession(await lireCorps(requete), deps) };
+      }
+
+      if (methode === 'POST' && chemin === '/auth/renouveler') {
+        const jeton = texteOuNull((await lireCorps(requete))['jeton']);
+        if (jeton === null) throw new ErreurHttp(401, 'Jeton manquant');
+        try {
+          return { code: 200, corps: { jetonSession: await renouvelerJetonSession(jeton, deps.session) } };
+        } catch {
+          throw new ErreurHttp(401, 'Jeton de session refuse');
+        }
+      }
+
+      if (methode === 'POST' && chemin === '/tables') {
+        const corps = await lireCorps(requete);
+        return { code: 201, corps: await creerTable(corps, deps, await authentifier(requete, deps)) };
+      }
+
+      if (methode === 'POST' && chemin === '/tables/rejoindre') {
+        const corps = await lireCorps(requete);
+        return { code: 200, corps: await rejoindreTable(corps, deps, await authentifier(requete, deps)) };
+      }
+
+      const abandon = ABANDON.exec(chemin);
+      if (methode === 'POST' && abandon !== null) {
+        const joueur = await authentifier(requete, deps);
+        return { code: 200, corps: await abandonner(abandon[1] as string, deps, joueur) };
+      }
+
+      if (methode === 'PATCH' && chemin === '/joueur/pseudo') {
+        const corps = await lireCorps(requete);
+        return { code: 200, corps: await changerPseudo(corps, deps, await authentifier(requete, deps)) };
+      }
+
+      throw new ErreurHttp(404, 'Ressource inconnue');
+    };
+
+    traiter()
+      .then(({ code, corps }) => {
+        repondreJson(reponse, code, corps);
+      })
+      .catch((erreur: unknown) => {
+        if (erreur instanceof ErreurHttp) {
+          repondreJson(reponse, erreur.statut, { erreur: erreur.message });
+          return;
+        }
+        // Une règle métier refusée (code inconnu, table pleine, partie déjà
+        // commencée) remonte ici : le message du moteur est explicite.
+        repondreJson(reponse, 400, {
+          erreur: erreur instanceof Error ? erreur.message : 'Requete refusee',
         });
-      return;
-    }
-
-    if (requete.method === 'POST' && chemin === '/auth/renouveler') {
-      lireCorps(requete)
-        .then(async (corps) => {
-          const jeton = texteOuNull((corps as Record<string, unknown>)['jeton']);
-          if (jeton === null) throw new Error('Jeton manquant');
-          return renouvelerJetonSession(jeton, deps.session);
-        })
-        .then((jetonSession) => {
-          repondreJson(reponse, 200, { jetonSession });
-        })
-        .catch(() => {
-          repondreJson(reponse, 401, { erreur: 'Jeton de session refuse' });
-        });
-      return;
-    }
-
-    repondreJson(reponse, 404, { erreur: 'Ressource inconnue' });
+      });
   };

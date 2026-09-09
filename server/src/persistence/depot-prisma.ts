@@ -7,12 +7,49 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
   Depot,
+  GestionDeconnexion,
   JoueurEnregistre,
+  NouvellePartie,
   PartieEnregistree,
   PartieRechargee,
 } from './depot.js';
 import { deserialiserBoule, serialiserBoule, type EtatBoulePersiste } from './serialisation.js';
 import type { JoueurId } from '../models/index.js';
+
+/** Forme d'une partie telle que Prisma la rend, places comprises. */
+interface LignePartie {
+  id: string;
+  codeInvitation: string;
+  createurId: string;
+  capacite: number;
+  demarree: boolean;
+  gestionDeconnexionType: string;
+  gestionDeconnexionDureeMs: number;
+  creeeLe: Date;
+  termineeLe: Date | null;
+  joueurs?: { joueurId: string; position: number }[];
+}
+
+const relireGestion = (type: string, dureeMs: number): GestionDeconnexion =>
+  type === 'illimite' ? { type: 'illimite' } : { type: 'delai', dureeMs };
+
+const versPartie = (ligne: LignePartie): PartieEnregistree => ({
+  id: ligne.id,
+  codeInvitation: ligne.codeInvitation,
+  createurId: ligne.createurId,
+  capacite: ligne.capacite,
+  demarree: ligne.demarree,
+  gestionDeconnexion: relireGestion(ligne.gestionDeconnexionType, ligne.gestionDeconnexionDureeMs),
+  // Les places ne sont là que si l'appel a demandé l'inclusion ; une partie
+  // tout juste créée n'en a de toute façon aucune.
+  joueursIds: [...(ligne.joueurs ?? [])]
+    .sort((a, b) => a.position - b.position)
+    .map((place) => place.joueurId),
+  creeeLe: ligne.creeeLe,
+  termineeLe: ligne.termineeLe,
+});
+
+const PLACES = { joueurs: { select: { joueurId: true, position: true } } } as const;
 
 export class DepotPrisma implements Depot {
   constructor(private readonly prisma: PrismaClient) {}
@@ -31,17 +68,60 @@ export class DepotPrisma implements Depot {
     return this.prisma.joueur.findUnique({ where: { id } });
   }
 
-  async creerPartie(id: string, joueursIds: readonly JoueurId[]): Promise<PartieEnregistree> {
-    const partie = await this.prisma.partie.create({
-      data: {
-        id,
-        joueurs: {
-          create: joueursIds.map((joueurId, position) => ({ joueurId, position })),
-        },
-      },
-    });
+  async renommerJoueur(id: JoueurId, pseudo: string): Promise<JoueurEnregistre> {
+    return this.prisma.joueur.update({ where: { id }, data: { pseudo } });
+  }
 
-    return { id: partie.id, joueursIds: [...joueursIds], creeeLe: partie.creeeLe, termineeLe: null };
+  async creerPartie(partie: NouvellePartie): Promise<PartieEnregistree> {
+    const ligne = await this.prisma.partie.create({
+      data: {
+        id: partie.id,
+        codeInvitation: partie.codeInvitation,
+        createurId: partie.createurId,
+        capacite: partie.capacite,
+        gestionDeconnexionType: partie.gestionDeconnexion.type,
+        gestionDeconnexionDureeMs:
+          partie.gestionDeconnexion.type === 'delai' ? partie.gestionDeconnexion.dureeMs : 0,
+      },
+      include: PLACES,
+    });
+    return versPartie(ligne as LignePartie);
+  }
+
+  async trouverPartieParCode(codeInvitation: string): Promise<PartieEnregistree | null> {
+    const ligne = await this.prisma.partie.findUnique({
+      where: { codeInvitation },
+      include: PLACES,
+    });
+    return ligne === null ? null : versPartie(ligne as LignePartie);
+  }
+
+  async partieActiveDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null> {
+    const ligne = await this.prisma.partie.findFirst({
+      where: { termineeLe: null, joueurs: { some: { joueurId } } },
+      include: PLACES,
+    });
+    return ligne === null ? null : versPartie(ligne as LignePartie);
+  }
+
+  async asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void> {
+    await this.prisma.joueurSurPartie.create({ data: { partieId, joueurId, position } });
+  }
+
+  /**
+   * Fige l'ordre issu du tirage d'ouverture : les places sont réécrites dans
+   * cet ordre, qui devient celui de la table pour toute la partie.
+   */
+  async demarrerPartie(partieId: string, ordreTable: readonly JoueurId[]): Promise<void> {
+    await this.prisma.$transaction([
+      ...ordreTable.map((joueurId, position) =>
+        this.prisma.joueurSurPartie.update({
+          where: { partieId_joueurId: { partieId, joueurId } },
+          data: { position },
+        }),
+      ),
+      this.prisma.partie.update({ where: { id: partieId }, data: { demarree: true } }),
+    ]);
   }
 
   async terminerPartie(id: string): Promise<void> {
@@ -73,12 +153,7 @@ export class DepotPrisma implements Depot {
     });
 
     return parties.map((partie) => ({
-      partie: {
-        id: partie.id,
-        joueursIds: partie.joueurs.map((place) => place.joueurId),
-        creeeLe: partie.creeeLe,
-        termineeLe: partie.termineeLe,
-      },
+      partie: versPartie(partie as unknown as LignePartie),
       joueurs: partie.joueurs.map((place) => ({
         id: place.joueur.id,
         pseudo: place.joueur.pseudo,

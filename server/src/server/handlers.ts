@@ -33,13 +33,18 @@ import {
   enregistrerResultatCoup,
   estBouleTerminee,
   jouerTour,
-  numeroCoupCourant,
   recupererJoker,
   reformerTalon,
 } from '../game-engine/index.js';
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
-import { demarrerCoup, GameRoomManager, redistribuerCoup, type Table } from './game-room-manager.js';
+import {
+  bouleEnCours,
+  demarrerCoup,
+  GameRoomManager,
+  redistribuerCoup,
+  type Table,
+} from './game-room-manager.js';
 
 /** Réponse d'acquittement renvoyée à l'émetteur de chaque action. */
 export type Acquittement = (reponse: { ok: true } | { ok: false; erreur: string }) => void;
@@ -155,7 +160,7 @@ const appliquerAnnonce = (table: Table, joueurId: JoueurId, annonce: Annonce): v
     return;
   }
   if (prochainAParler(coup) === null) {
-    table.boule = enregistrerResultatCoup(table.boule, coup.numero, {
+    table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, {
       toutLeMondeAFriche: true,
     });
     redistribuerCoup(table);
@@ -167,17 +172,37 @@ const appliquerAnnonce = (table: Table, joueurId: JoueurId, annonce: Annonce): v
  * diffusion groupée : deux joueurs ne reçoivent pas le même objet.
  */
 export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table): void => {
-  const coup = table.coup;
-  if (coup === null) return;
-
   const connectes = manager.joueursConnectes(table);
+  const coup = table.coup;
+
+  if (coup === null) {
+    // Avant la première donne, il n'y a rien à filtrer : on décrit le salon.
+    const salon = {
+      tableId: table.id,
+      codeInvitation: table.codeInvitation,
+      capacite: table.capacite,
+      statut: table.statut,
+      createurId: table.createurId,
+      joueurs: table.joueurs.map((joueur) => ({
+        joueurId: joueur.id,
+        pseudo: joueur.nom,
+        connecte: connectes.includes(joueur.id),
+      })),
+    };
+    for (const joueurId of connectes) {
+      const socketId = manager.socketDe(table, joueurId);
+      if (socketId !== null) io.to(socketId).emit('salon', salon);
+    }
+    return;
+  }
+
   for (const joueurId of connectes) {
     const socketId = manager.socketDe(table, joueurId);
     if (socketId === null) continue;
 
     io.to(socketId).emit(
       'etat',
-      filtrerEtatPourJoueur(coup, table.boule, joueurId, {
+      filtrerEtatPourJoueur(coup, bouleEnCours(table), joueurId, {
         tableId: table.id,
         connectes,
         tourEnAttente: table.tourEnCours,
@@ -203,11 +228,11 @@ const cloturerCoup = async (
 
   const typeVictoire = detecterDoubleOuTriple(coup, gagnantId);
   const scoreCoup = calculerScoreCoup(coup, gagnantId, typeVictoire, coup.estFriche);
-  table.boule = enregistrerResultatCoup(table.boule, coup.numero, scoreCoup);
+  table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, scoreCoup);
 
   await manager.persister(table);
 
-  if (estBouleTerminee(table.boule)) {
+  if (estBouleTerminee(bouleEnCours(table))) {
     await manager.cloreLaPartie(table);
     return;
   }
@@ -360,8 +385,11 @@ export const enregistrerHandlers = (
         const { joueurId } = await verifierJetonSession(payload.jeton, session);
         const table = manager.attacherSocket(payload.tableId, joueurId, socket.id);
 
-        // Le premier coup part dès que tout le monde est là.
-        if (table.coup === null && manager.tousConnectes(table)) demarrerCoup(table);
+          // Le premier coup part dès que la partie a démarré et que tout le
+        // monde est connecté.
+        if (table.coup === null && table.statut === 'en-cours' && manager.tousConnectes(table)) {
+          demarrerCoup(table);
+        }
         publier(io, manager, table);
       });
     });
@@ -567,5 +595,7 @@ export const enregistrerHandlers = (
   });
 };
 
-/** Exposé pour les tests : numéro du coup attendu sur une table. */
-export const numeroCoupAttendu = (table: Table): number => numeroCoupCourant(table.boule);
+/** Publie l'état d'une table depuis l'extérieur des handlers (endpoints HTTP). */
+export const publierTable = (io: Server, manager: GameRoomManager, table: Table): void => {
+  publier(io, manager, table);
+};

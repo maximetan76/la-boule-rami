@@ -1,14 +1,20 @@
 /**
- * Gestion en mémoire des tables de jeu.
+ * Gestion en mémoire des tables de jeu, adossée à un dépôt.
  *
- * Aucune persistance à ce stade : l'état vit dans le processus. Un joueur
- * déconnecté garde sa place et son jeu, et retrouve exactement le même état en
- * revenant avec son jeton, tant que le serveur n'a pas redémarré.
+ * Une table naît en salon : son créateur l'ouvre, un code d'invitation court
+ * circule, et les places se remplissent une par une. Quand la dernière est
+ * prise, le tirage d'ouverture a lieu et la partie commence.
+ *
+ * L'état de jeu vit en mémoire — c'est lui qui répond à chaque action — et n'est
+ * écrit en base qu'aux moments qui comptent : fin de coup et fin de Boule. Un
+ * redémarrage ne perd donc jamais plus que le coup en cours, redistribué.
+ *
+ * L'identité vient du jeton de session applicatif (voir `src/auth`) : c'est lui
+ * qui désigne le joueur, et non un jeton propre à la table. C'est ce qui permet
+ * de retrouver sa place après un redémarrage du serveur.
  */
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { Boule, Carte, Coup, Joueur, JoueurId } from '../models/index.js';
-import type { Depot } from '../persistence/depot.js';
-import { deserialiserBoule, serialiserBoule } from '../persistence/serialisation.js';
 import {
   construirePaquet,
   determinerJoueursAssis,
@@ -22,22 +28,15 @@ import {
   tirerSiegesEtDonneurInitial,
 } from '../game-engine/index.js';
 import { estJoker } from '../game-engine/cartes.js';
+import type { Depot, GestionDeconnexion, JoueurEnregistre } from '../persistence/depot.js';
+import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../persistence/depot.js';
+import { deserialiserBoule, serialiserBoule } from '../persistence/serialisation.js';
 import type { TourEnAttente } from './etat-filtre.js';
 
 export type TableId = string;
-export type Jeton = string;
 
-/**
- * Que faire d'un tour entamé par un joueur qui se déconnecte.
- *
- * `delai` défausse automatiquement au bout de `dureeMs` et passe la main, pour
- * que la table ne reste pas bloquée. `illimite` attend son retour.
- */
-export type GestionDeconnexion =
-  | { readonly type: 'delai'; readonly dureeMs: number }
-  | { readonly type: 'illimite' };
-
-export const DELAI_DECONNEXION_PAR_DEFAUT_MS = 90_000;
+export type { GestionDeconnexion };
+export { DELAI_DECONNEXION_PAR_DEFAUT_MS };
 
 /** Horloge, injectable pour que les tests n'attendent pas 90 secondes. */
 export interface Minuteur {
@@ -56,6 +55,19 @@ export const minuteurSysteme: Minuteur = {
   },
 };
 
+/**
+ * Alphabet du code d'invitation : ni 0/O ni 1/I/L, pour qu'un code se dicte
+ * sans ambiguïté.
+ */
+export const ALPHABET_CODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const LONGUEUR_CODE = 6;
+
+/** Nombres de joueurs pour lesquels les règles donnent un nombre de coups. */
+export const CAPACITE_MIN = 3;
+export const CAPACITE_MAX = 6;
+
+export type StatutTable = 'salon' | 'en-cours' | 'terminee';
+
 /** Tour entamé par un joueur, tant que le moteur ne l'a pas validé. */
 export interface TourEnCours extends TourEnAttente {
   readonly joueurId: JoueurId;
@@ -67,8 +79,14 @@ export interface TourEnCours extends TourEnAttente {
 
 export interface Table {
   readonly id: TableId;
-  readonly joueurs: Joueur[];
-  boule: Boule;
+  readonly codeInvitation: string;
+  readonly createurId: JoueurId;
+  readonly capacite: number;
+  statut: StatutTable;
+  /** Joueurs assis. En salon, dans l'ordre d'arrivée ; ensuite, celui du tirage. */
+  joueurs: Joueur[];
+  /** `null` tant que la partie n'a pas démarré. */
+  boule: Boule | null;
   coup: Coup | null;
   tourEnCours: TourEnCours | null;
   /** Socket courante de chaque joueur, `null` s'il est déconnecté. */
@@ -80,35 +98,24 @@ export interface Table {
   /** Joueur dont le tour expirera si le minuteur va au bout. */
   joueurEnSursis: JoueurId | null;
   /** Jokers tirés à l'ouverture, conservés pour la donne du premier coup. */
-  readonly cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
-}
-
-/** Un joueur inscrit, tel qu'il existe en base, prêt à s'asseoir. */
-export interface JoueurInscrit {
-  readonly id: JoueurId;
-  readonly nom: string;
+  cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
 }
 
 export interface TableCreee {
   readonly tableId: TableId;
-  readonly ordreTable: JoueurId[];
-  readonly donneurInitial: JoueurId;
+  readonly codeInvitation: string;
+  readonly capacite: number;
 }
 
-/**
- * Tables actives, en mémoire, adossées à un dépôt.
- *
- * L'état de jeu vit en mémoire — c'est lui qui doit répondre à chaque action —
- * et n'est écrit en base qu'aux moments qui comptent : fin de coup et fin de
- * Boule. Un redémarrage ne perd donc jamais plus que le coup en cours, qui est
- * redistribué.
- *
- * L'identité vient du jeton de session applicatif (voir `src/auth`) : c'est lui
- * qui désigne le joueur, et non un jeton propre à la table. C'est ce qui permet
- * de retrouver sa place après un redémarrage du serveur.
- */
+/** La Boule d'une table dont la partie a démarré. */
+export const bouleEnCours = (table: Table): Boule => {
+  if (table.boule === null) throw new Error("La partie n'a pas encore demarre");
+  return table.boule;
+};
+
 export class GameRoomManager {
   private readonly tables = new Map<TableId, Table>();
+  private readonly parCode = new Map<string, TableId>();
   private readonly sockets = new Map<string, { tableId: TableId; joueurId: JoueurId }>();
 
   readonly minuteur: Minuteur;
@@ -119,78 +126,163 @@ export class GameRoomManager {
     this.depot = options.depot ?? null;
   }
 
-  async creerTable(
-    joueurs: readonly JoueurInscrit[],
-    options: {
-      readonly nombreCoupsFriches?: number;
-      readonly alea?: () => number;
-      readonly gestionDeconnexion?: GestionDeconnexion;
-    } = {},
-  ): Promise<TableCreee> {
-    const tableId = randomUUID();
-    const alea = options.alea ?? Math.random;
-    const inscrits: Joueur[] = joueurs.map((joueur) => ({
-      id: joueur.id,
-      nom: joueur.nom,
-      croix: 0,
-    }));
-
-    // Tirage d'ouverture : il fixe les sièges, le donneur initial, et laisse à
-    // qui a tiré un joker sa carte pour la donne du premier coup.
-    const tirage = tirerSiegesEtDonneurInitial(inscrits, melangerPaquet(construirePaquet(), alea));
-    const assis = tirage.ordreTable.map(
-      (joueurId) => inscrits.find((joueur) => joueur.id === joueurId) as Joueur,
-    );
-
-    const table = this.installer({
-      id: tableId,
-      joueurs: assis,
-      boule: initialiserBoule(assis, options.nombreCoupsFriches),
-      alea,
-      ...(options.gestionDeconnexion === undefined
-        ? {}
-        : { gestionDeconnexion: options.gestionDeconnexion }),
-      cartesConserveesParJoueur: tirage.cartesConserveesParJoueur,
-    });
-
-    await this.depot?.creerPartie(
-      tableId,
-      table.joueurs.map((joueur) => joueur.id),
-    );
-
-    return {
-      tableId,
-      ordreTable: tirage.ordreTable,
-      donneurInitial: tirage.donneurInitial,
-    };
+  private tirerCode(): string {
+    const octets = randomBytes(LONGUEUR_CODE);
+    let code = '';
+    for (const octet of octets) code += ALPHABET_CODE[octet % ALPHABET_CODE.length];
+    return code;
   }
 
-  private installer(donnees: {
-    id: TableId;
-    joueurs: Joueur[];
-    boule: Boule;
-    alea: () => number;
-    gestionDeconnexion?: GestionDeconnexion;
-    cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
-  }): Table {
+  /** Un code libre, vérifié contre les tables vivantes et contre la base. */
+  private async codeUnique(): Promise<string> {
+    for (let essai = 0; essai < 20; essai += 1) {
+      const code = this.tirerCode();
+      if (this.parCode.has(code)) continue;
+      if ((await this.depot?.trouverPartieParCode(code)) != null) continue;
+      return code;
+    }
+    throw new Error("Impossible de tirer un code d'invitation libre");
+  }
+
+  /** Refuse d'asseoir un joueur déjà engagé ailleurs. */
+  private async verifierLibre(joueurId: JoueurId): Promise<void> {
+    for (const table of this.tables.values()) {
+      if (table.statut !== 'terminee' && table.connexions.has(joueurId)) {
+        throw new Error(`${joueurId} est deja engage sur une autre table`);
+      }
+    }
+    const active = await this.depot?.partieActiveDuJoueur(joueurId);
+    if (active != null) throw new Error(`${joueurId} est deja engage sur une autre table`);
+  }
+
+  async creerTable(
+    createur: JoueurEnregistre | { id: JoueurId; pseudo: string },
+    options: {
+      readonly capacite?: number;
+      readonly gestionDeconnexion?: GestionDeconnexion;
+      readonly alea?: () => number;
+    } = {},
+  ): Promise<TableCreee> {
+    const capacite = options.capacite ?? 4;
+    if (!Number.isInteger(capacite) || capacite < CAPACITE_MIN || capacite > CAPACITE_MAX) {
+      throw new Error(
+        `Nombre de joueurs hors limites : ${String(capacite)} (attendu ${String(CAPACITE_MIN)} a ${String(CAPACITE_MAX)})`,
+      );
+    }
+    await this.verifierLibre(createur.id);
+
+    const tableId = randomUUID();
+    const codeInvitation = await this.codeUnique();
+    const gestionDeconnexion = options.gestionDeconnexion ?? {
+      type: 'delai',
+      dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS,
+    };
+
     const table: Table = {
-      id: donnees.id,
-      joueurs: donnees.joueurs,
-      boule: donnees.boule,
+      id: tableId,
+      codeInvitation,
+      createurId: createur.id,
+      capacite,
+      statut: 'salon',
+      joueurs: [{ id: createur.id, nom: createur.pseudo, croix: 0 }],
+      boule: null,
       coup: null,
       tourEnCours: null,
-      connexions: new Map(donnees.joueurs.map((joueur) => [joueur.id, null])),
-      alea: donnees.alea,
-      gestionDeconnexion: donnees.gestionDeconnexion ?? {
-        type: 'delai',
-        dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS,
-      },
+      connexions: new Map([[createur.id, null]]),
+      alea: options.alea ?? Math.random,
+      gestionDeconnexion,
       annulerMinuteur: null,
       joueurEnSursis: null,
-      cartesConserveesParJoueur: donnees.cartesConserveesParJoueur,
+      cartesConserveesParJoueur: new Map(),
     };
-    this.tables.set(table.id, table);
+    this.tables.set(tableId, table);
+    this.parCode.set(codeInvitation, tableId);
+
+    await this.depot?.creerPartie({
+      id: tableId,
+      codeInvitation,
+      createurId: createur.id,
+      capacite,
+      gestionDeconnexion,
+    });
+    await this.depot?.asseoirJoueur(tableId, createur.id, 0);
+
+    return { tableId, codeInvitation, capacite };
+  }
+
+  /**
+   * Assied un joueur sur une place libre, à partir du code d'invitation.
+   * La partie démarre d'elle-même dès que la dernière place est prise.
+   */
+  async rejoindreParCode(
+    code: string,
+    joueur: JoueurEnregistre | { id: JoueurId; pseudo: string },
+  ): Promise<Table> {
+    const tableId = this.parCode.get(code.trim().toUpperCase());
+    const table = tableId === undefined ? undefined : this.tables.get(tableId);
+    if (table === undefined) throw new Error("Code d'invitation inconnu");
+
+    if (table.statut !== 'salon') throw new Error('La partie a deja commence');
+    if (table.connexions.has(joueur.id)) throw new Error('Vous etes deja a cette table');
+    if (table.joueurs.length >= table.capacite) throw new Error('La table est complete');
+    await this.verifierLibre(joueur.id);
+
+    const position = table.joueurs.length;
+    table.joueurs = [...table.joueurs, { id: joueur.id, nom: joueur.pseudo, croix: 0 }];
+    table.connexions.set(joueur.id, null);
+    await this.depot?.asseoirJoueur(table.id, joueur.id, position);
+
+    if (table.joueurs.length === table.capacite) await this.demarrerPartie(table);
     return table;
+  }
+
+  /** Tirage d'ouverture, sièges, Boule : la table quitte le salon. */
+  async demarrerPartie(table: Table): Promise<void> {
+    const tirage = tirerSiegesEtDonneurInitial(
+      table.joueurs,
+      melangerPaquet(construirePaquet(), table.alea),
+    );
+    table.joueurs = tirage.ordreTable.map(
+      (joueurId) => table.joueurs.find((joueur) => joueur.id === joueurId) as Joueur,
+    );
+    table.boule = initialiserBoule(table.joueurs);
+    table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
+    table.statut = 'en-cours';
+
+    await this.depot?.demarrerPartie(table.id, tirage.ordreTable);
+  }
+
+  /**
+   * Abandon définitif d'une partie interrompue. La table est close et ses
+   * joueurs redeviennent libres d'en rejoindre ou d'en créer une autre.
+   */
+  async abandonner(tableId: TableId): Promise<Table> {
+    const table = this.table(tableId);
+    table.annulerMinuteur?.();
+    table.annulerMinuteur = null;
+    table.joueurEnSursis = null;
+    table.statut = 'terminee';
+    table.coup = null;
+    table.tourEnCours = null;
+
+    for (const [joueurId, socketId] of table.connexions) {
+      if (socketId !== null) this.sockets.delete(socketId);
+      table.connexions.set(joueurId, null);
+    }
+    this.parCode.delete(table.codeInvitation);
+    this.tables.delete(tableId);
+
+    await this.depot?.terminerPartie(tableId);
+    return table;
+  }
+
+  /** Répercute un changement de pseudo sur les tables où le joueur est assis. */
+  renommerDansLesTables(joueurId: JoueurId, pseudo: string): void {
+    for (const table of this.tables.values()) {
+      table.joueurs = table.joueurs.map((joueur) =>
+        joueur.id === joueurId ? { ...joueur, nom: pseudo } : joueur,
+      );
+    }
   }
 
   /**
@@ -199,9 +291,7 @@ export class GameRoomManager {
    * Le coup en cours n'est pas restauré : il sera redistribué dès que la table
    * sera de nouveau au complet.
    */
-  async recharger(
-    options: { readonly alea?: () => number; readonly gestionDeconnexion?: GestionDeconnexion } = {},
-  ): Promise<TableId[]> {
+  async recharger(options: { readonly alea?: () => number } = {}): Promise<TableId[]> {
     if (this.depot === null) return [];
 
     const actives = await this.depot.chargerPartiesActives();
@@ -210,25 +300,41 @@ export class GameRoomManager {
     for (const { partie, joueurs, etatBoule } of actives) {
       if (joueurs.length === 0) continue;
 
-      const inscrits: Joueur[] = joueurs.map((joueur) => ({
+      const assis: Joueur[] = joueurs.map((joueur) => ({
         id: joueur.id,
         nom: joueur.pseudo,
         croix: 0,
       }));
-      const boule = etatBoule === null ? initialiserBoule(inscrits) : deserialiserBoule(etatBoule);
 
-      this.installer({
+      const table: Table = {
         id: partie.id,
-        joueurs: inscrits,
-        boule,
+        codeInvitation: partie.codeInvitation,
+        createurId: partie.createurId,
+        capacite: partie.capacite,
+        statut: partie.demarree ? 'en-cours' : 'salon',
+        joueurs: assis,
+        boule:
+          etatBoule === null
+            ? partie.demarree
+              ? initialiserBoule(assis)
+              : null
+            : deserialiserBoule(etatBoule),
+        coup: null,
+        tourEnCours: null,
+        connexions: new Map(assis.map((joueur) => [joueur.id, null])),
         alea: options.alea ?? Math.random,
-        ...(options.gestionDeconnexion === undefined
-          ? {}
-          : { gestionDeconnexion: options.gestionDeconnexion }),
+        // La configuration de déconnexion est relue avec la partie : une table
+        // ne repart pas sur la valeur par défaut après un redémarrage.
+        gestionDeconnexion: partie.gestionDeconnexion,
+        annulerMinuteur: null,
+        joueurEnSursis: null,
         // Les jokers du tirage d'ouverture appartiennent au premier coup, déjà
         // joué si la Boule a un historique.
         cartesConserveesParJoueur: new Map(),
-      });
+      };
+
+      this.tables.set(table.id, table);
+      this.parCode.set(table.codeInvitation, table.id);
       rechargees.push(partie.id);
     }
 
@@ -237,10 +343,12 @@ export class GameRoomManager {
 
   /** Écrit l'état de la Boule. Appelé aux fins de coup et de Boule, pas plus souvent. */
   async persister(table: Table): Promise<void> {
+    if (table.boule === null) return;
     await this.depot?.enregistrerBoule(table.id, serialiserBoule(table.boule));
   }
 
   async cloreLaPartie(table: Table): Promise<void> {
+    table.statut = 'terminee';
     await this.depot?.terminerPartie(table.id);
   }
 
@@ -248,6 +356,11 @@ export class GameRoomManager {
     const table = this.tables.get(tableId);
     if (table === undefined) throw new Error(`Table ${tableId} introuvable`);
     return table;
+  }
+
+  tableParCode(code: string): Table | null {
+    const tableId = this.parCode.get(code.trim().toUpperCase());
+    return tableId === undefined ? null : (this.tables.get(tableId) ?? null);
   }
 
   /** Rattache une socket à la place d'un joueur, une fois son identité vérifiée. */
@@ -274,7 +387,8 @@ export class GameRoomManager {
     if (place === undefined) return null;
     this.sockets.delete(socketId);
 
-    const table = this.table(place.tableId);
+    const table = this.tables.get(place.tableId);
+    if (table === undefined) return null;
     // La place reste occupée : le jeu du joueur l'attend.
     if (table.connexions.get(place.joueurId) === socketId) {
       table.connexions.set(place.joueurId, null);
@@ -305,14 +419,16 @@ export class GameRoomManager {
 
 /** Distribue un nouveau coup et ouvre la phase des annonces. */
 export const demarrerCoup = (table: Table): Coup => {
-  const numero = numeroCoupCourant(table.boule);
-  const { joueursActifs, joueursAssis, donneurId } = determinerJoueursAssis(table.boule, numero);
+  const boule = bouleEnCours(table);
+  const numero = numeroCoupCourant(boule);
+  const { joueursActifs, joueursAssis, donneurId } = determinerJoueursAssis(boule, numero);
 
   const actifs = table.joueurs.filter((joueur) => joueursActifs.includes(joueur.id));
   // `distribuerCartes` sert dans l'ordre reçu : on suit l'ordre de jeu.
   const ordonnes = joueursActifs.map(
     (id) => actifs.find((joueur) => joueur.id === id) as Joueur,
   );
+
   // Au tout premier coup, les jokers tirés à l'ouverture restent en main : on
   // ne sert que le complément, comme après une friche généralisée.
   const conservees: Record<JoueurId, Carte[]> = {};
@@ -351,7 +467,7 @@ export const demarrerCoup = (table: Table): Coup => {
     combinaisons: [],
     joueurActifId: joueursActifs[0] as JoueurId,
     numeroTour: 1,
-    estFriche: estCoupFriche(table.boule, numero),
+    estFriche: estCoupFriche(boule, numero),
     recapitulatifs,
     gagnantId: null,
   };
@@ -371,6 +487,7 @@ export const demarrerCoup = (table: Table): Coup => {
 export const redistribuerCoup = (table: Table): Coup => {
   const coup = table.coup;
   if (coup === null) throw new Error('Aucun coup a redistribuer');
+  const boule = bouleEnCours(table);
 
   const jokersConserves: Record<JoueurId, Carte[]> = {};
   const aRedistribuer: Carte[] = [...coup.pioche, ...coup.defausse];
@@ -402,7 +519,7 @@ export const redistribuerCoup = (table: Table): Coup => {
     combinaisons: [],
     joueurActifId: coup.ordreJoueurs[0] as JoueurId,
     numeroTour: 1,
-    estFriche: estCoupFriche(table.boule, coup.numero),
+    estFriche: estCoupFriche(boule, coup.numero),
     recapitulatifs,
     gagnantId: null,
   };

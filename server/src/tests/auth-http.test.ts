@@ -6,6 +6,7 @@ import { EMETTEUR_APPLE } from '../auth/apple.js';
 import { secretDepuisTexte } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { creerServeur, type Serveur } from '../server/index.js';
+import { ouvrirTablePleine } from './aide-table.js';
 
 /**
  * Parcours complet : jeton Apple → session applicative → place à une table.
@@ -132,8 +133,9 @@ describe('authentification HTTP', () => {
       }),
     );
 
-    const { tableId } = await serveur.manager.creerTable(
-      sessions.map((session) => ({ id: session.joueur.id, nom: session.joueur.pseudo })),
+    const { tableId } = await ouvrirTablePleine(
+      serveur.manager,
+      sessions.map((session) => ({ id: session.joueur.id, pseudo: session.joueur.pseudo })),
     );
 
     const etats: unknown[] = [];

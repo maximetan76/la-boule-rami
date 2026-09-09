@@ -26,7 +26,20 @@ model Joueur {
 }
 
 model Partie {
-  id         String    @id
+  id String @id
+
+  /// Code d'invitation court, lisible à voix haute, sans caractères ambigus.
+  codeInvitation String @unique
+  createurId     String
+  /// Nombre de places. La partie démarre quand elles sont toutes prises.
+  capacite       Int
+  demarree       Boolean @default(false)
+
+  /// Sort d'un tour entamé par un joueur qui se déconnecte : « delai » ou
+  /// « illimite ». Voir GestionDeconnexion côté serveur.
+  gestionDeconnexionType    String @default("delai")
+  gestionDeconnexionDureeMs Int    @default(90000)
+
   creeeLe    DateTime  @default(now())
   termineeLe DateTime?
 

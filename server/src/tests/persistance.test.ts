@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { creerServeur, type Serveur } from '../server/index.js';
+import { ouvrirTablePleine } from './aide-table.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { DepotPrisma } from '../persistence/depot-prisma.js';
 import {
@@ -15,13 +16,16 @@ import { GameRoomManager } from '../server/game-room-manager.js';
 import { enregistrerResultatCoup, initialiserBoule } from '../game-engine/index.js';
 import { joueur } from './fixtures.js';
 import type { PrismaClient } from '@prisma/client';
-import type { ScoreCoup } from '../models/index.js';
+import type { Boule, ScoreCoup } from '../models/index.js';
 
 const JOUEURS = [
-  { id: 'p-ana', nom: 'Ana' },
-  { id: 'p-bo', nom: 'Bo' },
-  { id: 'p-cy', nom: 'Cy' },
+  { id: 'p-ana', pseudo: 'Ana' },
+  { id: 'p-bo', pseudo: 'Bo' },
+  { id: 'p-cy', pseudo: 'Cy' },
 ];
+
+/** La Boule d'une table dont la partie a demarre. */
+const bouleDe = (table: { boule: Boule | null }): Boule => table.boule as Boule;
 
 const score = (partiel: Partial<ScoreCoup> = {}): ScoreCoup => ({
   gagnantId: 'p-ana',
@@ -101,32 +105,34 @@ describe('GameRoomManager et persistance', () => {
     const depot = new DepotMemoire();
     const manager = new GameRoomManager({ depot });
 
-    const { tableId, ordreTable } = await manager.creerTable(JOUEURS);
+    const { tableId } = await ouvrirTablePleine(manager, JOUEURS);
     const actives = await depot.chargerPartiesActives();
 
     expect(actives).toHaveLength(1);
     expect(actives[0]?.partie.id).toBe(tableId);
     // L'ordre des sieges issu du tirage est celui qui part en base.
-    expect(actives[0]?.partie.joueursIds).toEqual(ordreTable);
+    expect(actives[0]?.partie.joueursIds).toEqual(
+      manager.table(tableId).joueurs.map((joueur) => joueur.id),
+    );
   });
 
   it('n ecrit rien tant qu aucun coup n est termine', async () => {
     const depot = new DepotMemoire();
     const manager = new GameRoomManager({ depot });
-    await manager.creerTable(JOUEURS);
+    await ouvrirTablePleine(manager, JOUEURS);
 
     expect(depot.ecritures).toBe(0);
   });
 
   it('recharge une partie en cours avec ses scores, ses croix et son historique', async () => {
     const depot = new DepotMemoire();
-    for (const inscrit of JOUEURS) depot.inscrire(inscrit.id, inscrit.nom);
+    for (const inscrit of JOUEURS) depot.inscrire(inscrit.id, inscrit.pseudo);
 
     const manager = new GameRoomManager({ depot });
-    const { tableId } = await manager.creerTable(JOUEURS);
+    const { tableId } = await ouvrirTablePleine(manager, JOUEURS);
     const table = manager.table(tableId);
     // La Boule suit l'ordre de table issu du tirage d'ouverture.
-    table.boule = bouleJouee(table.boule.ordreTable);
+    table.boule = bouleJouee(bouleDe(table).ordreTable);
     await manager.persister(table);
 
     // Un serveur redemarre : nouveau manager, meme depot.
@@ -135,13 +141,15 @@ describe('GameRoomManager et persistance', () => {
 
     expect(reprises).toEqual([tableId]);
     const rechargee = apresRedemarrage.table(tableId);
-    expect(rechargee.boule.scoresCumules).toEqual(table.boule.scoresCumules);
-    expect(rechargee.boule.croix).toEqual(table.boule.croix);
-    expect(rechargee.boule.historique).toHaveLength(2);
+    expect(bouleDe(rechargee).scoresCumules).toEqual(bouleDe(table).scoresCumules);
+    expect(bouleDe(rechargee).croix).toEqual(bouleDe(table).croix);
+    expect(bouleDe(rechargee).historique).toHaveLength(2);
     // Les sieges sont retrouves dans l'ordre du tirage, avec les bons pseudos.
-    expect(rechargee.boule.ordreTable).toEqual(table.boule.ordreTable);
+    expect(bouleDe(rechargee).ordreTable).toEqual(bouleDe(table).ordreTable);
     expect(rechargee.joueurs.map((j) => j.id)).toEqual(table.joueurs.map((j) => j.id));
     expect(rechargee.joueurs.map((j) => j.nom)).toEqual(table.joueurs.map((j) => j.nom));
+    // La configuration de deconnexion est relue avec la partie.
+    expect(rechargee.gestionDeconnexion).toEqual(table.gestionDeconnexion);
     // Le coup en cours n'est pas restaure : il sera redistribue.
     expect(rechargee.coup).toBeNull();
   });
@@ -149,7 +157,7 @@ describe('GameRoomManager et persistance', () => {
   it('ne recharge pas une partie terminee', async () => {
     const depot = new DepotMemoire();
     const manager = new GameRoomManager({ depot });
-    const { tableId } = await manager.creerTable(JOUEURS);
+    const { tableId } = await ouvrirTablePleine(manager, JOUEURS);
     await manager.persister(manager.table(tableId));
     await manager.cloreLaPartie(manager.table(tableId));
 
@@ -159,7 +167,7 @@ describe('GameRoomManager et persistance', () => {
 
   it('fonctionne sans depot du tout', async () => {
     const manager = new GameRoomManager({});
-    const { tableId } = await manager.creerTable(JOUEURS);
+    const { tableId } = await ouvrirTablePleine(manager, JOUEURS);
 
     await expect(manager.persister(manager.table(tableId))).resolves.toBeUndefined();
     expect(await manager.recharger()).toEqual([]);
@@ -187,9 +195,28 @@ describe('DepotPrisma', () => {
         },
       },
       partie: {
+        findUnique: (args: unknown) => {
+          appels.push({ operation: 'partie.findUnique', args });
+          return Promise.resolve(null);
+        },
+        findFirst: (args: unknown) => {
+          appels.push({ operation: 'partie.findFirst', args });
+          return Promise.resolve(null);
+        },
         create: (args: unknown) => {
           appels.push({ operation: 'partie.create', args });
-          return Promise.resolve({ id: 'partie-1', creeeLe: new Date(), termineeLe: null });
+          return Promise.resolve({
+            id: 'partie-1',
+            codeInvitation: 'ABCDEF',
+            createurId: 'p-cy',
+            capacite: 3,
+            demarree: false,
+            gestionDeconnexionType: 'delai',
+            gestionDeconnexionDureeMs: 90000,
+            creeeLe: new Date(),
+            termineeLe: null,
+            joueurs: [],
+          });
         },
         update: (args: unknown) => {
           appels.push({ operation: 'partie.update', args });
@@ -200,18 +227,35 @@ describe('DepotPrisma', () => {
           return Promise.resolve([
             {
               id: 'partie-1',
+              codeInvitation: 'ABCDEF',
+              createurId: 'p-ana',
+              capacite: 3,
+              demarree: true,
+              gestionDeconnexionType: 'illimite',
+              gestionDeconnexionDureeMs: 0,
               creeeLe: new Date(),
               termineeLe: null,
               boule: { etat: serialiserBoule(bouleJouee()) },
               joueurs: [
-                { joueurId: 'p-ana', joueur: { id: 'p-ana', pseudo: 'Ana' } },
-                { joueurId: 'p-bo', joueur: { id: 'p-bo', pseudo: 'Bo' } },
-                { joueurId: 'p-cy', joueur: { id: 'p-cy', pseudo: 'Cy' } },
+                { joueurId: 'p-ana', position: 0, joueur: { id: 'p-ana', pseudo: 'Ana' } },
+                { joueurId: 'p-bo', position: 1, joueur: { id: 'p-bo', pseudo: 'Bo' } },
+                { joueurId: 'p-cy', position: 2, joueur: { id: 'p-cy', pseudo: 'Cy' } },
               ],
             },
           ]);
         },
       },
+      joueurSurPartie: {
+        create: (args: unknown) => {
+          appels.push({ operation: 'joueurSurPartie.create', args });
+          return Promise.resolve({});
+        },
+        update: (args: unknown) => {
+          appels.push({ operation: 'joueurSurPartie.update', args });
+          return Promise.resolve({});
+        },
+      },
+      $transaction: (operations: unknown[]) => Promise.resolve(operations),
       boule: {
         upsert: (args: unknown) => {
           appels.push({ operation: 'boule.upsert', args });
@@ -234,21 +278,35 @@ describe('DepotPrisma', () => {
     expect(joueurCree.pseudo).toBe('Ana');
   });
 
-  it('fige l ordre de la table dans les places de la partie', async () => {
+  it('enregistre le salon avec son code et sa configuration', async () => {
     const { appels, prisma } = clientSimule();
-    await new DepotPrisma(prisma).creerPartie('partie-1', ['p-cy', 'p-ana', 'p-bo']);
+    await new DepotPrisma(prisma).creerPartie({
+      id: 'partie-1',
+      codeInvitation: 'ABCDEF',
+      createurId: 'p-cy',
+      capacite: 3,
+      gestionDeconnexion: { type: 'delai', dureeMs: 90000 },
+    });
 
-    expect(appels[0]?.args).toEqual({
+    expect(appels[0]?.args).toMatchObject({
       data: {
         id: 'partie-1',
-        joueurs: {
-          create: [
-            { joueurId: 'p-cy', position: 0 },
-            { joueurId: 'p-ana', position: 1 },
-            { joueurId: 'p-bo', position: 2 },
-          ],
-        },
+        codeInvitation: 'ABCDEF',
+        createurId: 'p-cy',
+        capacite: 3,
+        gestionDeconnexionType: 'delai',
+        gestionDeconnexionDureeMs: 90000,
       },
+    });
+  });
+
+  it('assied un joueur a une place precise', async () => {
+    const { appels, prisma } = clientSimule();
+    await new DepotPrisma(prisma).asseoirJoueur('partie-1', 'p-ana', 2);
+
+    expect(appels[0]).toEqual({
+      operation: 'joueurSurPartie.create',
+      args: { data: { partieId: 'partie-1', joueurId: 'p-ana', position: 2 } },
     });
   });
 
@@ -272,6 +330,9 @@ describe('DepotPrisma', () => {
     expect(actives).toHaveLength(1);
     expect(actives[0]?.joueurs.map((j) => j.pseudo)).toEqual(['Ana', 'Bo', 'Cy']);
     expect(actives[0]?.etatBoule?.historique).toHaveLength(2);
+    // La configuration de deconnexion revient telle qu'elle a ete choisie.
+    expect(actives[0]?.partie.gestionDeconnexion).toEqual({ type: 'illimite' });
+    expect(actives[0]?.partie.codeInvitation).toBe('ABCDEF');
   });
 });
 
@@ -284,7 +345,7 @@ describe('moments de sauvegarde', () => {
 
   beforeEach(async () => {
     depot = new DepotMemoire();
-    for (const inscrit of JOUEURS) depot.inscrire(inscrit.id, inscrit.nom);
+    for (const inscrit of JOUEURS) depot.inscrire(inscrit.id, inscrit.pseudo);
 
     serveur = creerServeur({ depot, session: SESSION, apple: { clientId: 'test' } });
     await new Promise<void>((resolve) => {
@@ -310,7 +371,7 @@ describe('moments de sauvegarde', () => {
     });
 
   const asseoirTout = async () => {
-    const { tableId } = await serveur.manager.creerTable(JOUEURS);
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS);
 
     for (const inscrit of JOUEURS) {
       const socket = clientIo(base, { transports: ['websocket'] });
@@ -372,8 +433,8 @@ describe('moments de sauvegarde', () => {
     // Le coup est clos, cumule dans la Boule, et l'etat est parti en base.
     expect(depot.ecritures).toBe(1);
     const apres = serveur.manager.table(tableId);
-    expect(apres.boule.historique).toHaveLength(1);
-    expect(apres.boule.historique[0]?.gagnantId).toBe(actifId);
+    expect(bouleDe(apres).historique).toHaveLength(1);
+    expect(bouleDe(apres).historique[0]?.gagnantId).toBe(actifId);
 
     const actives = await depot.chargerPartiesActives();
     expect(actives[0]?.etatBoule?.historique).toHaveLength(1);
@@ -381,8 +442,8 @@ describe('moments de sauvegarde', () => {
     // Et un serveur redemarre reprend la partie a ce point exact.
     const apresRedemarrage = new GameRoomManager({ depot });
     await apresRedemarrage.recharger();
-    expect(apresRedemarrage.table(tableId).boule.scoresCumules).toEqual(
-      apres.boule.scoresCumules,
+    expect(bouleDe(apresRedemarrage.table(tableId)).scoresCumules).toEqual(
+      bouleDe(apres).scoresCumules,
     );
   });
 });

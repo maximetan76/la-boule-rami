@@ -7,6 +7,7 @@ import type { JoueurId } from '../models/index.js';
 import type {
   Depot,
   JoueurEnregistre,
+  NouvellePartie,
   PartieEnregistree,
   PartieRechargee,
 } from './depot.js';
@@ -17,7 +18,7 @@ export class DepotMemoire implements Depot {
   private readonly parApple = new Map<string, JoueurId>();
   private readonly parties = new Map<string, PartieEnregistree>();
   private readonly boules = new Map<string, EtatBoulePersiste>();
-  /** Compteur d'écritures, pour vérifier en test qu'on ne sauvegarde pas trop. */
+  /** Compteur d'écritures de Boule, pour vérifier en test qu'on ne sauvegarde pas trop. */
   ecritures = 0;
 
   trouverOuCreerJoueurApple(identifiantApple: string, pseudo: string): Promise<JoueurEnregistre> {
@@ -41,15 +42,57 @@ export class DepotMemoire implements Depot {
     return Promise.resolve(this.joueurs.get(id) ?? null);
   }
 
-  creerPartie(id: string, joueursIds: readonly JoueurId[]): Promise<PartieEnregistree> {
-    const partie: PartieEnregistree = {
-      id,
-      joueursIds: [...joueursIds],
+  renommerJoueur(id: JoueurId, pseudo: string): Promise<JoueurEnregistre> {
+    const joueur = this.joueurs.get(id);
+    if (joueur === undefined) throw new Error(`Joueur ${id} introuvable`);
+
+    const renomme: JoueurEnregistre = { ...joueur, pseudo };
+    this.joueurs.set(id, renomme);
+    return Promise.resolve(renomme);
+  }
+
+  creerPartie(partie: NouvellePartie): Promise<PartieEnregistree> {
+    const enregistree: PartieEnregistree = {
+      ...partie,
+      demarree: false,
+      joueursIds: [],
       creeeLe: new Date(),
       termineeLe: null,
     };
-    this.parties.set(id, partie);
-    return Promise.resolve(partie);
+    this.parties.set(partie.id, enregistree);
+    return Promise.resolve(enregistree);
+  }
+
+  trouverPartieParCode(codeInvitation: string): Promise<PartieEnregistree | null> {
+    const trouvee = [...this.parties.values()].find(
+      (partie) => partie.codeInvitation === codeInvitation,
+    );
+    return Promise.resolve(trouvee ?? null);
+  }
+
+  partieActiveDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null> {
+    const trouvee = [...this.parties.values()].find(
+      (partie) => partie.termineeLe === null && partie.joueursIds.includes(joueurId),
+    );
+    return Promise.resolve(trouvee ?? null);
+  }
+
+  asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void> {
+    const partie = this.parties.get(partieId);
+    if (partie === undefined) throw new Error(`Partie ${partieId} introuvable`);
+
+    const joueursIds = [...partie.joueursIds];
+    joueursIds[position] = joueurId;
+    this.parties.set(partieId, { ...partie, joueursIds });
+    return Promise.resolve();
+  }
+
+  demarrerPartie(partieId: string, ordreTable: readonly JoueurId[]): Promise<void> {
+    const partie = this.parties.get(partieId);
+    if (partie === undefined) throw new Error(`Partie ${partieId} introuvable`);
+
+    this.parties.set(partieId, { ...partie, demarree: true, joueursIds: [...ordreTable] });
+    return Promise.resolve();
   }
 
   terminerPartie(id: string): Promise<void> {

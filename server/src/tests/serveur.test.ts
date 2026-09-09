@@ -4,6 +4,7 @@ import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
 import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
+import { ouvrirTablePleine } from './aide-table.js';
 import type { GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
@@ -21,9 +22,9 @@ const APPLE = { clientId: 'fr.tb-formations.laboule' };
 
 /** Les trois joueurs inscrits qui s'assoient dans tous les scénarios. */
 const JOUEURS = [
-  { id: 'p-ana', nom: 'Ana' },
-  { id: 'p-bo', nom: 'Bo' },
-  { id: 'p-cy', nom: 'Cy' },
+  { id: 'p-ana', pseudo: 'Ana' },
+  { id: 'p-bo', pseudo: 'Bo' },
+  { id: 'p-cy', pseudo: 'Cy' },
 ];
 
 /** Aléa déterministe, pour que la partie soit rejouable à l'identique. */
@@ -172,7 +173,7 @@ describe('serveur socket.io', () => {
   };
 
   const ouvrirTable = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
@@ -366,8 +367,8 @@ describe('serveur socket.io', () => {
     expect(table.coup?.numero).toBe(1);
     expect(table.coup?.donneurId).toBe(donneurAvant);
     expect(table.coup?.phase).toBe('annonces');
-    expect(table.boule.nombreCoupsTotal).toBe(9);
-    expect(table.boule.nombreCoupsFriches).toBe(3);
+    expect(table.boule?.nombreCoupsTotal).toBe(9);
+    expect(table.boule?.nombreCoupsFriches).toBe(3);
     for (const espion of espions) {
       expect(espion.dernierEtat?.moi.main).toHaveLength(14);
     }
@@ -424,7 +425,7 @@ describe('gestion des deconnexions', () => {
   };
 
   const preparerTourPioche = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
@@ -443,7 +444,7 @@ describe('gestion des deconnexions', () => {
 
   /** Amène le joueur actif à son tour, sans qu'il ait encore pioché. */
   const preparerTourSansAction = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
@@ -677,7 +678,7 @@ describe('deconnexion pendant la phase d annonces', () => {
   };
 
   const ouvrir = async (gestionDeconnexion?: GestionDeconnexion) => {
-    const { tableId } = await serveur.manager.creerTable(JOUEURS, {
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, {
       alea: aleaFixe(),
       ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });

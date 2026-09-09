@@ -55,6 +55,9 @@ Dans **Environment** du service web, ajoute :
 | `APPLE_CLIENT_ID` | le Bundle ID de l'app iOS, ou le Services ID Apple |
 | `CORS_ORIGIN` | `*` tant que le seul client est l'app iOS |
 
+`DATABASE_URL_TEST` n'a **rien à faire ici** : elle ne sert qu'aux tests sur ton
+poste, et pointe une base jetable qui est vidée à chaque exécution.
+
 Ne définis **pas** `PORT` : Render l'injecte lui-même et le serveur le lit.
 
 Voir `server/.env.example` pour le détail de chaque variable.
@@ -87,7 +90,24 @@ Le serveur n'a besoin d'aucune clé privée Apple : il ne fait que vérifier la
 signature des jetons d'identité avec les clés publiques publiées par Apple, qu'il
 récupère et met en cache tout seul.
 
-## 7. Vérifier
+## 7. L'API en bref
+
+| Méthode | Chemin | Rôle |
+| --- | --- | --- |
+| `POST` | `/auth/apple` | échange un jeton d'identité Apple contre un jeton de session |
+| `POST` | `/auth/renouveler` | prolonge un jeton de session encore valide |
+| `POST` | `/tables` | ouvre un salon et rend son code d'invitation |
+| `POST` | `/tables/rejoindre` | rejoint un salon par son code |
+| `POST` | `/tables/:id/abandonner` | clôt définitivement une partie interrompue |
+| `PATCH` | `/joueur/pseudo` | change le pseudo du joueur |
+| `GET` | `/sante` | sonde de disponibilité |
+
+Toutes sauf `/auth/*` et `/sante` attendent l'en-tête
+`Authorization: Bearer <jeton de session>`.
+
+Le jeu lui-même passe par les WebSocket, jamais par HTTP.
+
+## 8. Vérifier
 
 ```bash
 curl https://<service>.onrender.com/sante
@@ -97,6 +117,40 @@ Doit répondre `{"ok":true}`.
 
 Les journaux du service affichent `Parties reprises : N` au démarrage lorsqu'il
 restait des parties en cours — c'est la reprise décrite ci-dessous.
+
+## Lancer le test PostgreSQL depuis ton poste
+
+La suite de tests tourne sans base : la persistance y est couverte par un dépôt
+en mémoire, un client Prisma simulé, et des tests de sérialisation. Reste un
+test qui parle vraiment à PostgreSQL — création de salon, places, upsert de
+Boule, rechargement, filtre des parties terminées. Il est **ignoré tant que
+`DATABASE_URL_TEST` n'est pas défini**.
+
+Pour le lancer :
+
+```bash
+cd server
+DATABASE_URL_TEST="postgresql://user:pass@localhost:5432/laboule_test" npm test
+```
+
+**Cette base est vidée à chaque exécution.** Le test commence par
+`prisma db push --force-reset`, qui supprime et recrée toutes les tables. Ne
+jamais y pointer une base de développement ni, évidemment, la base Render :
+utilise une base dédiée, créée pour l'occasion.
+
+Deux façons simples d'en obtenir une :
+
+- **En local**, avec un PostgreSQL déjà installé :
+
+  ```bash
+  createdb laboule_test
+  ```
+
+- **Sur Render**, en créant une seconde base `la-boule-db-test` sur le plan
+  gratuit et en utilisant son *External Database URL*. Plus lent, mais utile si
+  tu n'as pas PostgreSQL en local.
+
+Sans cette variable, `npm test` affiche simplement ces cas comme ignorés.
 
 ## Ce qu'un redémarrage coûte
 

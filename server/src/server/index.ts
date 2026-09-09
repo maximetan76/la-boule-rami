@@ -14,7 +14,7 @@ import type { Depot } from '../persistence/depot.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { DepotPrisma } from '../persistence/depot-prisma.js';
 import { GameRoomManager, type Minuteur } from './game-room-manager.js';
-import { enregistrerHandlers } from './handlers.js';
+import { enregistrerHandlers, publierTable } from './handlers.js';
 import { gererRequeteHttp } from './http.js';
 
 export interface OptionsServeur {
@@ -50,8 +50,22 @@ export const creerServeur = (options: OptionsServeur = {}): Serveur => {
     depot,
   });
 
-  const httpServer = createServer(gererRequeteHttp({ depot, session, apple }));
-  const io = new Server(httpServer, {
+  // Le serveur HTTP est créé avant io : le notificateur passe donc par une
+  // référence différée, résolue au moment où un endpoint publie une table.
+  let io: Server | null = null;
+  const httpServer = createServer(
+    gererRequeteHttp({
+      depot,
+      manager,
+      session,
+      apple,
+      notifier: (table) => {
+        if (io !== null) publierTable(io, manager, table);
+      },
+    }),
+  );
+
+  io = new Server(httpServer, {
     cors: { origin: process.env['CORS_ORIGIN'] ?? '*' },
   });
 
@@ -64,7 +78,7 @@ export {
   GameRoomManager,
   minuteurSysteme,
 } from './game-room-manager.js';
-export type { GestionDeconnexion, JoueurInscrit, Minuteur } from './game-room-manager.js';
+export type { GestionDeconnexion, Minuteur, Table } from './game-room-manager.js';
 export { filtrerEtatPourJoueur } from './etat-filtre.js';
 export type { EtatCoupFiltre } from './etat-filtre.js';
 
