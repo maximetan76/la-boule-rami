@@ -7,6 +7,7 @@ import type { JoueurId } from '../models/index.js';
 import type {
   Depot,
   JoueurEnregistre,
+  MotifFin,
   NouvellePartie,
   PartieEnregistree,
   PartieRechargee,
@@ -58,6 +59,7 @@ export class DepotMemoire implements Depot {
       joueursIds: [],
       creeeLe: new Date(),
       termineeLe: null,
+      motifFin: null,
     };
     this.parties.set(partie.id, enregistree);
     return Promise.resolve(enregistree);
@@ -75,6 +77,14 @@ export class DepotMemoire implements Depot {
       (partie) => partie.termineeLe === null && partie.joueursIds.includes(joueurId),
     );
     return Promise.resolve(trouvee ?? null);
+  }
+
+  /** La plus récente d'abord : les parties sont conservées dans leur ordre de création. */
+  dernierePartieDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null> {
+    const candidates = [...this.parties.values()].filter((partie) =>
+      partie.joueursIds.includes(joueurId),
+    );
+    return Promise.resolve(candidates.at(-1) ?? null);
   }
 
   asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void> {
@@ -95,10 +105,10 @@ export class DepotMemoire implements Depot {
     return Promise.resolve();
   }
 
-  terminerPartie(id: string): Promise<void> {
+  terminerPartie(id: string, motif: MotifFin): Promise<void> {
     const partie = this.parties.get(id);
     if (partie !== undefined) {
-      this.parties.set(id, { ...partie, termineeLe: new Date() });
+      this.parties.set(id, { ...partie, termineeLe: new Date(), motifFin: motif });
     }
     return Promise.resolve();
   }

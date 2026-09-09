@@ -13,8 +13,14 @@ import {
   verifierJetonSession,
   type ConfigSession,
 } from '../auth/session.js';
-import type { Depot, GestionDeconnexion, JoueurEnregistre } from '../persistence/depot.js';
+import type {
+  Depot,
+  GestionDeconnexion,
+  JoueurEnregistre,
+  PartieEnregistree,
+} from '../persistence/depot.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../persistence/depot.js';
+import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { GameRoomManager, Table } from './game-room-manager.js';
 
 /** Au-delà, la requête est rejetée : un jeton d'identité tient largement dedans. */
@@ -225,6 +231,95 @@ const changerPseudo = async (
   return { joueur: { id: renomme.id, pseudo: renomme.pseudo } };
 };
 
+/** Résumé de Boule, pour un client qui reprend une partie sans coup distribué. */
+const resumerBoule = (table: Table) =>
+  table.boule === null
+    ? null
+    : {
+        nombreCoupsTotal: table.boule.nombreCoupsTotal,
+        nombreCoupsFriches: table.boule.nombreCoupsFriches,
+        coupsJoues: table.boule.historique.length,
+        scoresCumules: { ...table.boule.scoresCumules },
+        croix: { ...table.boule.croix },
+      };
+
+/**
+ * Où en est le joueur : c'est le point d'entrée d'un client qui n'a gardé que
+ * son jeton de session — après un redémarrage du serveur, ou une réinstallation
+ * de l'application.
+ *
+ * Une partie abandonnée en son absence est signalée comme telle plutôt que
+ * passée sous silence : sans cela, un joueur revenu trop tard croirait n'avoir
+ * jamais eu de partie en cours. La réponse redevient « aucune » dès qu'il
+ * ouvre ou rejoint une autre table.
+ */
+const situationDuJoueur = async (
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): Promise<unknown> => {
+  const table = deps.manager.tableDuJoueur(joueur.id);
+
+  if (table !== null) {
+    if (table.statut === 'salon') return { statut: 'salon', table: decrireTable(table) };
+    return {
+      statut: 'en-cours',
+      table: decrireTable(table),
+      boule: resumerBoule(table),
+      // Le coup en cours n'est pas persisté : après un redémarrage, il n'y a
+      // rien à filtrer tant que la donne n'a pas été refaite.
+      etat:
+        table.coup === null
+          ? null
+          : filtrerEtatPourJoueur(table.coup, table.boule as NonNullable<typeof table.boule>, joueur.id, {
+              tableId: table.id,
+              connectes: deps.manager.joueursConnectes(table),
+              tourEnAttente: table.tourEnCours,
+            }),
+    };
+  }
+
+  const derniere = await deps.depot.dernierePartieDuJoueur(joueur.id);
+  if (derniere === null) return { statut: 'aucune' };
+
+  if (derniere.termineeLe !== null) {
+    // Une partie achevée normalement n'a rien à signaler : le joueur en a vu
+    // le décompte final. Un abandon, lui, s'est produit sans lui.
+    if (derniere.motifFin !== 'abandon') return { statut: 'aucune' };
+    return {
+      statut: 'abandonnee',
+      tableId: derniere.id,
+      codeInvitation: derniere.codeInvitation,
+      termineeLe: derniere.termineeLe.toISOString(),
+    };
+  }
+
+  // La base connaît une partie vivante que la mémoire ignore : le serveur n'a
+  // pas encore rechargé. Mieux vaut le dire que renvoyer « aucune table ».
+  return {
+    statut: derniere.demarree ? 'en-cours' : 'salon',
+    table: await decrirePartie(derniere, deps.depot),
+    boule: null,
+    etat: null,
+  };
+};
+
+const decrirePartie = async (partie: PartieEnregistree, depot: Depot) => {
+  const joueurs = await Promise.all(
+    partie.joueursIds.map(async (joueurId) => ({
+      joueurId,
+      pseudo: (await depot.trouverJoueur(joueurId))?.pseudo ?? joueurId,
+    })),
+  );
+  return {
+    tableId: partie.id,
+    codeInvitation: partie.codeInvitation,
+    capacite: partie.capacite,
+    statut: partie.demarree ? 'en-cours' : 'salon',
+    createurId: partie.createurId,
+    joueurs,
+  };
+};
+
 const ABANDON = /^\/tables\/([^/]+)\/abandonner$/;
 
 /**
@@ -253,6 +348,10 @@ export const gererRequeteHttp =
         } catch {
           throw new ErreurHttp(401, 'Jeton de session refuse');
         }
+      }
+
+      if (methode === 'GET' && chemin === '/tables/moi') {
+        return { code: 200, corps: await situationDuJoueur(deps, await authentifier(requete, deps)) };
       }
 
       if (methode === 'POST' && chemin === '/tables') {

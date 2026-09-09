@@ -9,6 +9,7 @@ import type {
   Depot,
   GestionDeconnexion,
   JoueurEnregistre,
+  MotifFin,
   NouvellePartie,
   PartieEnregistree,
   PartieRechargee,
@@ -27,6 +28,7 @@ interface LignePartie {
   gestionDeconnexionDureeMs: number;
   creeeLe: Date;
   termineeLe: Date | null;
+  motifFin: string | null;
   joueurs?: { joueurId: string; position: number }[];
 }
 
@@ -47,6 +49,7 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
     .map((place) => place.joueurId),
   creeeLe: ligne.creeeLe,
   termineeLe: ligne.termineeLe,
+  motifFin: ligne.motifFin === 'abandon' || ligne.motifFin === 'achevee' ? ligne.motifFin : null,
 });
 
 const PLACES = { joueurs: { select: { joueurId: true, position: true } } } as const;
@@ -104,6 +107,15 @@ export class DepotPrisma implements Depot {
     return ligne === null ? null : versPartie(ligne as LignePartie);
   }
 
+  async dernierePartieDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null> {
+    const ligne = await this.prisma.partie.findFirst({
+      where: { joueurs: { some: { joueurId } } },
+      orderBy: { creeeLe: 'desc' },
+      include: PLACES,
+    });
+    return ligne === null ? null : versPartie(ligne as LignePartie);
+  }
+
   async asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void> {
     await this.prisma.joueurSurPartie.create({ data: { partieId, joueurId, position } });
   }
@@ -124,8 +136,11 @@ export class DepotPrisma implements Depot {
     ]);
   }
 
-  async terminerPartie(id: string): Promise<void> {
-    await this.prisma.partie.update({ where: { id }, data: { termineeLe: new Date() } });
+  async terminerPartie(id: string, motif: MotifFin): Promise<void> {
+    await this.prisma.partie.update({
+      where: { id },
+      data: { termineeLe: new Date(), motifFin: motif },
+    });
   }
 
   /**

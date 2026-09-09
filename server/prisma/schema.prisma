@@ -42,6 +42,9 @@ model Partie {
 
   creeeLe    DateTime  @default(now())
   termineeLe DateTime?
+  /// Pourquoi la partie s'est arrêtée : « abandon » ou « achevee ». Sert à
+  /// dire à un joueur revenu plus tard que sa partie a été abandonnée.
+  motifFin   String?
 
   joueurs JoueurSurPartie[]
   boule   Boule?

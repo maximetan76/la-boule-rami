@@ -5,7 +5,9 @@ import { EMETTEUR_APPLE } from '../auth/apple.js';
 import { secretDepuisTexte } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { ALPHABET_CODE, LONGUEUR_CODE } from '../server/game-room-manager.js';
+import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
+import type { EtatCoupFiltre } from '../server/etat-filtre.js';
 
 /** Salons, invitations, abandon et pseudo, vus depuis l'API HTTP. */
 
@@ -296,6 +298,183 @@ describe('API des tables', () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       const { statut } = await appeler('POST', '/tables/inexistante/abandonner', { compte: ana });
       expect(statut).toBe(404);
+    });
+  });
+
+  describe('GET /tables/moi', () => {
+    const ouvrirSalon = async (compte: Compte, nombreJoueurs = 3) => {
+      const { corps } = await appeler('POST', '/tables', { compte, corps: { nombreJoueurs } });
+      return { tableId: corps['tableId'] as string, code: corps['codeInvitation'] as string };
+    };
+
+    it('dit clairement qu un joueur n est sur aucune table', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const { statut, corps } = await appeler('GET', '/tables/moi', { compte: ana });
+
+      expect(statut).toBe(200);
+      expect(corps).toEqual({ statut: 'aucune' });
+    });
+
+    it('retrouve le salon en attente', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { tableId, code } = await ouvrirSalon(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+
+      const { corps } = await appeler('GET', '/tables/moi', { compte: bo });
+      expect(corps['statut']).toBe('salon');
+      expect((corps['table'] as Record<string, unknown>)['tableId']).toBe(tableId);
+      expect((corps['table'] as Record<string, unknown>)['codeInvitation']).toBe(code);
+    });
+
+    it('retrouve la partie en cours, sans etat tant que la donne n a pas eu lieu', async () => {
+      const comptes = await Promise.all([
+        ouvrirCompte('001.ana', 'Ana'),
+        ouvrirCompte('001.bo', 'Bo'),
+        ouvrirCompte('001.cy', 'Cy'),
+      ]);
+      const { code } = await ouvrirSalon(comptes[0] as Compte);
+      for (const compte of comptes.slice(1)) {
+        await appeler('POST', '/tables/rejoindre', { compte, corps: { code } });
+      }
+
+      const { corps } = await appeler('GET', '/tables/moi', { compte: comptes[0] as Compte });
+      expect(corps['statut']).toBe('en-cours');
+      // Personne n'est connecte en socket : aucun coup n'est distribue.
+      expect(corps['etat']).toBeNull();
+      expect((corps['boule'] as Record<string, unknown>)['coupsJoues']).toBe(0);
+      expect((corps['boule'] as Record<string, unknown>)['nombreCoupsTotal']).toBe(9);
+    });
+
+    it('rend l etat filtre du joueur une fois la donne faite', async () => {
+      const comptes = await Promise.all([
+        ouvrirCompte('001.ana', 'Ana'),
+        ouvrirCompte('001.bo', 'Bo'),
+        ouvrirCompte('001.cy', 'Cy'),
+      ]);
+      const { tableId, code } = await ouvrirSalon(comptes[0] as Compte);
+      for (const compte of comptes.slice(1)) {
+        await appeler('POST', '/tables/rejoindre', { compte, corps: { code } });
+      }
+
+      const sockets: ClientSocket[] = [];
+      for (const compte of comptes) {
+        const socket = clientIo(base, { transports: ['websocket'] });
+        await new Promise<void>((resolve) => {
+          socket.on('connect', () => {
+            resolve();
+          });
+        });
+        await new Promise<void>((resolve) => {
+          socket.emit('rejoindre-table', { jeton: compte.jeton, tableId }, () => {
+            resolve();
+          });
+        });
+        sockets.push(socket);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const ana = comptes[0] as Compte;
+      const { corps } = await appeler('GET', '/tables/moi', { compte: ana });
+      const etat = corps['etat'] as EtatCoupFiltre;
+
+      expect(etat.moi.joueurId).toBe(ana.id);
+      expect(etat.moi.main).toHaveLength(14);
+      // Le filtrage vaut aussi par ce chemin : rien des mains adverses.
+      const rendu = JSON.stringify(etat);
+      const coup = serveur.manager.table(tableId).coup;
+      for (const [joueurId, main] of Object.entries(coup?.mains ?? {})) {
+        if (joueurId === ana.id) continue;
+        for (const carte of main) expect(rendu).not.toContain(carte.id);
+      }
+      for (const carte of coup?.pioche ?? []) expect(rendu).not.toContain(carte.id);
+
+      for (const socket of sockets) socket.disconnect();
+    });
+
+    it('retrouve la table apres un redemarrage du serveur', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { tableId, code } = await ouvrirSalon(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+
+      // Un second serveur sur le meme depot : le premier n'existe plus pour lui.
+      const repris = creerServeur({ depot, session: SESSION, apple: { clientId: CLIENT_ID } });
+      await repris.manager.recharger();
+      await new Promise<void>((resolve) => {
+        repris.httpServer.listen(0, resolve);
+      });
+      const baseReprise = `http://localhost:${String(
+        (repris.httpServer.address() as { port: number }).port,
+      )}`;
+
+      const reponse = await fetch(`${baseReprise}/tables/moi`, {
+        headers: { authorization: `Bearer ${ana.jeton}` },
+      });
+      const corps = (await reponse.json()) as Record<string, unknown>;
+
+      expect(corps['statut']).toBe('salon');
+      expect((corps['table'] as Record<string, unknown>)['tableId']).toBe(tableId);
+
+      repris.io.close();
+      await new Promise<void>((resolve) => {
+        repris.httpServer.close(() => {
+          resolve();
+        });
+      });
+    });
+
+    it('signale une partie abandonnee par un autre en son absence', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { tableId, code } = await ouvrirSalon(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+
+      // Bo abandonne pendant qu'Ana n'est pas connectee.
+      await appeler('POST', `/tables/${tableId}/abandonner`, { compte: bo });
+
+      const { corps } = await appeler('GET', '/tables/moi', { compte: ana });
+      expect(corps['statut']).toBe('abandonnee');
+      expect(corps['tableId']).toBe(tableId);
+      expect(corps['codeInvitation']).toBe(code);
+      expect(typeof corps['termineeLe']).toBe('string');
+    });
+
+    it('cesse de signaler l abandon des que le joueur repart sur une table', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { tableId, code } = await ouvrirSalon(ana);
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code } });
+      await appeler('POST', `/tables/${tableId}/abandonner`, { compte: bo });
+
+      expect((await appeler('GET', '/tables/moi', { compte: ana })).corps['statut']).toBe(
+        'abandonnee',
+      );
+
+      await appeler('POST', '/tables', { compte: ana });
+      expect((await appeler('GET', '/tables/moi', { compte: ana })).corps['statut']).toBe('salon');
+    });
+
+    it('ne signale rien apres une partie achevee normalement', async () => {
+      const comptes = await Promise.all([
+        ouvrirCompte('001.ana', 'Ana'),
+        ouvrirCompte('001.bo', 'Bo'),
+        ouvrirCompte('001.cy', 'Cy'),
+      ]);
+      const { tableId, code } = await ouvrirSalon(comptes[0] as Compte);
+      for (const compte of comptes.slice(1)) {
+        await appeler('POST', '/tables/rejoindre', { compte, corps: { code } });
+      }
+
+      // La Boule va jusqu'a son terme : rien d'anormal a signaler.
+      await serveur.manager.cloreLaPartie(serveur.manager.table(tableId));
+
+      const { corps } = await appeler('GET', '/tables/moi', { compte: comptes[0] as Compte });
+      expect(corps).toEqual({ statut: 'aucune' });
+    });
+
+    it('exige un jeton de session', async () => {
+      expect((await appeler('GET', '/tables/moi')).statut).toBe(401);
     });
   });
 

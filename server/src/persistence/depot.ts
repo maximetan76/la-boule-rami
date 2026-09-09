@@ -22,6 +22,9 @@ export interface JoueurEnregistre {
   readonly creeLe: Date;
 }
 
+/** Pourquoi une partie s'est arrêtée. */
+export type MotifFin = 'abandon' | 'achevee';
+
 export interface PartieEnregistree {
   readonly id: string;
   readonly codeInvitation: string;
@@ -32,6 +35,7 @@ export interface PartieEnregistree {
   readonly joueursIds: JoueurId[];
   readonly creeeLe: Date;
   readonly termineeLe: Date | null;
+  readonly motifFin: MotifFin | null;
 }
 
 export interface NouvellePartie {
@@ -60,10 +64,15 @@ export interface Depot {
   trouverPartieParCode(codeInvitation: string): Promise<PartieEnregistree | null>;
   /** Partie non terminée à laquelle le joueur est inscrit, s'il y en a une. */
   partieActiveDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null>;
+  /**
+   * Dernière partie du joueur, terminée ou non. C'est elle qui permet de lui
+   * dire, à son retour, que sa partie a été abandonnée en son absence.
+   */
+  dernierePartieDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null>;
   asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void>;
   /** Fige l'ordre de la table issu du tirage et marque la partie démarrée. */
   demarrerPartie(partieId: string, ordreTable: readonly JoueurId[]): Promise<void>;
-  terminerPartie(id: string): Promise<void>;
+  terminerPartie(id: string, motif: MotifFin): Promise<void>;
 
   /** Écrit l'état de la Boule d'une partie, en écrasant le précédent. */
   enregistrerBoule(partieId: string, etat: EtatBoulePersiste): Promise<void>;

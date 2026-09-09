@@ -272,7 +272,9 @@ export class GameRoomManager {
     this.parCode.delete(table.codeInvitation);
     this.tables.delete(tableId);
 
-    await this.depot?.terminerPartie(tableId);
+    // Le motif est ce qui permettra de dire à un joueur absent, à son retour,
+    // que sa partie a été abandonnée plutôt qu'achevée.
+    await this.depot?.terminerPartie(tableId, 'abandon');
     return table;
   }
 
@@ -349,7 +351,18 @@ export class GameRoomManager {
 
   async cloreLaPartie(table: Table): Promise<void> {
     table.statut = 'terminee';
-    await this.depot?.terminerPartie(table.id);
+    // Le code cesse d'être valide : mieux vaut « code inconnu » que « partie
+    // déjà commencée » pour qui tenterait de rejoindre une table achevée.
+    this.parCode.delete(table.codeInvitation);
+    await this.depot?.terminerPartie(table.id, 'achevee');
+  }
+
+  /** Table vivante où ce joueur a une place, s'il y en a une. */
+  tableDuJoueur(joueurId: JoueurId): Table | null {
+    for (const table of this.tables.values()) {
+      if (table.statut !== 'terminee' && table.connexions.has(joueurId)) return table;
+    }
+    return null;
   }
 
   table(tableId: TableId): Table {

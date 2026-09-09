@@ -96,6 +96,7 @@ récupère et met en cache tout seul.
 | --- | --- | --- |
 | `POST` | `/auth/apple` | échange un jeton d'identité Apple contre un jeton de session |
 | `POST` | `/auth/renouveler` | prolonge un jeton de session encore valide |
+| `GET` | `/tables/moi` | où en est le joueur : salon, partie en cours, partie abandonnée, ou rien |
 | `POST` | `/tables` | ouvre un salon et rend son code d'invitation |
 | `POST` | `/tables/rejoindre` | rejoint un salon par son code |
 | `POST` | `/tables/:id/abandonner` | clôt définitivement une partie interrompue |
@@ -106,6 +107,12 @@ Toutes sauf `/auth/*` et `/sante` attendent l'en-tête
 `Authorization: Bearer <jeton de session>`.
 
 Le jeu lui-même passe par les WebSocket, jamais par HTTP.
+
+`GET /tables/moi` est le point d'entrée d'un client qui n'a gardé que son jeton
+de session — après un redémarrage du serveur ou une réinstallation de l'app. Il
+répond `salon`, `en-cours` (avec l'état filtré du joueur si la donne a eu lieu),
+`abandonnee` si la partie a été close par un autre joueur en son absence, ou
+`aucune`.
 
 ## 8. Vérifier
 

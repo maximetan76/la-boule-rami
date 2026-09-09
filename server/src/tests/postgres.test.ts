@@ -120,12 +120,17 @@ describe.skipIf(URL_TEST === undefined || URL_TEST.length === 0)('PostgreSQL', (
   });
 
   it('ne recharge plus une partie terminee', async () => {
-    await depot.terminerPartie('partie-pg');
+    await depot.terminerPartie('partie-pg', 'abandon');
 
     const actives = await depot.chargerPartiesActives();
     expect(actives.some((active) => active.partie.id === 'partie-pg')).toBe(false);
     // Et ses joueurs redeviennent libres.
     const ana = await depot.trouverOuCreerJoueurApple('001.salon.0', 'Ana');
     expect(await depot.partieActiveDuJoueur(ana.id)).toBeNull();
+
+    // Le motif reste lisible : c'est lui qui signalera l'abandon au retour.
+    const derniere = await depot.dernierePartieDuJoueur(ana.id);
+    expect(derniere?.id).toBe('partie-pg');
+    expect(derniere?.motifFin).toBe('abandon');
   });
 });
