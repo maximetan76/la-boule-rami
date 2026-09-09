@@ -3,14 +3,18 @@
  *
  * Réf. `docs/REGLES.md` § « Fin de la Boule (tous les coups joués) » :
  * - le score total le plus bas gagne la Boule et reçoit -100 points si ce
- *   score est positif, -200 s'il est négatif ;
+ *   score est positif ou nul, -200 s'il est négatif ; en cas d'ex æquo, ce
+ *   bonus est partagé à parts égales entre les joueurs à égalité ;
  * - on applique ensuite -100 points par croix accumulée, après le bonus ;
  * - on calcule enfin l'écart entre chaque paire de joueurs, base d'un enjeu
  *   financier optionnel.
  */
 import type { Boule, JoueurId, ResultatBoule } from '../models/index.js';
 
-/** Bonus de victoire de Boule quand le score du gagnant est positif ou nul. */
+/**
+ * Bonus de victoire de Boule quand le score du gagnant est positif ou nul.
+ * En cas d'ex æquo, ce montant est divisé entre les joueurs à égalité.
+ */
 export const BONUS_VICTOIRE_SCORE_POSITIF = -100;
 /** Bonus de victoire de Boule quand le score du gagnant est négatif. */
 export const BONUS_VICTOIRE_SCORE_NEGATIF = -200;
@@ -26,22 +30,23 @@ export const calculerFinDeBoule = (boule: Boule): ResultatBoule => {
   const scoreDe = (id: JoueurId): number => boule.scoresCumules[id] ?? 0;
   const meilleurScore = Math.min(...joueursIds.map(scoreDe));
 
-  // TODO(règles) : en cas d'égalité au score le plus bas, le texte ne tranche
-  // pas. Le bonus est accordé à chaque joueur à égalité en attendant.
   const gagnantsIds = joueursIds.filter((id) => scoreDe(id) === meilleurScore);
+
+  // Le bonus de victoire est un montant unique, partagé à parts égales entre
+  // les ex æquo : -50 chacun à deux, -100/3 chacun à trois. La division n'est
+  // pas arrondie, pour que la somme des bonus attribués reste exactement le
+  // bonus total ; c'est à l'affichage d'arrondir s'il le faut.
+  const bonusTotal =
+    meilleurScore < 0 ? BONUS_VICTOIRE_SCORE_NEGATIF : BONUS_VICTOIRE_SCORE_POSITIF;
+  const bonusParGagnant = bonusTotal / gagnantsIds.length;
 
   const bonusVictoire: Record<JoueurId, number> = {};
   const penalitesCroix: Record<JoueurId, number> = {};
   const scoresFinaux: Record<JoueurId, number> = {};
 
   for (const id of joueursIds) {
-    // TODO(règles) : un score de 0 pile n'est ni positif ni négatif au sens du
-    // texte ; il est traité comme non négatif, donc -100.
-    const bonus = gagnantsIds.includes(id)
-      ? scoreDe(id) < 0
-        ? BONUS_VICTOIRE_SCORE_NEGATIF
-        : BONUS_VICTOIRE_SCORE_POSITIF
-      : 0;
+    // Un score de 0 pile compte comme positif : bonus de -100.
+    const bonus = gagnantsIds.includes(id) ? bonusParGagnant : 0;
     const croix = boule.croix[id] ?? 0;
 
     bonusVictoire[id] = bonus;

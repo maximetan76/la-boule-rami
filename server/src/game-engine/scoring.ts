@@ -5,8 +5,10 @@
  * - le gagnant marque -20 points, -40 en « double », -60 en « triple » ;
  * - chaque perdant marque la valeur de ses cartes en main, arrondie à la
  *   dizaine la plus proche, puis doublée ou triplée selon la victoire ;
- * - un joueur n'ayant posé aucune carte marque 100 points fixes ;
- * - un coup friché ajoute un facteur 2 qui se cumule (jusqu'à x6).
+ * - un joueur n'ayant posé aucune carte marque 100 points au lieu de la valeur
+ *   de sa main ;
+ * - un coup friché ajoute un facteur 2 qui se cumule (jusqu'à x6), appliqué à
+ *   tous les montants du coup, gagnant compris.
  */
 import type { Coup, Joueur, JoueurId, ScoreCoup, TypeVictoire } from '../models/index.js';
 import { pointsEnMain } from './cartes.js';
@@ -16,8 +18,9 @@ import { compterCroix } from './croix.js';
 export const POINTS_GAGNANT = -20;
 
 /**
- * Forfait d'un joueur n'ayant posé aucune carte du coup : 100 points « fixes »,
- * sans calcul de la valeur de ses cartes ni arrondi.
+ * Forfait d'un joueur n'ayant posé aucune carte du coup : 100 points, sans
+ * calcul de la valeur de ses cartes ni arrondi. Les multiplicateurs du coup
+ * s'y appliquent ensuite comme pour les autres perdants.
  */
 export const FORFAIT_SANS_POSE = 100;
 
@@ -62,9 +65,9 @@ export const calculerScoreCoup = (
   const croixGagnees: Record<JoueurId, number> = {};
 
   for (const joueur of joueurs) {
-    // Les joueurs « sur le côté » ne jouent pas la main : ils ne marquent rien.
-    // TODO(règles) : à confirmer, le texte ne dit pas explicitement qu'ils sont
-    // neutralisés au score, seulement qu'ils ne jouent pas le coup.
+    // Les joueurs « sur le côté » ne jouent pas la main : ils marquent 0 sur ce
+    // coup. Ils restent présents dans le décompte, leur score cumulé de Boule
+    // ne variant simplement pas.
     if (!coup.ordreJoueurs.includes(joueur.id)) {
       scores[joueur.id] = 0;
       croixGagnees[joueur.id] = 0;
@@ -74,11 +77,10 @@ export const calculerScoreCoup = (
     if (joueur.id === gagnantId) {
       scores[joueur.id] = POINTS_GAGNANT * multiplicateur;
     } else if (!aPoseAuMoinsUneCarte(coup, joueur.id)) {
-      // TODO(règles) : le forfait de 100 points est-il lui aussi doublé ou
-      // triplé par un coup friché / un double / un triple ? Le texte le dit
-      // « fixe », il est donc laissé hors multiplicateurs en attendant
-      // confirmation.
-      scores[joueur.id] = FORFAIT_SANS_POSE;
+      // Le forfait remplace le calcul de la valeur des cartes et son arrondi,
+      // mais suit les mêmes multiplicateurs que les autres perdants : jusqu'à
+      // 600 points sur un triple pendant un coup friché.
+      scores[joueur.id] = FORFAIT_SANS_POSE * multiplicateur;
     } else {
       // L'arrondi précède le multiplicateur : les règles doublent le score
       // « normalement marqué », c'est-à-dire déjà arrondi (34 → 30 → 60).
@@ -87,10 +89,8 @@ export const calculerScoreCoup = (
 
     // § « Bonus quinte flush royale » : les croix du coup sont doublées ou
     // triplées quand c'est le joueur qui les obtient qui réalise le double ou
-    // le triple — donc le gagnant du coup.
-    // TODO(règles) : un coup friché multiplie-t-il aussi les croix ? Le texte
-    // ne mentionne que le double et le triple ; le facteur friché n'est donc
-    // pas appliqué ici.
+    // le triple — donc le gagnant du coup. Le facteur friché, lui, ne touche
+    // pas les croix : seul le double ou le triple les multiplie.
     const facteurCroix = joueur.id === gagnantId ? facteurVictoire : 1;
     croixGagnees[joueur.id] = compterCroix(coup, joueur.id) * facteurCroix;
   }

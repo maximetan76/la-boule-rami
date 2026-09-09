@@ -88,36 +88,44 @@ describe('calculerScoreCoup', () => {
     expect(score.scores).toEqual({ j1: -120, j2: 180, j3: 240 });
   });
 
-  it('donne 100 points fixes au joueur n ayant pose aucune carte', () => {
-    const partie = coupA3({
+  const coupSansPoseDeJ2 = () =>
+    coupA3({
       recapitulatifs: {
         j1: recap({ toursAvecPose: [2] }),
         j2: recap({ toursAvecPose: [] }),
         j3: recap({ toursAvecPose: [4] }),
       },
     });
-    const score = calculerScoreCoup(partie, joueurs(), 'j1', 'simple', false);
+
+  it('donne 100 points au joueur n ayant pose aucune carte, sans regarder sa main', () => {
+    const score = calculerScoreCoup(coupSansPoseDeJ2(), joueurs(), 'j1', 'simple', false);
+    // Sa main vaudrait 30 points arrondis : le forfait la remplace.
     expect(score.scores['j2']).toBe(100);
   });
 
-  it('laisse le forfait de 100 points hors des multiplicateurs, en attente de confirmation', () => {
-    const partie = coupA3({
-      recapitulatifs: {
-        j1: recap({ toursAvecPose: [2] }),
-        j2: recap({ toursAvecPose: [] }),
-        j3: recap({ toursAvecPose: [4] }),
-      },
-    });
-    const score = calculerScoreCoup(partie, joueurs(), 'j1', 'triple', true);
-    expect(score.scores['j2']).toBe(100);
+  it('applique les multiplicateurs au forfait comme aux autres perdants', () => {
+    const double = calculerScoreCoup(coupSansPoseDeJ2(), joueurs(), 'j1', 'double', false);
+    expect(double.scores['j2']).toBe(200);
+
+    const simpleFriche = calculerScoreCoup(coupSansPoseDeJ2(), joueurs(), 'j1', 'simple', true);
+    expect(simpleFriche.scores['j2']).toBe(200);
+  });
+
+  it('porte le forfait a 600 points sur un triple pendant un coup friche', () => {
+    const score = calculerScoreCoup(coupSansPoseDeJ2(), joueurs(), 'j1', 'triple', true);
+    expect(score.multiplicateur).toBe(6);
+    expect(score.scores['j2']).toBe(600);
     expect(score.scores['j3']).toBe(240);
+    // Le gagnant suit le meme facteur x6 sur ses -20 de base.
+    expect(score.scores['j1']).toBe(-120);
   });
 
-  it('neutralise les joueurs sur le cote', () => {
+  it('donne 0 point aux joueurs sur le cote, sans les sortir du decompte', () => {
     const partie = coupA3({ joueursSurLeCote: ['j4'] });
     const avecRemplacant = [...joueurs(), joueur('j4', main35())];
-    const score = calculerScoreCoup(partie, avecRemplacant, 'j1', 'simple', false);
+    const score = calculerScoreCoup(partie, avecRemplacant, 'j1', 'triple', true);
     expect(score.scores['j4']).toBe(0);
+    expect(Object.keys(score.scores)).toContain('j4');
   });
 
   it('compte les croix du coup et les multiplie pour le gagnant en double', () => {
@@ -130,6 +138,18 @@ describe('calculerScoreCoup', () => {
     const partie = coupA3({ combinaisons: [quintePure('coeur', 'j2')] });
     const score = calculerScoreCoup(partie, joueurs(), 'j1', 'triple', false);
     expect(score.croixGagnees['j2']).toBe(2);
+  });
+
+  it('n applique pas le facteur friche aux croix', () => {
+    const partie = coupA3({ combinaisons: [quintePure('coeur', 'j1')] });
+    const surCoupFriche = calculerScoreCoup(partie, joueurs(), 'j1', 'simple', true);
+    // Le coup vaut x2 sur les points, mais les croix restent a 2.
+    expect(surCoupFriche.multiplicateur).toBe(2);
+    expect(surCoupFriche.croixGagnees['j1']).toBe(2);
+
+    const doubleFriche = calculerScoreCoup(partie, joueurs(), 'j1', 'double', true);
+    // Seul le double compte pour les croix : x2, pas x4.
+    expect(doubleFriche.croixGagnees['j1']).toBe(4);
   });
 
   it('accorde 1 croix pour une quinte posee avec le coucou', () => {

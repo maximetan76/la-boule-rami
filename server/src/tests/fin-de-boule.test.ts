@@ -62,15 +62,36 @@ describe('calculerFinDeBoule', () => {
     expect(resultat.scoresFinaux).toEqual({ j1: 240, j2: -50 });
   });
 
-  it('accorde le bonus a chaque joueur a egalite au score le plus bas', () => {
+  it('partage le bonus entre 2 ex aequo au score le plus bas : -50 chacun', () => {
     const resultat = calculerFinDeBoule(boule({ scoresCumules: { j1: 200, j2: 200, j3: 400 } }));
+
     expect(resultat.gagnantsIds).toEqual(['j1', 'j2']);
-    expect(resultat.scoresFinaux).toEqual({ j1: 100, j2: 100, j3: 400 });
+    expect(resultat.bonusVictoire).toEqual({ j1: -50, j2: -50, j3: 0 });
+    expect(resultat.scoresFinaux).toEqual({ j1: 150, j2: 150, j3: 400 });
   });
 
-  it('traite un score de zero comme non negatif', () => {
+  it('partage le bonus negatif entre 2 ex aequo : -100 chacun', () => {
+    const resultat = calculerFinDeBoule(boule({ scoresCumules: { j1: -80, j2: -80, j3: 400 } }));
+
+    expect(resultat.bonusVictoire).toEqual({ j1: -100, j2: -100, j3: 0 });
+    expect(resultat.scoresFinaux).toEqual({ j1: -180, j2: -180, j3: 400 });
+  });
+
+  it('partage sans arrondir entre 3 ex aequo, le total restant exact', () => {
+    const resultat = calculerFinDeBoule(
+      boule({ scoresCumules: { j1: 200, j2: 200, j3: 200, j4: 400 } }),
+    );
+
+    expect(resultat.gagnantsIds).toEqual(['j1', 'j2', 'j3']);
+    expect(resultat.bonusVictoire['j1']).toBeCloseTo(-33.33, 2);
+    const totalBonus = Object.values(resultat.bonusVictoire).reduce((a, b) => a + b, 0);
+    expect(totalBonus).toBeCloseTo(-100, 10);
+  });
+
+  it('traite un score de zero comme positif : bonus de -100', () => {
     const resultat = calculerFinDeBoule(boule({ scoresCumules: { j1: 0, j2: 400 } }));
     expect(resultat.bonusVictoire['j1']).toBe(-100);
+    expect(resultat.scoresFinaux['j1']).toBe(-100);
   });
 
   it('refuse une Boule sans joueur', () => {
