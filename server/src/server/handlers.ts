@@ -17,6 +17,7 @@
  */
 import type { Server, Socket } from 'socket.io';
 import type {
+  Annonce,
   Carte,
   CarteId,
   CartePosee,
@@ -125,6 +126,42 @@ const prochainAParler = (coup: Coup): JoueurId | null =>
   coup.ordreJoueurs.find((joueurId) => coup.annonces[joueurId] === undefined) ?? null;
 
 /**
+ * Le joueur que la table attend, selon la phase : celui qui doit parler pendant
+ * les annonces, celui qui doit jouer ensuite. `null` si rien n'est attendu.
+ */
+const joueurAttendu = (coup: Coup): JoueurId | null => {
+  if (coup.phase === 'annonces') return prochainAParler(coup);
+  if (coup.phase === 'jeu') return coup.joueurActifId;
+  return null;
+};
+
+/**
+ * Enregistre une annonce et fait avancer le coup.
+ *
+ * § « Dès qu'un joueur annonce "Je joue" : c'est systématiquement le joueur
+ * situé à la gauche du DONNEUR qui commence à jouer en premier. » Si tous
+ * frichent, le coup est rejoué à la même place, avec le même donneur.
+ */
+const appliquerAnnonce = (table: Table, joueurId: JoueurId, annonce: Annonce): void => {
+  const coup = table.coup;
+  if (coup === null) return;
+
+  coup.annonces = { ...coup.annonces, [joueurId]: annonce };
+
+  if (annonce === 'je-joue') {
+    coup.phase = 'jeu';
+    coup.joueurActifId = coup.ordreJoueurs[0] as JoueurId;
+    return;
+  }
+  if (prochainAParler(coup) === null) {
+    table.boule = enregistrerResultatCoup(table.boule, coup.numero, {
+      toutLeMondeAFriche: true,
+    });
+    redistribuerCoup(table);
+  }
+};
+
+/**
  * Envoie à chaque joueur connecté sa propre vue de la table. Jamais de
  * diffusion groupée : deux joueurs ne reçoivent pas le même objet.
  */
@@ -199,37 +236,70 @@ const abandonnerTour = (table: Table, joueurId: JoueurId): void => {
 };
 
 /**
- * Programme l'abandon du tour d'un joueur déconnecté, si la table le prévoit.
- *
- * Le minuteur s'arme dès que le partant est le joueur actif, qu'il ait déjà
- * pioché ou non : se déconnecter avant d'agir bloquerait la table tout autant.
+ * Ce que devient le tour d'un joueur absent quand son délai expire : un
+ * « friche » pendant les annonces, l'abandon de son tour pendant le jeu.
  */
-const planifierAbandonDeTour = (
-  io: Server,
-  manager: GameRoomManager,
-  table: Table,
-  joueurId: JoueurId,
-): void => {
+const expirerTour = (table: Table, joueurId: JoueurId): void => {
+  const coup = table.coup;
+  if (coup === null || joueurAttendu(coup) !== joueurId) return;
+
+  if (coup.phase === 'annonces') {
+    // Le silence vaut friche : la parole passe au joueur suivant, exactement
+    // comme si le joueur avait annoncé lui-même.
+    appliquerAnnonce(table, joueurId, 'friche');
+    return;
+  }
+  abandonnerTour(table, joueurId);
+};
+
+/**
+ * Arme, désarme ou réarme le minuteur d'absence selon qui la table attend.
+ *
+ * Le sursis suit le joueur attendu : il tombe dès que ce n'est plus lui, et il
+ * s'arme dès que le joueur attendu est absent, quelle que soit la raison — une
+ * déconnexion, ou simplement son tour qui arrive alors qu'il est déjà parti.
+ * Sans ce dernier cas, la table se rebloquerait sur le joueur suivant si deux
+ * joueurs manquaient à la fois.
+ */
+const reevaluerSursis = (io: Server, manager: GameRoomManager, table: Table): void => {
   if (table.gestionDeconnexion.type !== 'delai') return;
 
   const coup = table.coup;
-  if (coup === null || coup.phase !== 'jeu') return;
-  if (coup.joueurActifId !== joueurId) return;
+  const attendu = coup === null ? null : joueurAttendu(coup);
 
-  table.annulerMinuteur?.();
-  table.joueurEnSursis = joueurId;
+  if (table.joueurEnSursis !== null && table.joueurEnSursis !== attendu) {
+    table.annulerMinuteur?.();
+    table.annulerMinuteur = null;
+    table.joueurEnSursis = null;
+  }
+
+  if (attendu === null) return;
+  if (manager.socketDe(table, attendu) !== null) return;
+  if (table.joueurEnSursis === attendu) return;
+
+  const dureeMs = table.gestionDeconnexion.dureeMs;
+  table.joueurEnSursis = attendu;
   table.annulerMinuteur = manager.minuteur.programmer(() => {
     table.annulerMinuteur = null;
     table.joueurEnSursis = null;
     try {
-      abandonnerTour(table, joueurId);
+      expirerTour(table, attendu);
     } catch {
-      // Un abandon impossible ne doit pas faire tomber le serveur : la table
-      // reste en l'état et le joueur peut encore revenir.
+      // Une expiration impossible ne doit pas faire tomber le serveur : la
+      // table reste en l'état et le joueur peut encore revenir.
       return;
     }
-    diffuserEtat(io, manager, table);
-  }, table.gestionDeconnexion.dureeMs);
+    publier(io, manager, table);
+  }, dureeMs);
+};
+
+/**
+ * Publie le nouvel état : chacun reçoit sa vue, après réévaluation du sursis.
+ * Toute action qui modifie la table passe par ici.
+ */
+const publier = (io: Server, manager: GameRoomManager, table: Table): void => {
+  reevaluerSursis(io, manager, table);
+  diffuserEtat(io, manager, table);
 };
 
 const repondre = (ack: unknown, action: () => void): void => {
@@ -254,7 +324,7 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
 
         // Le premier coup part dès que tout le monde est là.
         if (table.coup === null && manager.tousConnectes(table)) demarrerCoup(table);
-        diffuserEtat(io, manager, table);
+        publier(io, manager, table);
       });
     });
 
@@ -271,22 +341,8 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
           throw new Error(`Ce n'est pas a ${joueurId} de parler`);
         }
 
-        coup.annonces = { ...coup.annonces, [joueurId]: payload.annonce };
-
-        if (payload.annonce === 'je-joue') {
-          // § « c'est systematiquement le joueur a la gauche du DONNEUR qui
-          // commence », quel que soit l'auteur de l'annonce.
-          coup.phase = 'jeu';
-          coup.joueurActifId = coup.ordreJoueurs[0] as JoueurId;
-        } else if (prochainAParler(coup) === null) {
-          // Friche generalisee : le coup est rejoue a la meme place.
-          table.boule = enregistrerResultatCoup(table.boule, coup.numero, {
-            toutLeMondeAFriche: true,
-          });
-          redistribuerCoup(table);
-        }
-
-        diffuserEtat(io, manager, table);
+        appliquerAnnonce(table, joueurId, payload.annonce);
+        publier(io, manager, table);
       });
     });
 
@@ -326,7 +382,7 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
           poses: [],
           ajouts: [],
         };
-        diffuserEtat(io, manager, table);
+        publier(io, manager, table);
       });
     });
 
@@ -372,7 +428,7 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
           // defausser, quand l'action est complete et donc verifiable.
           tour.poses = [...tour.poses, ...poses];
           tour.ajouts = [...tour.ajouts, ...ajouts];
-          diffuserEtat(io, manager, table);
+          publier(io, manager, table);
         });
       },
     );
@@ -406,7 +462,7 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
         table.tourEnCours = null;
         if (apres.gagnantId !== null) cloturerCoup(table, apres);
 
-        diffuserEtat(io, manager, table);
+        publier(io, manager, table);
       });
     });
 
@@ -457,7 +513,7 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
           );
 
           table.coup = apres;
-          diffuserEtat(io, manager, table);
+          publier(io, manager, table);
         });
       },
     );
@@ -466,10 +522,9 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
       const place = manager.detacherSocket(socket.id);
       if (place === null) return;
 
-      // La place est conservee : le joueur peut revenir avec son jeton. Si un
-      // tour etait entame pour lui, la table decide s il expire ou non.
-      planifierAbandonDeTour(io, manager, place.table, place.joueurId);
-      diffuserEtat(io, manager, place.table);
+      // La place est conservee : le joueur peut revenir avec son jeton. Si la
+      // table l'attendait, son absence est mise sous minuteur.
+      publier(io, manager, place.table);
     });
   });
 };

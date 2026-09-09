@@ -61,8 +61,9 @@ const minuteurFactice = () => {
       };
     },
   };
+  /** Fait expirer les minuteurs en attente à cet instant, pas ceux qu'ils arment. */
   const declencher = () => {
-    for (const entree of programmes) {
+    for (const entree of [...programmes]) {
       if (!entree.annule) {
         entree.annule = true;
         entree.callback();
@@ -567,5 +568,167 @@ describe('gestion des deconnexions', () => {
     const table = serveur.manager.table(tableId);
     expect(table.coup?.joueurActifId).toBe(ordre[0]);
     expect(table.coup?.defausse).toHaveLength(0);
+  });
+});
+
+describe('deconnexion pendant la phase d annonces', () => {
+  let serveur: Serveur;
+  let port: number;
+  let espions: Espion[];
+  let horloge: ReturnType<typeof minuteurFactice>;
+
+  beforeEach(async () => {
+    horloge = minuteurFactice();
+    serveur = creerServeur({ minuteur: horloge.minuteur });
+    await new Promise<void>((resolve) => {
+      serveur.httpServer.listen(0, resolve);
+    });
+    port = (serveur.httpServer.address() as AddressInfo).port;
+    espions = [];
+  });
+
+  afterEach(async () => {
+    for (const espion of espions) espion.socket.disconnect();
+    serveur.io.close();
+    await new Promise<void>((resolve) => {
+      serveur.httpServer.close(() => {
+        resolve();
+      });
+    });
+  });
+
+  const connecter = async (jeton: string, joueurId: JoueurId): Promise<Espion> => {
+    const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
+    const espion: Espion = { socket, joueurId, recus: [], dernierEtat: null, etatsRecus: 0 };
+    socket.on('etat', (etat: EtatCoupFiltre) => {
+      espion.dernierEtat = etat;
+      espion.etatsRecus += 1;
+    });
+    await new Promise<void>((resolve) => {
+      socket.on('connect', () => {
+        resolve();
+      });
+    });
+    expect((await emettre(socket, 'rejoindre-table', { jeton })).ok).toBe(true);
+    espions.push(espion);
+    return espion;
+  };
+
+  const ouvrir = async (gestionDeconnexion?: GestionDeconnexion) => {
+    const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
+      alea: aleaFixe(),
+      ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
+    });
+    for (const place of places) await connecter(place.jeton, place.joueurId);
+    await patienter(20);
+
+    const ordre = serveur.manager.table(tableId).coup?.ordreJoueurs ?? [];
+    return { tableId, places, ordre };
+  };
+
+  it('friche automatiquement pour le joueur absent et passe la parole', async () => {
+    const { tableId, ordre } = await ouvrir({ type: 'delai', dureeMs: 90000 });
+    const aParler = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+
+    expect(serveur.manager.table(tableId).coup?.phase).toBe('annonces');
+    expect(serveur.manager.table(tableId).coup?.annonces).toEqual({});
+
+    aParler.socket.disconnect();
+    await patienter(50);
+
+    // Le minuteur s arme sur le joueur attendu, avant meme qu il ait parle.
+    expect(horloge.programmes).toHaveLength(1);
+    expect(horloge.programmes[0]?.delaiMs).toBe(90000);
+    expect(serveur.manager.table(tableId).joueurEnSursis).toBe(ordre[0]);
+
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    // Une friche a ete enregistree en son nom.
+    expect(table.coup?.annonces[ordre[0] as string]).toBe('friche');
+    expect(table.coup?.phase).toBe('annonces');
+    // La parole est passee au joueur suivant, qui n a pas encore parle.
+    expect(table.coup?.annonces[ordre[1] as string]).toBeUndefined();
+    // Rien n a ete distribue ni joue.
+    expect(table.coup?.defausse).toHaveLength(0);
+    expect(table.coup?.mains[ordre[0] as string]).toHaveLength(14);
+  });
+
+  it('previent les joueurs restants de la friche automatique', async () => {
+    const { ordre } = await ouvrir({ type: 'delai', dureeMs: 90000 });
+    const aParler = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+    const temoin = espions.find((espion) => espion.joueurId === ordre[1]) as Espion;
+
+    aParler.socket.disconnect();
+    await patienter(50);
+    horloge.declencher();
+    await patienter(50);
+
+    expect(temoin.dernierEtat?.coup.annonces[ordre[0] as string]).toBe('friche');
+  });
+
+  it('laisse le tour de parole en attente en mode illimite', async () => {
+    const { tableId, ordre } = await ouvrir({ type: 'illimite' });
+    const aParler = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+
+    aParler.socket.disconnect();
+    await patienter(50);
+
+    expect(horloge.programmes).toHaveLength(0);
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.coup?.annonces).toEqual({});
+    expect(table.coup?.phase).toBe('annonces');
+    expect(table.joueurEnSursis).toBeNull();
+  });
+
+  it('desamorce le minuteur quand le joueur revient parler lui-meme', async () => {
+    const { tableId, places, ordre } = await ouvrir({ type: 'delai', dureeMs: 90000 });
+    const aParler = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+    const jeton = (places.find((place) => place.joueurId === ordre[0]) as { jeton: string }).jeton;
+
+    aParler.socket.disconnect();
+    await patienter(50);
+    expect(horloge.programmes).toHaveLength(1);
+
+    const revenu = await connecter(jeton, ordre[0] as JoueurId);
+    expect(horloge.programmes[0]?.annule).toBe(true);
+    expect(serveur.manager.table(tableId).joueurEnSursis).toBeNull();
+
+    horloge.declencher();
+    expect(serveur.manager.table(tableId).coup?.annonces).toEqual({});
+
+    // Il peut parler normalement a son retour.
+    expect((await emettre(revenu.socket, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+    expect(serveur.manager.table(tableId).coup?.phase).toBe('jeu');
+  });
+
+  it('reprend un minuteur sur le joueur suivant s il est absent lui aussi', async () => {
+    // Sans cela, la table se rebloquerait aussitot apres la friche automatique.
+    const { tableId, ordre } = await ouvrir({ type: 'delai', dureeMs: 90000 });
+    const premier = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+    const second = espions.find((espion) => espion.joueurId === ordre[1]) as Espion;
+
+    second.socket.disconnect();
+    await patienter(50);
+    // Ce n est pas encore son tour de parole : rien n est arme pour lui.
+    expect(horloge.programmes).toHaveLength(0);
+
+    premier.socket.disconnect();
+    await patienter(50);
+    expect(horloge.programmes).toHaveLength(1);
+
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.coup?.annonces[ordre[0] as string]).toBe('friche');
+    // La parole revient au second, absent : un nouveau minuteur prend le relais.
+    expect(table.joueurEnSursis).toBe(ordre[1]);
+    expect(horloge.programmes).toHaveLength(2);
+    expect(horloge.programmes[1]?.annule).toBe(false);
+
+    horloge.declencher();
+    expect(serveur.manager.table(tableId).coup?.annonces[ordre[1] as string]).toBe('friche');
   });
 });
