@@ -57,3 +57,12 @@ export { verifierFinDeCoupSpeciale } from './pose.js';
 export { jouerTour, recupererJoker } from './tour.js';
 export type { ActionTour, AjoutCombinaison, JokerCible, NouvelEtatCoup } from './tour.js';
 export type { DistributionResultat } from './distribution.js';
+export {
+  determinerJoueursAssis,
+  enregistrerResultatCoup,
+  estBouleTerminee,
+  estCoupFriche,
+  initialiserBoule,
+  JOUEURS_SUR_LE_COTE,
+} from './boule.js';
+export type { CompositionCoup, FricheGeneralisee } from './boule.js';

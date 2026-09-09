@@ -71,6 +71,12 @@ export interface ResultatBoule {
 
 export interface Boule {
   /**
+   * Joueurs dans l'ordre de la table, fixe pour toute la Boule. C'est cet
+   * ordre qui fait tourner le donneur et, à 5 ou 6 joueurs, les joueurs mis
+   * sur le côté (§ « Joueurs et matériel »).
+   */
+  readonly ordreTable: JoueurId[];
+  /**
    * Nombre total de coups. Augmente d'un cran à chaque friche généralisée
    * (§ « Structure d'une Boule »).
    */

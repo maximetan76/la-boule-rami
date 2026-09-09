@@ -128,6 +128,7 @@ export const joueur = (id: JoueurId, partiel: Partial<Joueur> = {}): Joueur => (
 });
 
 export const boule = (partiel: Partial<Boule> = {}): Boule => ({
+  ordreTable: [],
   nombreCoupsTotal: 8,
   nombreCoupsFriches: 2,
   coupEnCours: null,
