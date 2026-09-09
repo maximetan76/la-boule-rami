@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { DeclarationJokerRequiseError } from '../game-engine/combinaisons.js';
 import { peutPoser } from '../game-engine/pose.js';
-import type { Carte } from '../models/index.js';
+import { calculerValeurCombinaison } from '../game-engine/combinaisons.js';
+import type { Carte, Combinaison } from '../models/index.js';
 import { c, coucou, coucouPour, ensemble, joker, jokerPour, tierce } from './fixtures.js';
 
 /**
@@ -119,6 +121,39 @@ describe('peutPoser', () => {
       c('pique', 'A'),
     ];
     expect(peutPoser(mainDe(...suite), [tierce('pique', suite)])).toBe(false);
+  });
+
+  it('rejette une pose ou un joker en bout de suite n est pas declare', () => {
+    // 7-8-joker de coeur : la suite peut se lire 6-7-8 ou 7-8-9. Pas de lecture
+    // par defaut, le joueur doit dire quelle carte son joker represente.
+    const j = joker();
+    const suite = [c('coeur', 7), c('coeur', 8), j];
+    const valets = [c('pique', 'V'), c('coeur', 'V'), c('trefle', 'V')];
+    const main = mainDe(suite[0] as Carte, suite[1] as Carte, j, ...valets);
+
+    expect(() => peutPoser(main, [tierce('coeur', suite), ensemble('V', valets)])).toThrow(
+      DeclarationJokerRequiseError,
+    );
+    expect(() => peutPoser(main, [tierce('coeur', suite), ensemble('V', valets)])).toThrow(
+      /declare|remplace/,
+    );
+  });
+
+  it('accepte la meme pose des que le joker en bout declare la carte representee', () => {
+    // Le joker declare le 9 de coeur : la suite se lit 7-8-9 = 24 points,
+    // + brelan de valets 30 = 54 points, avec une tierce validante ? non :
+    // le joker normal exclut cette tierce de la validation, il faut une autre
+    // tierce pure. On en ajoute une : D-R-A de pique = 31.
+    const jokerNeuf = jokerPour('coeur', 9);
+    const suite = [c('coeur', 7), c('coeur', 8), jokerNeuf];
+    const pure = [c('pique', 'D'), c('pique', 'R'), c('pique', 'A')];
+    const main = mainDe(suite[0] as Carte, suite[1] as Carte, jokerNeuf.carte, ...pure);
+
+    const proposees = [tierce('coeur', suite), tierce('pique', pure)];
+    expect(() => peutPoser(main, proposees)).not.toThrow();
+    expect(peutPoser(main, proposees)).toBe(true);
+    // 24 + 31 = 55 points
+    expect(calculerValeurCombinaison(proposees[0] as Combinaison)).toBe(24);
   });
 
   it('refuse une proposition vide', () => {

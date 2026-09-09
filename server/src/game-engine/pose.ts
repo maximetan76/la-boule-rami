@@ -11,6 +11,7 @@ import {
   calculerValeurCombinaison,
   estCombinaisonValide,
   estTierceValidante,
+  verifierDeclarationsJokers,
 } from './combinaisons.js';
 
 /** Seuil de points requis pour une première pose. */
@@ -42,6 +43,9 @@ export const peutPoser = (
   combinaisonsProposees: readonly Combinaison[],
 ): boolean => {
   if (combinaisonsProposees.length === 0) return false;
+  // Un joker en bout de suite doit déclarer la carte qu'il représente : c'est
+  // une erreur de pose, distincte d'une combinaison simplement refusée.
+  verifierDeclarationsJokers(combinaisonsProposees);
   if (!combinaisonsProposees.every(estCombinaisonValide)) return false;
   if (!cartesDisponibles(main, combinaisonsProposees)) return false;
   if (!combinaisonsProposees.some(estTierceValidante)) return false;

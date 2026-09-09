@@ -37,6 +37,13 @@ interface CombinaisonBase {
   readonly id: CombinaisonId;
   /** Joueur qui a posé la combinaison (§ « Fin d'un coup et scoring », double / triple). */
   readonly proprietaireId: JoueurId;
+  /**
+   * Tour où la combinaison a été posée. Le § « Bonus quinte flush royale »
+   * distingue ce qui est posé « en une fois » de ce qui l'est à un tour
+   * ultérieur : sans cette information, la contrainte de validité du bonus
+   * n'est pas vérifiable.
+   */
+  readonly tourDePose: number;
   readonly cartes: readonly CartePosee[];
 }
 

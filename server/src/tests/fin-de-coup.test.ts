@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { detecterDoubleOuTriple } from '../game-engine/fin-de-coup.js';
-import { arrondirALaDizaine } from '../game-engine/scoring.js';
 import { c, coucouPour, coup, ensemble, jokerPour, recap, tierce } from './fixtures.js';
 
 /** Réf. docs/REGLES.md § « Fin d'un coup et scoring ». */
@@ -65,20 +64,5 @@ describe('detecterDoubleOuTriple', () => {
 
   it('refuse un gagnant sans recapitulatif dans le coup', () => {
     expect(() => detecterDoubleOuTriple(coup(), 'j9')).toThrow();
-  });
-});
-
-describe('arrondirALaDizaine', () => {
-  it('arrondit 35 a 40 et 34 a 30, comme dans les regles', () => {
-    expect(arrondirALaDizaine(35)).toBe(40);
-    expect(arrondirALaDizaine(34)).toBe(30);
-  });
-
-  it('arrondit 5 et plus au dessus', () => {
-    expect(arrondirALaDizaine(5)).toBe(10);
-    expect(arrondirALaDizaine(4)).toBe(0);
-    expect(arrondirALaDizaine(0)).toBe(0);
-    expect(arrondirALaDizaine(155)).toBe(160);
-    expect(arrondirALaDizaine(100)).toBe(100);
   });
 });

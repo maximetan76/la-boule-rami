@@ -17,7 +17,13 @@ export type { Joueur, JoueurId } from './joueur.js';
 
 export type { Annonce, Coup, PhaseCoup, RecapJoueurCoup } from './coup.js';
 
-export type { Boule, ResultatCoup, TypeVictoire } from './boule.js';
+export type {
+  Boule,
+  ResultatBoule,
+  ResultatCoup,
+  ScoreCoup,
+  TypeVictoire,
+} from './boule.js';
 export { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS } from './boule.js';
 
 export type { Partie, PartieId, StatutPartie } from './partie.js';

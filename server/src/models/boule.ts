@@ -33,6 +33,42 @@ export interface ResultatCoup {
   readonly croixGagnees: Readonly<Record<JoueurId, number>>;
 }
 
+/**
+ * Score d'un coup pour chaque joueur, multiplicateurs déjà appliqués.
+ * Réf. `docs/REGLES.md` § « Fin d'un coup et scoring ».
+ */
+export interface ScoreCoup {
+  readonly gagnantId: JoueurId;
+  readonly typeVictoire: TypeVictoire;
+  readonly estFriche: boolean;
+  /** Facteur appliqué aux montants : (1 | 2 | 3) × 2 si le coup est friché. */
+  readonly multiplicateur: number;
+  readonly scores: Readonly<Record<JoueurId, number>>;
+  readonly croixGagnees: Readonly<Record<JoueurId, number>>;
+}
+
+/**
+ * Décompte final d'une Boule. Réf. § « Fin de la Boule (tous les coups joués) ».
+ */
+export interface ResultatBoule {
+  /** Somme des scores de chaque joueur sur l'ensemble des coups. */
+  readonly scoresCumules: Readonly<Record<JoueurId, number>>;
+  /** Joueur(s) au score total le plus bas. */
+  readonly gagnantsIds: readonly JoueurId[];
+  /** -100 si le score du gagnant est positif, -200 s'il est négatif ; 0 sinon. */
+  readonly bonusVictoire: Readonly<Record<JoueurId, number>>;
+  /** -100 par croix accumulée pendant la Boule. */
+  readonly penalitesCroix: Readonly<Record<JoueurId, number>>;
+  /** Score cumulé + bonus de victoire + pénalités de croix. */
+  readonly scoresFinaux: Readonly<Record<JoueurId, number>>;
+  /**
+   * Écarts entre joueurs : `ecarts[a][b]` vaut `scoresFinaux[b] - scoresFinaux[a]`,
+   * soit ce que `b` doit à `a` en points — positif quand `a` a le meilleur
+   * score. Base de l'enjeu financier optionnel (`Partie.enjeuParPoint`).
+   */
+  readonly ecarts: Readonly<Record<JoueurId, Readonly<Record<JoueurId, number>>>>;
+}
+
 export interface Boule {
   /**
    * Nombre total de coups. Augmente d'un cran à chaque friche généralisée

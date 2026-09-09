@@ -3,6 +3,7 @@
  * Aucune logique de jeu ici : uniquement de quoi écrire des cas lisibles.
  */
 import type {
+  Boule,
   Carte,
   CarteNormale,
   CartePosee,
@@ -12,6 +13,7 @@ import type {
   Coup,
   Ensemble,
   JokerNormal,
+  Joueur,
   JoueurId,
   RecapJoueurCoup,
   Tierce,
@@ -60,12 +62,14 @@ export const tierce = (
   couleur: Couleur,
   entrees: readonly Entree[],
   proprietaireId: JoueurId = 'j1',
+  tourDePose = 1,
 ): Tierce => {
   const cartes = entrees.map(poser);
   return {
     id: prochainId('comb'),
     type: 'tierce',
     proprietaireId,
+    tourDePose,
     couleur,
     cartes,
     pure: !contientJoker(cartes),
@@ -76,12 +80,14 @@ export const ensemble = (
   valeur: Valeur,
   entrees: readonly Entree[],
   proprietaireId: JoueurId = 'j1',
+  tourDePose = 1,
 ): Ensemble => {
   const cartes = entrees.map(poser);
   return {
     id: prochainId('comb'),
     type: cartes.length === 4 ? 'carre' : 'brelan',
     proprietaireId,
+    tourDePose,
     valeur,
     cartes,
     pure: !contientJoker(cartes),
@@ -110,6 +116,25 @@ export const coup = (partiel: Partial<Coup> = {}): Coup => ({
   estFriche: false,
   recapitulatifs: {},
   gagnantId: null,
+  ...partiel,
+});
+
+export const joueur = (id: JoueurId, main: Carte[] = [], partiel: Partial<Joueur> = {}): Joueur => ({
+  id,
+  nom: id.toUpperCase(),
+  main,
+  aPose: false,
+  croix: 0,
+  ...partiel,
+});
+
+export const boule = (partiel: Partial<Boule> = {}): Boule => ({
+  nombreCoupsTotal: 8,
+  nombreCoupsFriches: 2,
+  coupEnCours: null,
+  historique: [],
+  scoresCumules: {},
+  croix: {},
   ...partiel,
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculerValeurCombinaison,
+  DeclarationJokerRequiseError,
   estTiercePure,
   estTierceValidante,
   estTierceValide,
@@ -106,7 +107,9 @@ describe('calculerValeurCombinaison', () => {
 
   it('refuse de chiffrer une tierce dont un joker non declare rend la position ambigue', () => {
     // 7, 8 et un joker : la suite peut se lire 6-7-8 ou 7-8-9, le joker doit etre declare.
-    expect(() => calculerValeurCombinaison(tierce('coeur', [c('coeur', 7), c('coeur', 8), joker()]))).toThrow();
+    const ambigue = tierce('coeur', [c('coeur', 7), c('coeur', 8), joker()]);
+    expect(() => calculerValeurCombinaison(ambigue)).toThrow(DeclarationJokerRequiseError);
+    expect(() => calculerValeurCombinaison(ambigue)).toThrow(/remplace/);
   });
 });
 

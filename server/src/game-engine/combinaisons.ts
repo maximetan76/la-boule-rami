@@ -9,12 +9,34 @@
  */
 import type { Carte, Combinaison, CartePosee, Couleur, Tierce, Valeur } from '../models/index.js';
 import { TIERCE_LONGUEUR_MAX, TIERCE_LONGUEUR_MIN } from '../models/index.js';
-import { estJoker, pointsDeValeur, pointsDuRang, rang, RANG_MAX, RANG_MIN } from './cartes.js';
+import {
+  estJoker,
+  pointsDeValeur,
+  pointsDuRang,
+  rang,
+  RANG_MAX,
+  RANG_MIN,
+} from './cartes.js';
 
 /** Carte effectivement représentée par une carte posée, `null` si le joker ne déclare rien. */
 interface CarteResolue {
   readonly couleur: Couleur;
   readonly valeur: Valeur;
+}
+
+/**
+ * Un joker posé à un bout de suite doit déclarer la carte qu'il représente :
+ * sans cela, la suite se lit de plusieurs façons et son chiffrage est
+ * arbitraire. Aucune lecture par défaut n'est retenue.
+ */
+export class DeclarationJokerRequiseError extends Error {
+  constructor(description: string) {
+    super(
+      `Joker en bout de suite non declare (${description}) : precisez la carte ` +
+        `qu il represente via le champ « remplace » avant de poser cette tierce.`,
+    );
+    this.name = 'DeclarationJokerRequiseError';
+  }
 }
 
 const resoudre = (posee: CartePosee): CarteResolue | null => {
@@ -151,9 +173,12 @@ export const estTierceValidante = (combinaison: Combinaison): boolean =>
  */
 export const calculerValeurCombinaison = (combinaison: Combinaison): number => {
   if (combinaison.type === 'tierce') {
+    if (!estTierceValide(combinaison)) {
+      throw new Error(`Tierce invalide : ${decrire(combinaison)}`);
+    }
     const fenetre = fenetreTierce(combinaison);
     if (fenetre === null) {
-      throw new Error(`Tierce invalide ou position ambigue : ${decrire(combinaison)}`);
+      throw new DeclarationJokerRequiseError(decrire(combinaison));
     }
     // Chaque rang de la suite est occupé par exactement une carte, réelle ou
     // remplacée par un joker : le total ne dépend donc que de la fenêtre.
@@ -180,6 +205,46 @@ const nommer = (carte: Carte): string => {
 
 const decrire = (combinaison: Combinaison): string =>
   combinaison.cartes.map((cp) => nommer(cp.carte)).join(', ');
+
+/**
+ * Rangs réellement occupés par une tierce, jokers résolus, avec sa couleur.
+ * Renvoie `null` si la combinaison n'est pas une tierce lisible sans ambiguïté.
+ */
+export const rangsResolus = (
+  combinaison: Combinaison,
+): { couleur: Couleur; rangs: number[] } | null => {
+  if (combinaison.type !== 'tierce') return null;
+  const fenetre = fenetreTierce(combinaison);
+  if (fenetre === null) return null;
+
+  const rangs: number[] = [];
+  for (let r = fenetre.debut; r <= fenetre.fin; r += 1) rangs.push(r);
+  return { couleur: combinaison.couleur, rangs };
+};
+
+/** Rangs occupés par les cartes réelles d'une combinaison, pour une couleur donnée. */
+export const rangsDesCartesReelles = (combinaison: Combinaison, couleur: Couleur): number[] => {
+  const resolues = combinaison.cartes
+    .map(resoudre)
+    .filter((r): r is CarteResolue => r !== null && r.couleur === couleur);
+  return resolues.flatMap((r) => [rang(r.valeur, true), rang(r.valeur, false)]);
+};
+
+/**
+ * Vérifie que toute combinaison proposée est lisible sans ambiguïté.
+ * @throws DeclarationJokerRequiseError si un joker en bout de suite n'est pas déclaré.
+ */
+export const verifierDeclarationsJokers = (combinaisons: readonly Combinaison[]): void => {
+  for (const combinaison of combinaisons) {
+    if (combinaison.type !== 'tierce') continue;
+    // Une tierce simplement invalide n'est pas un problème de déclaration :
+    // elle sera refusée par la validation ordinaire.
+    if (!estTierceValide(combinaison)) continue;
+    if (fenetreTierce(combinaison) === null) {
+      throw new DeclarationJokerRequiseError(decrire(combinaison));
+    }
+  }
+};
 
 /** Extrait les cartes d'une combinaison, jokers compris. */
 export const cartesDe = (combinaison: Tierce | Combinaison): Carte[] =>
