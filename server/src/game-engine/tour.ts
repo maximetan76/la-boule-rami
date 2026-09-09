@@ -49,6 +49,27 @@ export interface JokerCible {
   readonly carteJokerId: CarteId;
 }
 
+/**
+ * Reforme un talon quand la pioche est épuisée.
+ *
+ * § « on remélange toutes les cartes de la défausse SAUF la dernière carte
+ * visible, qui reste la défausse courante ».
+ */
+export const reformerTalon = (
+  pioche: readonly Carte[],
+  defausse: readonly Carte[],
+  alea: () => number = Math.random,
+): { pioche: Carte[]; defausse: Carte[] } => {
+  if (pioche.length > 0) return { pioche: [...pioche], defausse: [...defausse] };
+
+  const sommet = defausse.at(-1);
+  const enfouies = defausse.slice(0, -1);
+  if (sommet === undefined || enfouies.length === 0) {
+    throw new Error('Plus aucune carte a piocher : talon et defausse sont epuises');
+  }
+  return { pioche: melangerPaquet(enfouies, alea), defausse: [sommet] };
+};
+
 const aDejaPose = (coup: Coup, joueurId: JoueurId): boolean =>
   (coup.recapitulatifs[joueurId]?.toursAvecPose.length ?? 0) > 0;
 
@@ -91,15 +112,10 @@ export const jouerTour = (
 
   if (action.source === 'pioche') {
     if (pioche.length === 0) {
-      // § « Si la pioche est épuisée en cours de coup, on remélange toutes les
-      // cartes de la défausse SAUF la dernière carte visible ».
-      const sommet = defausse.pop();
-      if (sommet === undefined || defausse.length === 0) {
-        throw new Error('Plus aucune carte a piocher : talon et defausse sont epuises');
-      }
-      pioche.push(...melangerPaquet(defausse, alea));
+      const talon = reformerTalon(pioche, defausse, alea);
+      pioche.push(...talon.pioche);
       defausse.length = 0;
-      defausse.push(sommet);
+      defausse.push(...talon.defausse);
     }
     cartePiochee = pioche.shift() as Carte;
   } else {

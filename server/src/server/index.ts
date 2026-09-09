@@ -1,28 +1,37 @@
 /**
  * Point d'entrée du serveur temps réel de « La Boule ».
  *
- * Ce fichier n'est qu'un bootstrap réseau : toute la logique de jeu vit dans
- * `src/game-engine/` et suit `docs/REGLES.md`.
+ * Toute la logique de jeu vit dans `src/game-engine/` et suit `docs/REGLES.md`.
+ * Cette couche ne fait que transporter : elle valide chaque action auprès du
+ * moteur et ne laisse sortir que des états filtrés par joueur.
  */
-import { createServer } from 'node:http';
+import { createServer, type Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
+import { GameRoomManager } from './game-room-manager.js';
+import { enregistrerHandlers } from './handlers.js';
 
-const PORT = Number(process.env['PORT'] ?? 3000);
+export interface Serveur {
+  readonly io: Server;
+  readonly httpServer: HttpServer;
+  readonly manager: GameRoomManager;
+}
 
-export function createGameServer(): Server {
+export const creerServeur = (): Serveur => {
+  const manager = new GameRoomManager();
   const httpServer = createServer();
   const io = new Server(httpServer, {
     cors: { origin: process.env['CORS_ORIGIN'] ?? '*' },
   });
 
-  // Les handlers WebSocket seront enregistrés ici. Règle d'or : l'état émis à
-  // un client est toujours filtré au préalable, aucune information cachée
-  // (main des autres joueurs, contenu de la pioche) ne quitte le serveur.
+  enregistrerHandlers(io, manager);
+  return { io, httpServer, manager };
+};
 
-  httpServer.listen(PORT);
-  return io;
-}
+export { GameRoomManager } from './game-room-manager.js';
+export { filtrerEtatPourJoueur } from './etat-filtre.js';
+export type { EtatCoupFiltre } from './etat-filtre.js';
 
 if (process.env['NODE_ENV'] !== 'test') {
-  createGameServer();
+  const { httpServer } = creerServeur();
+  httpServer.listen(Number(process.env['PORT'] ?? 3000));
 }
