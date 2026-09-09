@@ -75,6 +75,8 @@ export interface Table {
   readonly gestionDeconnexion: GestionDeconnexion;
   /** Annulation du minuteur d'abandon de tour en cours, s'il y en a un. */
   annulerMinuteur: (() => void) | null;
+  /** Joueur dont le tour expirera si le minuteur va au bout. */
+  joueurEnSursis: JoueurId | null;
   /** Jokers tirés à l'ouverture, conservés pour la donne du premier coup. */
   readonly cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
 }
@@ -134,6 +136,7 @@ export class GameRoomManager {
         dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS,
       },
       annulerMinuteur: null,
+      joueurEnSursis: null,
       cartesConserveesParJoueur: tirage.cartesConserveesParJoueur,
     };
     this.tables.set(tableId, table);
@@ -160,10 +163,11 @@ export class GameRoomManager {
 
     const table = this.table(place.tableId);
     // Une reconnexion remplace la socket précédente sans toucher au jeu, et
-    // désamorce l'abandon automatique du tour que le joueur avait entamé.
-    if (table.tourEnCours?.joueurId === place.joueurId) {
+    // désamorce l'abandon automatique de son tour s'il était en sursis.
+    if (table.joueurEnSursis === place.joueurId) {
       table.annulerMinuteur?.();
       table.annulerMinuteur = null;
+      table.joueurEnSursis = null;
     }
     table.connexions.set(place.joueurId, socketId);
     this.sockets.set(socketId, place);

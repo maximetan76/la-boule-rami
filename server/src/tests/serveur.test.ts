@@ -383,6 +383,23 @@ describe('gestion des deconnexions', () => {
     return { tableId, places, ordre, actif, cartePiochee: table.tourEnCours?.cartePiochee };
   };
 
+  /** Amène le joueur actif à son tour, sans qu'il ait encore pioché. */
+  const preparerTourSansAction = async (gestionDeconnexion?: GestionDeconnexion) => {
+    const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
+      alea: aleaFixe(),
+      ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
+    });
+    for (const place of places) await connecter(place.jeton, place.joueurId);
+
+    const ordre = serveur.manager.table(tableId).coup?.ordreJoueurs ?? [];
+    const actif = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+    await emettre(actif.socket, 'annoncer', { annonce: 'je-joue' });
+    await patienter(20);
+
+    const table = serveur.manager.table(tableId);
+    return { tableId, places, ordre, actif, sommetDuTalon: table.coup?.pioche[0] };
+  };
+
   it('applique un delai de 90 secondes par defaut', async () => {
     const { tableId } = await preparerTourPioche();
     expect(serveur.manager.table(tableId).gestionDeconnexion).toEqual({
@@ -473,7 +490,7 @@ describe('gestion des deconnexions', () => {
     expect(revenu.dernierEtat?.moi.carteEnAttente?.id).toBe(table.tourEnCours?.cartePiochee.id);
   });
 
-  it('n arme aucun minuteur pour un joueur qui n a pas de tour entame', async () => {
+  it('n arme aucun minuteur pour un joueur dont ce n est pas le tour', async () => {
     const { ordre } = await preparerTourPioche({ type: 'delai', dureeMs: 90000 });
     const inactif = espions.find((espion) => espion.joueurId === ordre[1]) as Espion;
 
@@ -481,5 +498,74 @@ describe('gestion des deconnexions', () => {
     await patienter(50);
 
     expect(horloge.programmes).toHaveLength(0);
+  });
+
+  it('pioche et defausse pour le joueur parti avant meme d avoir pioche', async () => {
+    const { tableId, ordre, actif, sommetDuTalon } = await preparerTourSansAction({
+      type: 'delai',
+      dureeMs: 90000,
+    });
+    // Aucun tour n est entame : il n a encore rien fait.
+    expect(serveur.manager.table(tableId).tourEnCours).toBeNull();
+    const tailleTalon = serveur.manager.table(tableId).coup?.pioche.length ?? 0;
+
+    actif.socket.disconnect();
+    await patienter(50);
+
+    // Le minuteur s arme quand meme : c est son tour.
+    expect(horloge.programmes).toHaveLength(1);
+    expect(horloge.programmes[0]?.delaiMs).toBe(90000);
+    expect(serveur.manager.table(tableId).coup?.defausse).toHaveLength(0);
+
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    // Une carte a bien ete piochee au talon, puis defaussee aussitot.
+    expect(table.coup?.pioche).toHaveLength(tailleTalon - 1);
+    expect(table.coup?.defausse).toHaveLength(1);
+    expect(table.coup?.defausse.at(-1)?.id).toBe(sommetDuTalon?.id);
+    // Sa main est intacte et rien n a ete pose en son nom.
+    expect(table.coup?.mains[ordre[0] as string]).toHaveLength(14);
+    expect(table.coup?.combinaisons).toEqual([]);
+    // La main passe au suivant.
+    expect(table.coup?.joueurActifId).toBe(ordre[1]);
+    expect(table.tourEnCours).toBeNull();
+  });
+
+  it('laisse le tour bloque en mode illimite, meme avant toute action', async () => {
+    const { tableId, ordre, actif } = await preparerTourSansAction({ type: 'illimite' });
+    const tailleTalon = serveur.manager.table(tableId).coup?.pioche.length ?? 0;
+
+    actif.socket.disconnect();
+    await patienter(50);
+
+    expect(horloge.programmes).toHaveLength(0);
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.coup?.joueurActifId).toBe(ordre[0]);
+    expect(table.coup?.defausse).toHaveLength(0);
+    expect(table.coup?.pioche).toHaveLength(tailleTalon);
+  });
+
+  it('desamorce le minuteur si le joueur revient avant d avoir joue', async () => {
+    const { tableId, places, ordre, actif } = await preparerTourSansAction({
+      type: 'delai',
+      dureeMs: 90000,
+    });
+    const jeton = (places.find((place) => place.joueurId === ordre[0]) as { jeton: string }).jeton;
+
+    actif.socket.disconnect();
+    await patienter(50);
+    expect(horloge.programmes).toHaveLength(1);
+
+    await connecter(jeton, ordre[0] as JoueurId);
+    expect(horloge.programmes[0]?.annule).toBe(true);
+
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.coup?.joueurActifId).toBe(ordre[0]);
+    expect(table.coup?.defausse).toHaveLength(0);
   });
 });

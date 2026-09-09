@@ -161,20 +161,23 @@ const cloturerCoup = (table: Table, coup: Coup): void => {
 };
 
 /**
- * Abandonne le tour d'un joueur parti en cours de route : il défausse la carte
- * qu'il avait piochée et la main passe au suivant, sans rien poser — le
- * brouillon de tour est jeté.
+ * Abandonne le tour d'un joueur parti en cours de route : une carte du talon
+ * part à la défausse et la main passe au suivant, sans rien poser — le
+ * brouillon de tour, s'il y en avait un, est jeté.
  *
- * Le tirage se refait par le talon. Quand le joueur avait pioché au talon,
- * c'est exactement la carte qu'il tenait, la pioche n'ayant pas été entamée.
- * Quand il avait pris la défausse, cette carte-là ne peut pas être défaussée
- * telle quelle — les règles imposent de l'utiliser immédiatement dans une
- * combinaison — on lui sert donc une carte du talon qu'il rejette aussitôt.
+ * Le même geste couvre les trois situations possibles :
+ * - le joueur avait pioché au talon : la pioche n'ayant pas été entamée, c'est
+ *   exactement la carte qu'il tenait qui part à la défausse ;
+ * - il avait pris la défausse : cette carte-là ne peut pas être défaussée telle
+ *   quelle, les règles imposant de l'utiliser immédiatement dans une
+ *   combinaison ; on lui sert donc une carte du talon qu'il rejette aussitôt ;
+ * - il n'avait encore rien fait : on pioche pour lui, et on défausse.
  */
 const abandonnerTour = (table: Table, joueurId: JoueurId): void => {
   const coup = table.coup;
-  if (coup === null) return;
-  if (table.tourEnCours === null || table.tourEnCours.joueurId !== joueurId) return;
+  if (coup === null || coup.phase !== 'jeu') return;
+  if (coup.joueurActifId !== joueurId) return;
+  if (table.tourEnCours !== null && table.tourEnCours.joueurId !== joueurId) return;
 
   const talon = reformerTalon(coup.pioche, coup.defausse, table.alea);
   coup.pioche = talon.pioche;
@@ -195,7 +198,12 @@ const abandonnerTour = (table: Table, joueurId: JoueurId): void => {
   if (apres.gagnantId !== null) cloturerCoup(table, apres);
 };
 
-/** Programme l'abandon du tour d'un joueur déconnecté, si la table le prévoit. */
+/**
+ * Programme l'abandon du tour d'un joueur déconnecté, si la table le prévoit.
+ *
+ * Le minuteur s'arme dès que le partant est le joueur actif, qu'il ait déjà
+ * pioché ou non : se déconnecter avant d'agir bloquerait la table tout autant.
+ */
 const planifierAbandonDeTour = (
   io: Server,
   manager: GameRoomManager,
@@ -203,11 +211,16 @@ const planifierAbandonDeTour = (
   joueurId: JoueurId,
 ): void => {
   if (table.gestionDeconnexion.type !== 'delai') return;
-  if (table.tourEnCours === null || table.tourEnCours.joueurId !== joueurId) return;
+
+  const coup = table.coup;
+  if (coup === null || coup.phase !== 'jeu') return;
+  if (coup.joueurActifId !== joueurId) return;
 
   table.annulerMinuteur?.();
+  table.joueurEnSursis = joueurId;
   table.annulerMinuteur = manager.minuteur.programmer(() => {
     table.annulerMinuteur = null;
+    table.joueurEnSursis = null;
     try {
       abandonnerTour(table, joueurId);
     } catch {
