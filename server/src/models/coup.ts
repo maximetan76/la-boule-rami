@@ -39,8 +39,10 @@ export interface Coup {
   readonly numero: number;
   readonly donneurId: JoueurId;
   /**
-   * Joueurs assis pour ce coup, dans le sens du jeu. Le premier à parler puis
-   * à jouer est celui à la gauche du donneur (§ « Phase Friche / Je joue »).
+   * Joueurs assis pour ce coup, dans l'ordre de jeu. Par convention
+   * `ordreJoueurs[0]` est le joueur à la gauche du donneur, donc le premier à
+   * parler puis à jouer (§ « Phase Friche / Je joue ») : un tour de table
+   * complet ramène à cet indice et fait avancer `numeroTour`.
    */
   readonly ordreJoueurs: JoueurId[];
   /** À 5 ou 6 joueurs, les 2 joueurs « sur le côté » qui ne jouent pas ce coup. */
@@ -48,6 +50,12 @@ export interface Coup {
   phase: PhaseCoup;
   /** Annonces déjà faites pendant la phase d'ouverture. */
   annonces: Record<JoueurId, Annonce>;
+  /**
+   * Main de chaque joueur assis. Cachée : la main d'un joueur ne doit jamais
+   * être transmise aux autres clients. Une main n'existe que le temps d'un
+   * coup, elle appartient donc au coup et non au joueur.
+   */
+  mains: Record<JoueurId, Carte[]>;
   /** Talon face cachée : ne doit jamais être transmis à un client. */
   pioche: Carte[];
   /**

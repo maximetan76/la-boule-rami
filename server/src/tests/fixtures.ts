@@ -103,15 +103,16 @@ export const recap = (partiel: Partial<RecapJoueurCoup> = {}): RecapJoueurCoup =
 /** Un coup minimal, suffisant pour les fonctions de fin de coup. */
 export const coup = (partiel: Partial<Coup> = {}): Coup => ({
   numero: 1,
-  donneurId: 'j1',
+  donneurId: 'j3',
   ordreJoueurs: ['j1', 'j2', 'j3'],
   joueursSurLeCote: [],
   phase: 'jeu',
   annonces: {},
+  mains: {},
   pioche: [],
   defausse: [],
   combinaisons: [],
-  joueurActifId: 'j2',
+  joueurActifId: 'j1',
   numeroTour: 1,
   estFriche: false,
   recapitulatifs: {},
@@ -119,11 +120,9 @@ export const coup = (partiel: Partial<Coup> = {}): Coup => ({
   ...partiel,
 });
 
-export const joueur = (id: JoueurId, main: Carte[] = [], partiel: Partial<Joueur> = {}): Joueur => ({
+export const joueur = (id: JoueurId, partiel: Partial<Joueur> = {}): Joueur => ({
   id,
   nom: id.toUpperCase(),
-  main,
-  aPose: false,
   croix: 0,
   ...partiel,
 });

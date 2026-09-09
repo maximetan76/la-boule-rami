@@ -43,3 +43,17 @@ export {
   calculerFinDeBoule,
   POINTS_PAR_CROIX,
 } from './fin-de-boule.js';
+export {
+  construirePaquet,
+  distribuerCartes,
+  melangerPaquet,
+  NOMBRE_JOKERS,
+  redistribuerApresFricheGeneralisee,
+  TAILLE_PAQUET,
+} from './distribution.js';
+export { orchestrerPhaseFricheOuJoue } from './annonces.js';
+export type { ResultatAnnonces } from './annonces.js';
+export { verifierFinDeCoupSpeciale } from './pose.js';
+export { jouerTour, recupererJoker } from './tour.js';
+export type { ActionTour, AjoutCombinaison, JokerCible, NouvelEtatCoup } from './tour.js';
+export type { DistributionResultat } from './distribution.js';
