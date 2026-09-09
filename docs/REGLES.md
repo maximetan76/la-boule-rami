@@ -2,7 +2,7 @@
 
 ### Joueurs et matériel
 - De 1 à 6 joueurs (jeu réel à partir de 3). À 5 ou 6 joueurs, 2 joueurs sont "sur le côté" à chaque coup et ne jouent pas la main ; la rotation des joueurs assis se fait dans l'ordre, en remplaçant systématiquement le donneur du coup précédent.
-- Matériel : 2 jeux de 52 cartes + 4 jokers normaux + 1 "super joker" appelé le "coucou" (113 cartes au total).
+- Matériel : 2 jeux de 52 cartes + 4 jokers normaux + 1 "super joker" appelé le "coucou" (109 cartes au total).
 - Distribution : les cartes sont distribuées 2 par 2, jusqu'à 14 cartes par joueur.
 
 ### Structure d'une Boule
@@ -19,6 +19,7 @@
 ### Déroulement d'un tour de jeu
 - À son tour, un joueur doit piocher une carte : soit dans la pioche, soit en prenant la dernière carte de la défausse (le tout premier joueur du coup n'a pas le choix, la défausse étant vide, il doit piocher).
 - Après avoir pioché, il doit défausser une carte. Avant de défausser, il peut choisir de "poser" son jeu face visible.
+- Si la pioche est épuisée en cours de coup, on remélange toutes les cartes de la défausse SAUF la dernière carte visible, qui reste la défausse courante, pour reformer un nouveau talon.
 
 ### Conditions pour poser (première pose d'un joueur)
 - Il faut réunir DEUX conditions : au moins 51 points ET au moins une "tierce pure" (voir ci-dessous).

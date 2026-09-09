@@ -2,7 +2,7 @@
  * Cartes du jeu.
  *
  * Réf. `docs/REGLES.md` § « Joueurs et matériel » : 2 jeux de 52 cartes
- * + 4 jokers normaux + 1 « super joker » appelé le coucou, soit 113 cartes.
+ * + 4 jokers normaux + 1 « super joker » appelé le coucou, soit 109 cartes.
  * Comme il y a deux jeux, une même couleur/valeur apparaît en double : chaque
  * carte porte donc un identifiant unique, seul moyen fiable de la désigner.
  *

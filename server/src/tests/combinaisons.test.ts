@@ -158,6 +158,54 @@ describe('estTierceValide', () => {
     expect(estTierceValide(tierce('pique', [c('pique', 'R'), c('pique', 'A'), c('pique', 2)]))).toBe(false);
   });
 
+  it('prolonge une tierce D-R-A par le valet, jamais par le 2', () => {
+    // L as ne sert pas de pivot entre le haut et le bas de la sequence.
+    const parLeValet = tierce('pique', [
+      c('pique', 'V'),
+      c('pique', 'D'),
+      c('pique', 'R'),
+      c('pique', 'A'),
+    ]);
+    expect(estTierceValide(parLeValet)).toBe(true);
+
+    const parLeDeux = tierce('pique', [
+      c('pique', 'D'),
+      c('pique', 'R'),
+      c('pique', 'A'),
+      c('pique', 2),
+    ]);
+    expect(estTierceValide(parLeDeux)).toBe(false);
+  });
+
+  it('prolonge une tierce A-2-3 par le 4, jamais par le roi', () => {
+    const parLeQuatre = tierce('trefle', [
+      c('trefle', 'A'),
+      c('trefle', 2),
+      c('trefle', 3),
+      c('trefle', 4),
+    ]);
+    expect(estTierceValide(parLeQuatre)).toBe(true);
+
+    const parLeRoi = tierce('trefle', [
+      c('trefle', 'R'),
+      c('trefle', 'A'),
+      c('trefle', 2),
+      c('trefle', 3),
+    ]);
+    expect(estTierceValide(parLeRoi)).toBe(false);
+  });
+
+  it('refuse une suite qui traverse l as par les deux bouts (V-D-R-A-2)', () => {
+    const traversante = tierce('coeur', [
+      c('coeur', 'V'),
+      c('coeur', 'D'),
+      c('coeur', 'R'),
+      c('coeur', 'A'),
+      c('coeur', 2),
+    ]);
+    expect(estTierceValide(traversante)).toBe(false);
+  });
+
   it('accepte un joker ou le coucou en remplacement d une carte', () => {
     expect(estTierceValide(tierce('trefle', [c('trefle', 7), joker(), c('trefle', 9)]))).toBe(true);
     expect(estTierceValide(tierce('trefle', [c('trefle', 7), coucou(), c('trefle', 9)]))).toBe(true);

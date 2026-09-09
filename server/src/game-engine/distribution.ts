@@ -17,15 +17,7 @@ export const CARTES_PAR_PAQUET = 2;
 
 export const NOMBRE_JOKERS = 4;
 
-/**
- * Taille du paquet, déduite de la composition énumérée par les règles :
- * 2 x 52 cartes + 4 jokers + 1 coucou = 109.
- *
- * ATTENTION : le § « Joueurs et matériel » annonce « 113 cartes au total »,
- * ce qui contredit sa propre énumération — 113 supposerait 8 jokers, ou des
- * jeux de 54 cartes. La composition détaillée fait foi ici, faute de pouvoir
- * trancher ; corriger `NOMBRE_JOKERS` si le total de 113 est le bon.
- */
+/** Taille du paquet : 2 x 52 cartes + 4 jokers + 1 coucou (§ « Joueurs et matériel »). */
 export const TAILLE_PAQUET = 2 * 52 + NOMBRE_JOKERS + 1;
 
 export interface DistributionResultat {
@@ -35,7 +27,7 @@ export interface DistributionResultat {
   readonly pioche: Carte[];
 }
 
-/** Les 113 cartes du jeu, non mélangées. */
+/** Les 109 cartes du jeu, non mélangées. */
 export const construirePaquet = (): Carte[] => {
   const paquet: Carte[] = [];
 

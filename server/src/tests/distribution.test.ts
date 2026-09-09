@@ -21,9 +21,6 @@ const aleaFixe = (): (() => number) => {
 };
 
 describe('construirePaquet', () => {
-  // Les regles annoncent 113 cartes, mais leur propre enumeration en donne 109
-  // (2 x 52 + 4 + 1). C est la composition enumeree qui fait foi ici, voir
-  // TAILLE_PAQUET dans distribution.ts.
   it('construit 109 cartes : 2 jeux de 52, 4 jokers et le coucou', () => {
     const paquet = construirePaquet();
     expect(paquet).toHaveLength(TAILLE_PAQUET);

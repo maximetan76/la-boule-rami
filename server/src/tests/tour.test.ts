@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { detecterDoubleOuTriple } from '../game-engine/fin-de-coup.js';
 import { jouerTour, recupererJoker } from '../game-engine/tour.js';
 import { verifierFinDeCoupSpeciale } from '../game-engine/pose.js';
 import { c, coup, ensemble, joker, jokerPour, recap, tierce } from './fixtures.js';
@@ -59,12 +60,38 @@ describe('jouerTour — piocher et défausser', () => {
     ).toThrow(/defausse/i);
   });
 
-  it('refuse de piocher au talon epuise', () => {
+  it('reforme un talon avec la defausse quand la pioche est epuisee', () => {
+    // § « on remelange toutes les cartes de la defausse SAUF la derniere carte
+    // visible, qui reste la defausse courante ».
+    const enfouies = [c('trefle', 2), c('trefle', 3), c('trefle', 4)];
+    const visible = c('trefle', 5);
     const main = [c('pique', 4)];
-    const depart = coupJouable(main, { pioche: [] });
+    const depart = coupJouable(main, { pioche: [], defausse: [...enfouies, visible] });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      carteDefausseeId: main[0]!.id,
+    });
+
+    // 3 cartes enfouies remelangees, moins celle qui vient d etre piochee.
+    expect(apres.pioche).toHaveLength(2);
+    expect(apres.pioche.map((carte) => carte.id)).not.toContain(visible.id);
+    // La carte visible est restee en jeu, sous la carte qui vient d etre defaussee.
+    expect(apres.defausse.map((carte) => carte.id)).toEqual([visible.id, main[0]!.id]);
+    // Le nouveau talon ne contient que des cartes anciennement enfouies.
+    const idsEnfouis = enfouies.map((carte) => carte.id);
+    expect(apres.pioche.every((carte) => idsEnfouis.includes(carte.id))).toBe(true);
+    // La carte piochee vient bien du nouveau talon, et la main reste complete.
+    expect(apres.mains['j1']).toHaveLength(1);
+    expect(idsEnfouis).toContain(apres.mains['j1']![0]!.id);
+  });
+
+  it('refuse de piocher quand le talon et la defausse sont epuises', () => {
+    const main = [c('pique', 4)];
+    const depart = coupJouable(main, { pioche: [], defausse: [c('trefle', 5)] });
     expect(() =>
       jouerTour(depart, 'j1', { source: 'pioche', carteDefausseeId: main[0]!.id }),
-    ).toThrow(/pioche/i);
+    ).toThrow(/epuis/i);
   });
 
   it('refuse de defausser une carte absente de la main', () => {
@@ -158,6 +185,196 @@ describe('jouerTour — première pose', () => {
 
     expect(apres.combinaisons[0]?.cartes).toHaveLength(4);
     expect(apres.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(true);
+  });
+});
+
+describe('jouerTour — poser et ajouter dans le même tour', () => {
+  // § « Il peut poser ses propres cartes ET ajouter des cartes chez d autres
+  // joueurs dans le meme tour. »
+  const suitePiqueVisible = () =>
+    tierce('pique', [c('pique', 4), c('pique', 5), c('pique', 6)], 'j2');
+
+  it('autorise un ajout chez un adversaire dans le tour meme de la premiere pose', () => {
+    const valets = troisValets();
+    const suite = suiteCoeur();
+    const septPique = c('pique', 7);
+    const main = [...valets, ...suite, septPique, c('carreau', 4)];
+    const visible = suitePiqueVisible();
+    const depart = coupJouable(main, { combinaisons: [visible] });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      // 30 + 24 = 54 points avec une tierce pure : la premiere pose est valide.
+      poses: [ensemble('V', valets), tierce('coeur', suite)],
+      ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: septPique, remplace: null }] }],
+      carteDefausseeId: main[7]!.id,
+    });
+
+    expect(apres.combinaisons.find((comb) => comb.id === visible.id)?.cartes).toHaveLength(4);
+    expect(apres.recapitulatifs['j1']?.toursAvecPose).toEqual([1]);
+    expect(apres.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(true);
+  });
+
+  it('refuse toujours l ajout seul, sans pose valide dans le meme tour', () => {
+    const septPique = c('pique', 7);
+    const main = [septPique, c('carreau', 4)];
+    const visible = suitePiqueVisible();
+    const depart = coupJouable(main, { combinaisons: [visible] });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: septPique, remplace: null }] }],
+        carteDefausseeId: main[1]!.id,
+      }),
+    ).toThrow(/pose/i);
+  });
+
+  it('refuse un ajout qui ferait boucler une suite autour de l as', () => {
+    const suiteHaute = tierce(
+      'pique',
+      [c('pique', 'D'), c('pique', 'R'), c('pique', 'A')],
+      'j2',
+    );
+    const deuxPique = c('pique', 2);
+    const main = [deuxPique, c('carreau', 4)];
+    const depart = coupJouable(main, {
+      combinaisons: [suiteHaute],
+      recapitulatifs: { j1: recap({ toursAvecPose: [1] }) },
+    });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        ajouts: [{ combinaisonId: suiteHaute.id, cartes: [{ carte: deuxPique, remplace: null }] }],
+        carteDefausseeId: main[1]!.id,
+      }),
+    ).toThrow(/ajout invalide/i);
+  });
+
+  it('accepte le valet en prolongement d une suite D-R-A', () => {
+    const suiteHaute = tierce(
+      'pique',
+      [c('pique', 'D'), c('pique', 'R'), c('pique', 'A')],
+      'j2',
+    );
+    const valetPique = c('pique', 'V');
+    const main = [valetPique, c('carreau', 4)];
+    const depart = coupJouable(main, {
+      combinaisons: [suiteHaute],
+      recapitulatifs: { j1: recap({ toursAvecPose: [1] }) },
+    });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: suiteHaute.id, cartes: [{ carte: valetPique, remplace: null }] }],
+      carteDefausseeId: main[1]!.id,
+    });
+
+    expect(apres.combinaisons[0]?.cartes).toHaveLength(4);
+  });
+});
+
+describe('jouerTour — double et triple', () => {
+  const suitePiqueVisible = () =>
+    tierce('pique', [c('pique', 4), c('pique', 5), c('pique', 6)], 'j2');
+
+  it('est un triple quand tout est pose en un tour, sans aucun joker ni aide', () => {
+    const valets = troisValets();
+    const suite = suiteCoeur();
+    const main = [...valets, ...suite];
+    const depart = coupJouable(main);
+
+    const { coup: apres, coupTermine } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: [ensemble('V', valets), tierce('coeur', suite)],
+      carteDefausseeId: depart.pioche[0]!.id,
+    });
+
+    expect(coupTermine).toBe(true);
+    expect(apres.recapitulatifs['j1']?.toursAvecPose).toEqual([1]);
+    expect(apres.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(false);
+    expect(detecterDoubleOuTriple(apres, 'j1')).toBe('triple');
+  });
+
+  it('retombe a double si un joker normal figure dans ses combinaisons', () => {
+    // Le joker est dans le brelan, pas dans la tierce : la premiere pose reste
+    // valide (24 + 30 = 54 avec une tierce pure), mais le triple est perdu.
+    const jokerValet = joker();
+    const valets = [c('pique', 'V'), c('trefle', 'V'), jokerValet];
+    const suite = suiteCoeur();
+    const main = [...valets, ...suite];
+    const depart = coupJouable(main);
+
+    const { coup: apres, coupTermine } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: [ensemble('V', valets), tierce('coeur', suite)],
+      carteDefausseeId: depart.pioche[0]!.id,
+    });
+
+    expect(coupTermine).toBe(true);
+    expect(detecterDoubleOuTriple(apres, 'j1')).toBe('double');
+  });
+
+  it('retombe a simple si le joueur a ajoute chez un adversaire dans ce meme tour', () => {
+    // Cas discriminant : tout est pose en un seul tour, mais une carte est
+    // partie chez un adversaire — le double est perdu malgre le tour unique.
+    const valets = troisValets();
+    const suite = suiteCoeur();
+    const septPique = c('pique', 7);
+    const main = [...valets, ...suite, septPique];
+    const visible = suitePiqueVisible();
+    const depart = coupJouable(main, { combinaisons: [visible] });
+
+    const { coup: apres, coupTermine } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: [ensemble('V', valets), tierce('coeur', suite)],
+      ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: septPique, remplace: null }] }],
+      carteDefausseeId: depart.pioche[0]!.id,
+    });
+
+    expect(coupTermine).toBe(true);
+    expect(apres.recapitulatifs['j1']?.toursAvecPose).toEqual([1]);
+    expect(detecterDoubleOuTriple(apres, 'j1')).toBe('simple');
+  });
+
+  it('garde la marque de l aide recue seize tours apres l ajout chez un adversaire', () => {
+    const valets = troisValets();
+    const suite = suiteCoeur();
+    const septPique = c('pique', 7);
+    const trois = [c('pique', 3), c('coeur', 3), c('trefle', 3)];
+    const main = [...valets, ...suite, septPique, ...trois];
+    const visible = suitePiqueVisible();
+    const depart = coupJouable(main, { combinaisons: [visible] });
+
+    // Tour 1 : premiere pose a 54 points, et une carte donnee a la suite de j2.
+    const { coup: apresPose } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: [ensemble('V', valets), tierce('coeur', suite)],
+      ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: septPique, remplace: null }] }],
+      carteDefausseeId: depart.pioche[0]!.id,
+    });
+    expect(apresPose.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(true);
+    expect(apresPose.mains['j1']).toHaveLength(3);
+
+    // Seize tours passent, puis j1 finit sa main tout seul, sans rien devoir
+    // a personne a ce moment precis.
+    const bienPlusTard = {
+      ...apresPose,
+      joueurActifId: 'j1',
+      numeroTour: 17,
+      pioche: [c('carreau', 8)],
+    };
+    const { coup: apresFin, coupTermine } = jouerTour(bienPlusTard, 'j1', {
+      source: 'pioche',
+      poses: [ensemble(3, trois)],
+      carteDefausseeId: bienPlusTard.pioche[0]!.id,
+    });
+
+    expect(coupTermine).toBe(true);
+    // Le drapeau pose au tour 1 survit a la fin du coup.
+    expect(apresFin.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(true);
+    expect(detecterDoubleOuTriple(apresFin, 'j1')).toBe('simple');
   });
 });
 

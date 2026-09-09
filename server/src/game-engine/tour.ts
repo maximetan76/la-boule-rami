@@ -20,6 +20,7 @@ import { estCombinaisonValide, verifierDeclarationsJokers } from './combinaisons
 import { estCarteCollante } from './defausse.js';
 import { peutPoser, SEUIL_POSE, verifierFinDeCoupSpeciale } from './pose.js';
 import { calculerValeurCombinaison } from './combinaisons.js';
+import { melangerPaquet } from './distribution.js';
 
 /** Cartes ajoutées à une combinaison déjà visible. */
 export interface AjoutCombinaison {
@@ -60,10 +61,17 @@ const attribuer = (combinaison: Combinaison, proprietaireId: JoueurId, tourDePos
     ? { ...combinaison, proprietaireId, tourDePose }
     : { ...combinaison, proprietaireId, tourDePose };
 
+/**
+ * Joue un tour complet : pioche, pose éventuelle, défausse.
+ *
+ * @param alea source d'aléa utilisée pour reformer le talon quand la pioche
+ * s'épuise ; injectable pour rendre le remélange reproductible en test.
+ */
 export const jouerTour = (
   coup: Coup,
   joueurActifId: JoueurId,
   action: ActionTour,
+  alea: () => number = Math.random,
 ): NouvelEtatCoup => {
   if (coup.phase !== 'jeu') {
     throw new Error(`Le coup n'est pas en phase de jeu (phase : ${coup.phase})`);
@@ -83,8 +91,15 @@ export const jouerTour = (
 
   if (action.source === 'pioche') {
     if (pioche.length === 0) {
-      // Les règles ne disent pas ce qu'il advient d'une pioche épuisée.
-      throw new Error('Pioche epuisee : impossible de piocher au talon');
+      // § « Si la pioche est épuisée en cours de coup, on remélange toutes les
+      // cartes de la défausse SAUF la dernière carte visible ».
+      const sommet = defausse.pop();
+      if (sommet === undefined || defausse.length === 0) {
+        throw new Error('Plus aucune carte a piocher : talon et defausse sont epuises');
+      }
+      pioche.push(...melangerPaquet(defausse, alea));
+      defausse.length = 0;
+      defausse.push(sommet);
     }
     cartePiochee = pioche.shift() as Carte;
   } else {
