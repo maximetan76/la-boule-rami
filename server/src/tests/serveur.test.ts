@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
+import type { GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
+import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
 
@@ -26,11 +28,18 @@ interface Espion {
   /** Tout ce que la socket a reçu, tel quel. */
   readonly recus: unknown[];
   dernierEtat: EtatCoupFiltre | null;
+  /** Nombre d'états reçus, pour attendre la diffusion complète d'une action. */
+  etatsRecus: number;
 }
 
 const emettre = async (socket: ClientSocket, evenement: string, payload: unknown) =>
   new Promise<{ ok: boolean; erreur?: string }>((resolve) => {
     socket.emit(evenement, payload, resolve);
+  });
+
+const patienter = async (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
   });
 
 const identifiantsDans = (valeur: unknown): Set<string> =>
@@ -40,13 +49,38 @@ const identifiantsDans = (valeur: unknown): Set<string> =>
     ),
   );
 
+/** Horloge factice : rien ne s'écoule tant que le test ne le décide pas. */
+const minuteurFactice = () => {
+  const programmes: { callback: () => void; delaiMs: number; annule: boolean }[] = [];
+  const minuteur: Minuteur = {
+    programmer(callback, delaiMs) {
+      const entree = { callback, delaiMs, annule: false };
+      programmes.push(entree);
+      return () => {
+        entree.annule = true;
+      };
+    },
+  };
+  const declencher = () => {
+    for (const entree of programmes) {
+      if (!entree.annule) {
+        entree.annule = true;
+        entree.callback();
+      }
+    }
+  };
+  return { minuteur, programmes, declencher };
+};
+
 describe('serveur socket.io', () => {
   let serveur: Serveur;
   let port: number;
   let espions: Espion[];
+  let horloge: ReturnType<typeof minuteurFactice>;
 
   beforeEach(async () => {
-    serveur = creerServeur();
+    horloge = minuteurFactice();
+    serveur = creerServeur({ minuteur: horloge.minuteur });
     await new Promise<void>((resolve) => {
       serveur.httpServer.listen(0, resolve);
     });
@@ -66,13 +100,14 @@ describe('serveur socket.io', () => {
 
   const connecter = async (jeton: string, joueurId: JoueurId): Promise<Espion> => {
     const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
-    const espion: Espion = { socket, joueurId, recus: [], dernierEtat: null };
+    const espion: Espion = { socket, joueurId, recus: [], dernierEtat: null, etatsRecus: 0 };
 
     socket.onAny((_evenement: string, ...args: unknown[]) => {
       espion.recus.push(...args);
     });
     socket.on('etat', (etat: EtatCoupFiltre) => {
       espion.dernierEtat = etat;
+      espion.etatsRecus += 1;
     });
 
     await new Promise<void>((resolve) => {
@@ -87,9 +122,27 @@ describe('serveur socket.io', () => {
     return espion;
   };
 
-  const ouvrirTable = async () => {
+  /**
+   * Émet une action puis attend que TOUS les clients aient reçu leur état.
+   * L'acquittement revient à l'émetteur sans garantir que la diffusion vers les
+   * autres sockets soit déjà arrivée.
+   */
+  const agir = async (espion: Espion, evenement: string, payload: unknown) => {
+    const avant = espions.map((autre) => autre.etatsRecus);
+    const reponse = await emettre(espion.socket, evenement, payload);
+    if (!reponse.ok) return reponse;
+
+    for (let essai = 0; essai < 100; essai += 1) {
+      if (espions.every((autre, index) => autre.etatsRecus > (avant[index] as number))) break;
+      await patienter(5);
+    }
+    return reponse;
+  };
+
+  const ouvrirTable = async (gestionDeconnexion?: GestionDeconnexion) => {
     const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
       alea: aleaFixe(),
+      ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
     });
     for (const place of places) await connecter(place.jeton, place.joueurId);
     return { tableId, places };
@@ -114,16 +167,16 @@ describe('serveur socket.io', () => {
 
     // Le premier a parler joue : la phase de jeu s ouvre.
     const premier = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
-    expect((await emettre(premier.socket, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+    expect((await agir(premier, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
 
     // Plusieurs tours de table : chacun pioche et defausse.
     for (let tour = 0; tour < 9; tour += 1) {
       const actifId = serveur.manager.table(tableId).coup?.joueurActifId;
       const actif = espions.find((espion) => espion.joueurId === actifId) as Espion;
 
-      expect((await emettre(actif.socket, 'piocher', { source: 'pioche' })).ok).toBe(true);
+      expect((await agir(actif, 'piocher', { source: 'pioche' })).ok).toBe(true);
       const aDefausser = actif.dernierEtat?.moi.main[0]?.id;
-      expect((await emettre(actif.socket, 'defausser', { carteId: aDefausser })).ok).toBe(true);
+      expect((await agir(actif, 'defausser', { carteId: aDefausser })).ok).toBe(true);
     }
 
     // Fouille de tout ce qui a transité, par joueur.
@@ -154,15 +207,15 @@ describe('serveur socket.io', () => {
     const { tableId } = await ouvrirTable();
     const ordre = serveur.manager.table(tableId).coup?.ordreJoueurs ?? [];
     const premier = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
-    await emettre(premier.socket, 'annoncer', { annonce: 'je-joue' });
+    await agir(premier, 'annoncer', { annonce: 'je-joue' });
 
     const tailles: number[] = [];
     for (let tour = 0; tour < 6; tour += 1) {
       const actifId = serveur.manager.table(tableId).coup?.joueurActifId;
       const actif = espions.find((espion) => espion.joueurId === actifId) as Espion;
 
-      await emettre(actif.socket, 'piocher', { source: 'pioche' });
-      await emettre(actif.socket, 'defausser', { carteId: actif.dernierEtat?.moi.main[0]?.id });
+      await agir(actif, 'piocher', { source: 'pioche' });
+      await agir(actif, 'defausser', { carteId: actif.dernierEtat?.moi.main[0]?.id });
 
       const vue = espions[0]?.dernierEtat?.defausse;
       tailles.push(vue?.cartesSorties.length ?? 0);
@@ -224,7 +277,7 @@ describe('serveur socket.io', () => {
     const mainAvant = avant.dernierEtat?.moi.main.map((carte) => carte.id);
 
     avant.socket.disconnect();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await patienter(50);
     expect(serveur.manager.joueursConnectes(serveur.manager.table(tableId))).toHaveLength(2);
 
     const revenu = await connecter(place.jeton, place.joueurId);
@@ -254,7 +307,7 @@ describe('serveur socket.io', () => {
 
     for (const joueurId of ordre) {
       const espion = espions.find((e) => e.joueurId === joueurId) as Espion;
-      expect((await emettre(espion.socket, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+      expect((await agir(espion, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
     }
 
     const table = serveur.manager.table(tableId);
@@ -267,5 +320,166 @@ describe('serveur socket.io', () => {
     for (const espion of espions) {
       expect(espion.dernierEtat?.moi.main).toHaveLength(14);
     }
+  });
+});
+
+describe('gestion des deconnexions', () => {
+  let serveur: Serveur;
+  let port: number;
+  let espions: Espion[];
+  let horloge: ReturnType<typeof minuteurFactice>;
+
+  beforeEach(async () => {
+    horloge = minuteurFactice();
+    serveur = creerServeur({ minuteur: horloge.minuteur });
+    await new Promise<void>((resolve) => {
+      serveur.httpServer.listen(0, resolve);
+    });
+    port = (serveur.httpServer.address() as AddressInfo).port;
+    espions = [];
+  });
+
+  afterEach(async () => {
+    for (const espion of espions) espion.socket.disconnect();
+    serveur.io.close();
+    await new Promise<void>((resolve) => {
+      serveur.httpServer.close(() => {
+        resolve();
+      });
+    });
+  });
+
+  const connecter = async (jeton: string, joueurId: JoueurId): Promise<Espion> => {
+    const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
+    const espion: Espion = { socket, joueurId, recus: [], dernierEtat: null, etatsRecus: 0 };
+    socket.on('etat', (etat: EtatCoupFiltre) => {
+      espion.dernierEtat = etat;
+      espion.etatsRecus += 1;
+    });
+    await new Promise<void>((resolve) => {
+      socket.on('connect', () => {
+        resolve();
+      });
+    });
+    expect((await emettre(socket, 'rejoindre-table', { jeton })).ok).toBe(true);
+    espions.push(espion);
+    return espion;
+  };
+
+  const preparerTourPioche = async (gestionDeconnexion?: GestionDeconnexion) => {
+    const { tableId, places } = serveur.manager.creerTable(['Ana', 'Bo', 'Cy'], {
+      alea: aleaFixe(),
+      ...(gestionDeconnexion === undefined ? {} : { gestionDeconnexion }),
+    });
+    for (const place of places) await connecter(place.jeton, place.joueurId);
+
+    const ordre = serveur.manager.table(tableId).coup?.ordreJoueurs ?? [];
+    const actif = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+    await emettre(actif.socket, 'annoncer', { annonce: 'je-joue' });
+    await emettre(actif.socket, 'piocher', { source: 'pioche' });
+    await patienter(20);
+
+    const table = serveur.manager.table(tableId);
+    return { tableId, places, ordre, actif, cartePiochee: table.tourEnCours?.cartePiochee };
+  };
+
+  it('applique un delai de 90 secondes par defaut', async () => {
+    const { tableId } = await preparerTourPioche();
+    expect(serveur.manager.table(tableId).gestionDeconnexion).toEqual({
+      type: 'delai',
+      dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS,
+    });
+  });
+
+  it('defausse la carte piochee et passe la main a l expiration du delai', async () => {
+    const { tableId, ordre, actif, cartePiochee } = await preparerTourPioche({
+      type: 'delai',
+      dureeMs: 90000,
+    });
+    expect(serveur.manager.table(tableId).tourEnCours).not.toBeNull();
+
+    actif.socket.disconnect();
+    await patienter(50);
+
+    // Le minuteur est arme, mais rien n a encore bouge.
+    expect(horloge.programmes).toHaveLength(1);
+    expect(horloge.programmes[0]?.delaiMs).toBe(90000);
+    expect(serveur.manager.table(tableId).tourEnCours).not.toBeNull();
+    expect(serveur.manager.table(tableId).coup?.joueurActifId).toBe(ordre[0]);
+
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.tourEnCours).toBeNull();
+    // La carte piochee avant la deconnexion est celle qui part a la defausse.
+    expect(table.coup?.defausse.at(-1)?.id).toBe(cartePiochee?.id);
+    expect(table.coup?.joueurActifId).toBe(ordre[1]);
+    // Aucune pose n a ete faite en son nom.
+    expect(table.coup?.combinaisons).toEqual([]);
+    expect(table.coup?.mains[ordre[0] as string]).toHaveLength(14);
+  });
+
+  it('previent les joueurs restants du nouvel etat apres l abandon', async () => {
+    const { ordre } = await preparerTourPioche({ type: 'delai', dureeMs: 90000 });
+    const actif = espions.find((espion) => espion.joueurId === ordre[0]) as Espion;
+    const temoin = espions.find((espion) => espion.joueurId === ordre[1]) as Espion;
+
+    actif.socket.disconnect();
+    await patienter(50);
+    horloge.declencher();
+    await patienter(50);
+
+    expect(temoin.dernierEtat?.coup.joueurActifId).toBe(ordre[1]);
+    expect(temoin.dernierEtat?.defausse.cartesSorties).toHaveLength(1);
+  });
+
+  it('laisse le tour en attente indefiniment en mode illimite', async () => {
+    const { tableId, ordre, actif } = await preparerTourPioche({ type: 'illimite' });
+
+    actif.socket.disconnect();
+    await patienter(50);
+
+    // Aucun minuteur n est arme, et declencher ne change rien.
+    expect(horloge.programmes).toHaveLength(0);
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.tourEnCours).not.toBeNull();
+    expect(table.coup?.joueurActifId).toBe(ordre[0]);
+    expect(table.coup?.defausse).toHaveLength(0);
+  });
+
+  it('desamorce le minuteur quand le joueur revient a temps', async () => {
+    const { tableId, places, ordre, actif } = await preparerTourPioche({
+      type: 'delai',
+      dureeMs: 90000,
+    });
+    const jeton = (places.find((place) => place.joueurId === ordre[0]) as { jeton: string }).jeton;
+
+    actif.socket.disconnect();
+    await patienter(50);
+    expect(horloge.programmes).toHaveLength(1);
+
+    const revenu = await connecter(jeton, ordre[0] as JoueurId);
+    expect(horloge.programmes[0]?.annule).toBe(true);
+
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.tourEnCours).not.toBeNull();
+    expect(table.coup?.joueurActifId).toBe(ordre[0]);
+    expect(table.coup?.defausse).toHaveLength(0);
+    // Il retrouve sa carte piochee.
+    expect(revenu.dernierEtat?.moi.carteEnAttente?.id).toBe(table.tourEnCours?.cartePiochee.id);
+  });
+
+  it('n arme aucun minuteur pour un joueur qui n a pas de tour entame', async () => {
+    const { ordre } = await preparerTourPioche({ type: 'delai', dureeMs: 90000 });
+    const inactif = espions.find((espion) => espion.joueurId === ordre[1]) as Espion;
+
+    inactif.socket.disconnect();
+    await patienter(50);
+
+    expect(horloge.programmes).toHaveLength(0);
   });
 });

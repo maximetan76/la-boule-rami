@@ -160,6 +160,65 @@ const cloturerCoup = (table: Table, coup: Coup): void => {
   if (!estBouleTerminee(table.boule)) demarrerCoup(table);
 };
 
+/**
+ * Abandonne le tour d'un joueur parti en cours de route : il défausse la carte
+ * qu'il avait piochée et la main passe au suivant, sans rien poser — le
+ * brouillon de tour est jeté.
+ *
+ * Le tirage se refait par le talon. Quand le joueur avait pioché au talon,
+ * c'est exactement la carte qu'il tenait, la pioche n'ayant pas été entamée.
+ * Quand il avait pris la défausse, cette carte-là ne peut pas être défaussée
+ * telle quelle — les règles imposent de l'utiliser immédiatement dans une
+ * combinaison — on lui sert donc une carte du talon qu'il rejette aussitôt.
+ */
+const abandonnerTour = (table: Table, joueurId: JoueurId): void => {
+  const coup = table.coup;
+  if (coup === null) return;
+  if (table.tourEnCours === null || table.tourEnCours.joueurId !== joueurId) return;
+
+  const talon = reformerTalon(coup.pioche, coup.defausse, table.alea);
+  coup.pioche = talon.pioche;
+  coup.defausse = talon.defausse;
+
+  const aDefausser = coup.pioche[0];
+  if (aDefausser === undefined) return;
+
+  const { coup: apres } = jouerTour(
+    coup,
+    joueurId,
+    { source: 'pioche', carteDefausseeId: aDefausser.id },
+    table.alea,
+  );
+
+  table.coup = apres;
+  table.tourEnCours = null;
+  if (apres.gagnantId !== null) cloturerCoup(table, apres);
+};
+
+/** Programme l'abandon du tour d'un joueur déconnecté, si la table le prévoit. */
+const planifierAbandonDeTour = (
+  io: Server,
+  manager: GameRoomManager,
+  table: Table,
+  joueurId: JoueurId,
+): void => {
+  if (table.gestionDeconnexion.type !== 'delai') return;
+  if (table.tourEnCours === null || table.tourEnCours.joueurId !== joueurId) return;
+
+  table.annulerMinuteur?.();
+  table.annulerMinuteur = manager.minuteur.programmer(() => {
+    table.annulerMinuteur = null;
+    try {
+      abandonnerTour(table, joueurId);
+    } catch {
+      // Un abandon impossible ne doit pas faire tomber le serveur : la table
+      // reste en l'état et le joueur peut encore revenir.
+      return;
+    }
+    diffuserEtat(io, manager, table);
+  }, table.gestionDeconnexion.dureeMs);
+};
+
 const repondre = (ack: unknown, action: () => void): void => {
   const acquitter = typeof ack === 'function' ? (ack as Acquittement) : null;
   try {
@@ -392,8 +451,12 @@ export const enregistrerHandlers = (io: Server, manager: GameRoomManager): void 
 
     socket.on('disconnect', () => {
       const place = manager.detacherSocket(socket.id);
-      // La place est conservee : le joueur peut revenir avec son jeton.
-      if (place !== null) diffuserEtat(io, manager, place.table);
+      if (place === null) return;
+
+      // La place est conservee : le joueur peut revenir avec son jeton. Si un
+      // tour etait entame pour lui, la table decide s il expire ou non.
+      planifierAbandonDeTour(io, manager, place.table, place.joueurId);
+      diffuserEtat(io, manager, place.table);
     });
   });
 };

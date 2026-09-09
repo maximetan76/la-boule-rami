@@ -117,21 +117,22 @@ export const distribuerCartes = (
 };
 
 /**
- * Redistribution après une friche généralisée.
+ * Distribue en tenant compte de cartes déjà en main.
  *
- * § « Les joueurs qui avaient déjà des jokers en main les conservent, et
- * reçoivent une distribution ajustée pour revenir à 14 cartes en tenant compte
- * des jokers déjà en main. »
+ * Chaque joueur garde ce qu'il détient déjà et ne reçoit que le complément
+ * nécessaire pour atteindre 14 cartes. Deux moments des règles s'appuient
+ * dessus : la redistribution après une friche généralisée, et le tout premier
+ * coup d'une Boule quand un joueur a tiré un joker au tirage des sièges.
  *
- * @param joueursAvecJokers jokers (et coucou) conservés par chaque joueur.
+ * @param cartesConservees jokers (et coucou) déjà en main de chaque joueur.
  */
-export const redistribuerApresFricheGeneralisee = (
-  joueursAvecJokers: Readonly<Record<JoueurId, readonly Carte[]>>,
+export const distribuerAvecCartesConservees = (
+  cartesConservees: Readonly<Record<JoueurId, readonly Carte[]>>,
   paquetRestant: readonly Carte[],
 ): DistributionResultat => {
-  const entrees = Object.entries(joueursAvecJokers);
+  const entrees = Object.entries(cartesConservees);
   if (entrees.length === 0) {
-    throw new Error('Impossible de redistribuer sans joueur');
+    throw new Error('Impossible de distribuer sans joueur');
   }
 
   for (const [id, conservees] of entrees) {
@@ -159,3 +160,12 @@ export const redistribuerApresFricheGeneralisee = (
 
   return { mains: completees, pioche };
 };
+
+/**
+ * Redistribution après une friche généralisée.
+ *
+ * § « Les joueurs qui avaient déjà des jokers en main les conservent, et
+ * reçoivent une distribution ajustée pour revenir à 14 cartes en tenant compte
+ * des jokers déjà en main. »
+ */
+export const redistribuerApresFricheGeneralisee = distribuerAvecCartesConservees;

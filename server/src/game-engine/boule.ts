@@ -5,8 +5,9 @@
  * Réf. `docs/REGLES.md` § « Structure d'une Boule » et § « Joueurs et
  * matériel ».
  */
-import type { Boule, Joueur, JoueurId, ScoreCoup } from '../models/index.js';
+import type { Boule, Carte, Joueur, JoueurId, ScoreCoup } from '../models/index.js';
 import { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
+import { estJoker, rang } from './cartes.js';
 
 /** Nombre de joueurs mis sur le côté à 5 ou 6 joueurs (§ « Joueurs et matériel »). */
 export const JOUEURS_SUR_LE_COTE = 2;
@@ -203,3 +204,100 @@ export const numeroCoupCourant = (boule: Boule): number => boule.historique.leng
 /** Tous les coups de la Boule ont-ils été joués ? */
 export const estBouleTerminee = (boule: Boule): boolean =>
   boule.historique.length >= boule.nombreCoupsTotal;
+
+/** Résultat du tirage d'ouverture d'une Boule. */
+export interface TirageOuverture {
+  /** Joueurs assis dans l'ordre croissant des cartes tirées. */
+  readonly ordreTable: JoueurId[];
+  /** Celui qui a tiré la carte la plus basse ; il occupe le premier siège. */
+  readonly donneurInitial: JoueurId;
+  /**
+   * Jokers tirés, conservés en main pour la distribution du premier coup.
+   * Chaque joueur y figure, avec une liste vide s'il n'a rien tiré de tel.
+   */
+  readonly cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
+}
+
+/**
+ * Rang d'une carte au tirage d'ouverture, du plus bas au plus haut : joker
+ * normal et coucou sont ex æquo au rang le plus bas, puis 2 à 10, valet, dame,
+ * roi, et l'as au plus haut.
+ *
+ * C'est un classement propre au tirage : il ne se confond pas avec la lecture
+ * de l'as dans une suite, où il vaut 1 ou 14 selon sa position.
+ */
+export const rangDeTirage = (carte: Carte): number => (estJoker(carte) ? 0 : rang(carte.valeur, true));
+
+/**
+ * Tirage d'ouverture : chaque joueur tire une carte, la plus basse donne, et
+ * les sièges suivent l'ordre croissant des cartes tirées.
+ *
+ * En cas d'égalité, seuls les joueurs concernés retirent, et cette seconde
+ * carte ne départage qu'eux : leur position face aux autres joueurs reste celle
+ * de leur première carte. L'opération se répète tant que l'égalité persiste.
+ *
+ * @param paquetMelange cartes étalées face cachée ; elles sont tirées dans
+ * l'ordre, d'abord une par joueur, puis une par joueur encore à départager.
+ */
+export const tirerSiegesEtDonneurInitial = (
+  joueurs: readonly Joueur[],
+  paquetMelange: readonly Carte[],
+): TirageOuverture => {
+  if (joueurs.length === 0) {
+    throw new Error('Impossible de tirer les sieges sans joueur');
+  }
+
+  const tirages = new Map<JoueurId, Carte[]>(joueurs.map((joueur) => [joueur.id, []]));
+  let curseur = 0;
+
+  const tirerPour = (joueurId: JoueurId): void => {
+    const carte = paquetMelange[curseur];
+    if (carte === undefined) {
+      throw new Error('Paquet epuise : impossible de departager le tirage');
+    }
+    curseur += 1;
+    (tirages.get(joueurId) as Carte[]).push(carte);
+  };
+
+  /**
+   * Ordonne un groupe de joueurs par leur carte de rang `profondeur`, en
+   * faisant retirer les seuls sous-groupes encore à égalité. La récursion reste
+   * confinée au groupe : c'est ce qui empêche une seconde carte de déplacer un
+   * joueur par rapport à quelqu'un qui n'était pas à égalité avec lui.
+   */
+  const ordonner = (ids: readonly JoueurId[], profondeur: number): JoueurId[] => {
+    if (ids.length <= 1) return [...ids];
+
+    const groupes = new Map<number, JoueurId[]>();
+    for (const joueurId of ids) {
+      const cartes = tirages.get(joueurId) as Carte[];
+      while (cartes.length <= profondeur) tirerPour(joueurId);
+      const rangTire = rangDeTirage(cartes[profondeur] as Carte);
+      groupes.set(rangTire, [...(groupes.get(rangTire) ?? []), joueurId]);
+    }
+
+    return [...groupes.keys()]
+      .sort((a, b) => a - b)
+      .flatMap((rangTire) => ordonner(groupes.get(rangTire) as JoueurId[], profondeur + 1));
+  };
+
+  const ordreTable = ordonner(
+    joueurs.map((joueur) => joueur.id),
+    0,
+  );
+
+  // Un joker tiré reste en main pour la distribution du premier coup, à
+  // n'importe quel tour de tirage.
+  const cartesConserveesParJoueur = new Map<JoueurId, Carte[]>(
+    joueurs.map((joueur) => [
+      joueur.id,
+      (tirages.get(joueur.id) as Carte[]).filter(estJoker),
+    ]),
+  );
+
+  return {
+    ordreTable,
+    donneurInitial: ordreTable[0] as JoueurId,
+    cartesConserveesParJoueur,
+  };
+};

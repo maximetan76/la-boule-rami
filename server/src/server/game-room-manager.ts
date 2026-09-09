@@ -10,18 +10,49 @@ import type { Boule, Carte, Coup, Joueur, JoueurId } from '../models/index.js';
 import {
   construirePaquet,
   determinerJoueursAssis,
+  distribuerAvecCartesConservees,
   distribuerCartes,
   estCoupFriche,
   initialiserBoule,
   melangerPaquet,
   numeroCoupCourant,
   redistribuerApresFricheGeneralisee,
+  tirerSiegesEtDonneurInitial,
 } from '../game-engine/index.js';
 import { estJoker } from '../game-engine/cartes.js';
 import type { TourEnAttente } from './etat-filtre.js';
 
 export type TableId = string;
 export type Jeton = string;
+
+/**
+ * Que faire d'un tour entamé par un joueur qui se déconnecte.
+ *
+ * `delai` défausse automatiquement au bout de `dureeMs` et passe la main, pour
+ * que la table ne reste pas bloquée. `illimite` attend son retour.
+ */
+export type GestionDeconnexion =
+  | { readonly type: 'delai'; readonly dureeMs: number }
+  | { readonly type: 'illimite' };
+
+export const DELAI_DECONNEXION_PAR_DEFAUT_MS = 90_000;
+
+/** Horloge, injectable pour que les tests n'attendent pas 90 secondes. */
+export interface Minuteur {
+  /** Programme `callback` et renvoie de quoi l'annuler. */
+  programmer(callback: () => void, delaiMs: number): () => void;
+}
+
+export const minuteurSysteme: Minuteur = {
+  programmer(callback, delaiMs) {
+    const identifiant = setTimeout(callback, delaiMs);
+    // Un minuteur en attente ne doit pas retenir le processus.
+    identifiant.unref?.();
+    return () => {
+      clearTimeout(identifiant);
+    };
+  },
+};
 
 /** Tour entamé par un joueur, tant que le moteur ne l'a pas validé. */
 export interface TourEnCours extends TourEnAttente {
@@ -41,6 +72,11 @@ export interface Table {
   /** Socket courante de chaque joueur, `null` s'il est déconnecté. */
   readonly connexions: Map<JoueurId, string | null>;
   readonly alea: () => number;
+  readonly gestionDeconnexion: GestionDeconnexion;
+  /** Annulation du minuteur d'abandon de tour en cours, s'il y en a un. */
+  annulerMinuteur: (() => void) | null;
+  /** Jokers tirés à l'ouverture, conservés pour la donne du premier coup. */
+  readonly cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
 }
 
 export interface PlaceCreee {
@@ -60,25 +96,45 @@ export class GameRoomManager {
   private readonly places = new Map<Jeton, { tableId: TableId; joueurId: JoueurId }>();
   private readonly sockets = new Map<string, { tableId: TableId; joueurId: JoueurId }>();
 
+  constructor(readonly minuteur: Minuteur = minuteurSysteme) {}
+
   creerTable(
     noms: readonly string[],
-    options: { readonly nombreCoupsFriches?: number; readonly alea?: () => number } = {},
-  ): { tableId: TableId; places: PlaceCreee[] } {
+    options: {
+      readonly nombreCoupsFriches?: number;
+      readonly alea?: () => number;
+      readonly gestionDeconnexion?: GestionDeconnexion;
+    } = {},
+  ): { tableId: TableId; places: PlaceCreee[]; donneurInitial: JoueurId } {
     const tableId = randomUUID();
+    const alea = options.alea ?? Math.random;
     const joueurs: Joueur[] = noms.map((nom, index) => ({
       id: `j${String(index + 1)}`,
       nom,
       croix: 0,
     }));
 
+    // Tirage d'ouverture : il fixe les sièges, le donneur initial, et laisse à
+    // qui a tiré un joker sa carte pour la donne du premier coup.
+    const tirage = tirerSiegesEtDonneurInitial(joueurs, melangerPaquet(construirePaquet(), alea));
+    const assis = tirage.ordreTable.map(
+      (joueurId) => joueurs.find((joueur) => joueur.id === joueurId) as Joueur,
+    );
+
     const table: Table = {
       id: tableId,
-      joueurs,
-      boule: initialiserBoule(joueurs, options.nombreCoupsFriches),
+      joueurs: assis,
+      boule: initialiserBoule(assis, options.nombreCoupsFriches),
       coup: null,
       tourEnCours: null,
       connexions: new Map(joueurs.map((joueur) => [joueur.id, null])),
-      alea: options.alea ?? Math.random,
+      alea,
+      gestionDeconnexion: options.gestionDeconnexion ?? {
+        type: 'delai',
+        dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS,
+      },
+      annulerMinuteur: null,
+      cartesConserveesParJoueur: tirage.cartesConserveesParJoueur,
     };
     this.tables.set(tableId, table);
 
@@ -88,7 +144,7 @@ export class GameRoomManager {
       return { joueurId: joueur.id, nom: joueur.nom, jeton };
     });
 
-    return { tableId, places };
+    return { tableId, places, donneurInitial: tirage.donneurInitial };
   }
 
   table(tableId: TableId): Table {
@@ -103,7 +159,12 @@ export class GameRoomManager {
     if (place === undefined) throw new Error('Jeton de session inconnu');
 
     const table = this.table(place.tableId);
-    // Une reconnexion remplace la socket précédente sans toucher au jeu.
+    // Une reconnexion remplace la socket précédente sans toucher au jeu, et
+    // désamorce l'abandon automatique du tour que le joueur avait entamé.
+    if (table.tourEnCours?.joueurId === place.joueurId) {
+      table.annulerMinuteur?.();
+      table.annulerMinuteur = null;
+    }
     table.connexions.set(place.joueurId, socketId);
     this.sockets.set(socketId, place);
     return { table, joueurId: place.joueurId };
@@ -153,10 +214,25 @@ export const demarrerCoup = (table: Table): Coup => {
   const ordonnes = joueursActifs.map(
     (id) => actifs.find((joueur) => joueur.id === id) as Joueur,
   );
-  const { mains, pioche } = distribuerCartes(
-    ordonnes,
-    melangerPaquet(construirePaquet(), table.alea),
+  // Au tout premier coup, les jokers tirés à l'ouverture restent en main : on
+  // ne sert que le complément, comme après une friche généralisée.
+  const conservees: Record<JoueurId, Carte[]> = {};
+  let aConserve = false;
+  for (const joueurId of joueursActifs) {
+    const cartes = numero === 1 ? (table.cartesConserveesParJoueur.get(joueurId) ?? []) : [];
+    conservees[joueurId] = cartes;
+    if (cartes.length > 0) aConserve = true;
+  }
+
+  const idsConserves = new Set(Object.values(conservees).flat().map((carte) => carte.id));
+  const paquet = melangerPaquet(
+    construirePaquet().filter((carte) => !idsConserves.has(carte.id)),
+    table.alea,
   );
+
+  const { mains, pioche } = aConserve
+    ? distribuerAvecCartesConservees(conservees, paquet)
+    : distribuerCartes(ordonnes, paquet);
 
   const recapitulatifs: Coup['recapitulatifs'] = {};
   for (const id of joueursActifs) {

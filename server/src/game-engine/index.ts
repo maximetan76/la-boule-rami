@@ -45,6 +45,7 @@ export {
 } from './fin-de-boule.js';
 export {
   construirePaquet,
+  distribuerAvecCartesConservees,
   distribuerCartes,
   melangerPaquet,
   NOMBRE_JOKERS,
@@ -65,5 +66,7 @@ export {
   initialiserBoule,
   JOUEURS_SUR_LE_COTE,
   numeroCoupCourant,
+  rangDeTirage,
+  tirerSiegesEtDonneurInitial,
 } from './boule.js';
-export type { CompositionCoup, FricheGeneralisee } from './boule.js';
+export type { CompositionCoup, FricheGeneralisee, TirageOuverture } from './boule.js';

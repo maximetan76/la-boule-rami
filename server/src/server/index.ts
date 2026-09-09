@@ -7,7 +7,7 @@
  */
 import { createServer, type Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
-import { GameRoomManager } from './game-room-manager.js';
+import { GameRoomManager, type Minuteur } from './game-room-manager.js';
 import { enregistrerHandlers } from './handlers.js';
 
 export interface Serveur {
@@ -16,8 +16,8 @@ export interface Serveur {
   readonly manager: GameRoomManager;
 }
 
-export const creerServeur = (): Serveur => {
-  const manager = new GameRoomManager();
+export const creerServeur = (options: { readonly minuteur?: Minuteur } = {}): Serveur => {
+  const manager = new GameRoomManager(options.minuteur);
   const httpServer = createServer();
   const io = new Server(httpServer, {
     cors: { origin: process.env['CORS_ORIGIN'] ?? '*' },
@@ -27,7 +27,12 @@ export const creerServeur = (): Serveur => {
   return { io, httpServer, manager };
 };
 
-export { GameRoomManager } from './game-room-manager.js';
+export {
+  DELAI_DECONNEXION_PAR_DEFAUT_MS,
+  GameRoomManager,
+  minuteurSysteme,
+} from './game-room-manager.js';
+export type { GestionDeconnexion, Minuteur } from './game-room-manager.js';
 export { filtrerEtatPourJoueur } from './etat-filtre.js';
 export type { EtatCoupFiltre } from './etat-filtre.js';
 
