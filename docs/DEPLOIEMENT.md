@@ -53,6 +53,17 @@ Dans **Environment** du service web, ajoute :
 | `DATABASE_URL` | l'*Internal Database URL* de l'étape 2 |
 | `JWT_SECRET` | un secret aléatoire long, par ex. `openssl rand -base64 48` |
 | `APPLE_CLIENT_ID` | le Bundle ID de l'app iOS, ou le Services ID Apple |
+
+`JWT_SECRET` est **obligatoire en production** : le serveur refuse de démarrer
+sans lui, faute de quoi les sessions ne seraient pas vérifiables d'un
+déploiement à l'autre. En développement, son absence fait tirer un secret
+éphémère, avec un avertissement.
+
+`APPLE_CLIENT_ID` est **optionnel** : sans lui le serveur démarre normalement,
+avertit dans les journaux que l'authentification Apple est désactivée, et
+`POST /auth/apple` répond 503 avec un message explicite. Tout le reste — les
+autres routes et le WebSocket — fonctionne. C'est ce qui permet de développer
+et de déployer avant que l'app iOS et son identifiant Apple n'existent.
 | `CORS_ORIGIN` | `*` tant que le seul client est l'app iOS |
 
 `DATABASE_URL_TEST` n'a **rien à faire ici** : elle ne sert qu'aux tests sur ton

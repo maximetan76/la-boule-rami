@@ -33,7 +33,8 @@ export interface DependancesHttp {
   readonly depot: Depot;
   readonly manager: GameRoomManager;
   readonly session: ConfigSession;
-  readonly apple: ConfigApple;
+  /** `null` quand Sign in with Apple n'est pas configuré : la route est alors hors service. */
+  readonly apple: ConfigApple | null;
   /** Prévient les joueurs connectés qu'une table a changé. */
   readonly notifier?: (table: Table) => void;
   /**
@@ -116,6 +117,13 @@ const ouvrirSession = async (
   corps: Record<string, unknown>,
   deps: DependancesHttp,
 ): Promise<unknown> => {
+  if (deps.apple === null) {
+    throw new ErreurHttp(
+      503,
+      "Authentification Apple non configuree sur ce serveur : APPLE_CLIENT_ID n'est pas defini",
+    );
+  }
+
   const jetonIdentite = texteOuNull(corps['jetonIdentite']);
   if (jetonIdentite === null) throw new ErreurHttp(401, "Jeton d'identite Apple manquant");
 
