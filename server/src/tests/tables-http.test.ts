@@ -114,10 +114,41 @@ describe('API des tables', () => {
       expect(table.gestionDeconnexion).toEqual({ type: 'illimite' });
     });
 
+    it('accepte une table a 2 joueurs', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const { statut, corps } = await appeler('POST', '/tables', {
+        compte: ana,
+        corps: { nombreJoueurs: 2 },
+      });
+
+      expect(statut).toBe(201);
+      expect(corps['capacite']).toBe(2);
+    });
+
+    it('demarre une partie des que le second joueur s assied', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { corps: salon } = await appeler('POST', '/tables', {
+        compte: ana,
+        corps: { nombreJoueurs: 2 },
+      });
+
+      const { corps } = await appeler('POST', '/tables/rejoindre', {
+        compte: bo,
+        corps: { code: salon['codeInvitation'] },
+      });
+
+      expect(corps['statut']).toBe('en-cours');
+      const table = serveur.manager.table(salon['tableId'] as string);
+      // Meme longueur de Boule qu'a 4 joueurs, et personne sur le cote.
+      expect(table.boule?.nombreCoupsTotal).toBe(8);
+      expect(table.joueurs).toHaveLength(2);
+    });
+
     it('refuse un nombre de joueurs hors des regles', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       expect(
-        (await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2 } })).statut,
+        (await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 1 } })).statut,
       ).toBe(400);
       expect(
         (await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 7 } })).statut,

@@ -27,6 +27,7 @@ const score = (partiel: Partial<ScoreCoup> = {}): ScoreCoup => ({
 
 describe('initialiserBoule', () => {
   it('fixe le nombre de coups selon le nombre de joueurs', () => {
+    expect(initialiserBoule(table('j1', 'j2')).nombreCoupsTotal).toBe(8);
     expect(initialiserBoule(table('j1', 'j2', 'j3')).nombreCoupsTotal).toBe(9);
     expect(initialiserBoule(table('j1', 'j2', 'j3', 'j4')).nombreCoupsTotal).toBe(8);
     expect(initialiserBoule(table('j1', 'j2', 'j3', 'j4', 'j5')).nombreCoupsTotal).toBe(10);
@@ -48,13 +49,67 @@ describe('initialiserBoule', () => {
   });
 
   it('refuse une table dont le nombre de coups n est pas defini par les regles', () => {
-    expect(() => initialiserBoule(table('j1', 'j2'))).toThrow();
+    expect(() => initialiserBoule(table('j1'))).toThrow();
     expect(() => initialiserBoule(table('j1', 'j2', 'j3', 'j4', 'j5', 'j6', 'j7'))).toThrow();
   });
 
   it('refuse plus de coups friches que de coups', () => {
     expect(() => initialiserBoule(table('j1', 'j2', 'j3', 'j4'), 9)).toThrow();
     expect(() => initialiserBoule(table('j1', 'j2', 'j3', 'j4'), -1)).toThrow();
+  });
+});
+
+describe('Boule a 2 joueurs', () => {
+  const deux = () => initialiserBoule(table('j1', 'j2'));
+
+  it('compte 8 coups, comme a 4 joueurs', () => {
+    expect(deux().nombreCoupsTotal).toBe(8);
+    expect(deux().nombreCoupsTotal).toBe(initialiserBoule(table('j1', 'j2', 'j3', 'j4')).nombreCoupsTotal);
+  });
+
+  it('ne met personne sur le cote : les deux joueurs jouent chaque coup', () => {
+    const boule = deux();
+    for (let numeroCoup = 1; numeroCoup <= 8; numeroCoup += 1) {
+      const composition = determinerJoueursAssis(boule, numeroCoup);
+      expect(composition.joueursAssis).toEqual([]);
+      expect(composition.joueursActifs).toHaveLength(2);
+    }
+  });
+
+  it('fait alterner le donneur d un coup a l autre', () => {
+    const boule = deux();
+    expect(determinerJoueursAssis(boule, 1).donneurId).toBe('j1');
+    expect(determinerJoueursAssis(boule, 2).donneurId).toBe('j2');
+    expect(determinerJoueursAssis(boule, 3).donneurId).toBe('j1');
+  });
+
+  it('ouvre l ordre de jeu par celui qui ne donne pas', () => {
+    const boule = deux();
+    expect(determinerJoueursAssis(boule, 1).joueursActifs).toEqual(['j2', 'j1']);
+    expect(determinerJoueursAssis(boule, 2).joueursActifs).toEqual(['j1', 'j2']);
+  });
+
+  it('friche les 2 derniers coups, et suit les friches generalisees', () => {
+    let boule = deux();
+    expect(estCoupFriche(boule, 6)).toBe(false);
+    expect(estCoupFriche(boule, 7)).toBe(true);
+
+    boule = enregistrerResultatCoup(boule, 1, { toutLeMondeAFriche: true });
+    expect(boule.nombreCoupsTotal).toBe(8);
+    expect(boule.nombreCoupsFriches).toBe(3);
+    expect(estCoupFriche(boule, 6)).toBe(true);
+  });
+
+  it('se termine au bout de ses 8 coups', () => {
+    let boule = deux();
+    for (let numeroCoup = 1; numeroCoup <= 7; numeroCoup += 1) {
+      boule = enregistrerResultatCoup(boule, numeroCoup, score({ scores: { j1: 10, j2: -20 } }));
+    }
+    expect(estBouleTerminee(boule)).toBe(false);
+
+    boule = enregistrerResultatCoup(boule, 8, score({ scores: { j1: 10, j2: -20 } }));
+    expect(estBouleTerminee(boule)).toBe(true);
+    expect(boule.scoresCumules).toEqual({ j1: 80, j2: -160 });
   });
 });
 

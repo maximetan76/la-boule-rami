@@ -8,6 +8,8 @@ import type { JoueurId } from './joueur.js';
 
 /** Nombre de coups d'une Boule selon le nombre de joueurs (§ « Structure d'une Boule »). */
 export const COUPS_PAR_NOMBRE_DE_JOUEURS: Readonly<Record<number, number>> = {
+  // À 2 joueurs, la Boule a la même longueur qu'à 4.
+  2: 8,
   3: 9,
   4: 8,
   5: 10,

@@ -1,12 +1,12 @@
 ## La Boule — règles complètes
 
 ### Joueurs et matériel
-- De 1 à 6 joueurs (jeu réel à partir de 3). À 5 ou 6 joueurs, 2 joueurs sont "sur le côté" à chaque coup et ne jouent pas la main ; la rotation des joueurs assis se fait dans l'ordre, en remplaçant systématiquement le donneur du coup précédent.
+- De 2 à 6 joueurs. À 5 ou 6 joueurs, 2 joueurs sont "sur le côté" à chaque coup et ne jouent pas la main ; la rotation des joueurs assis se fait dans l'ordre, en remplaçant systématiquement le donneur du coup précédent. À 2, 3 ou 4 joueurs, tout le monde joue chaque coup.
 - Matériel : 2 jeux de 52 cartes + 4 jokers normaux + 1 "super joker" appelé le "coucou" (109 cartes au total).
 - Distribution : les cartes sont distribuées 2 par 2, jusqu'à 14 cartes par joueur.
 
 ### Structure d'une Boule
-- Une Boule est une série de coups dont le nombre dépend du nombre de joueurs : 3 joueurs → 9 coups, 4 joueurs → 8 coups, 5 joueurs → 10 coups, 6 joueurs → 12 coups.
+- Une Boule est une série de coups dont le nombre dépend du nombre de joueurs : 2 joueurs → 8 coups, 3 joueurs → 9 coups, 4 joueurs → 8 coups, 5 joueurs → 10 coups, 6 joueurs → 12 coups. À 2 joueurs, la Boule suit donc la même longueur qu'à 4.
 - Au début de la Boule, les joueurs choisissent le nombre de coups "frichés d'office" (par défaut 2). Ce sont toujours les DERNIERS coups de la Boule qui sont frichés (points doublés), le décompte partant de la fin.
 - Si, lors d'un coup, TOUS les joueurs "frichent" (passent, voir plus bas), ce coup est rejoué à la même place, avec le MÊME donneur : on n'avance pas au coup suivant et le nombre total de coups de la Boule ne change pas. Seul le nombre de coups frichés augmente d'un cran, toujours décompté en partant de la fin. Exemple à 4 joueurs (8 coups, 2 frichés au départ) : si un coup est intégralement friché, la Boule reste à 8 coups et on passe à 3 coups frichés en partant de la fin, et ainsi de suite si ça se reproduit.
 

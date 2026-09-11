@@ -63,7 +63,7 @@ export const ALPHABET_CODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const LONGUEUR_CODE = 6;
 
 /** Nombres de joueurs pour lesquels les règles donnent un nombre de coups. */
-export const CAPACITE_MIN = 3;
+export const CAPACITE_MIN = 2;
 export const CAPACITE_MAX = 6;
 
 export type StatutTable = 'salon' | 'en-cours' | 'terminee';
