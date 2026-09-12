@@ -188,6 +188,73 @@ describe('jouerTour — première pose', () => {
   });
 });
 
+describe('jouerTour — une tierce posée grandit carte par carte', () => {
+  // § « Conditions pour poser » : une suite de 6 cartes ou plus ne se POSE pas
+  // d'un coup, elle doit être scindée. Cette contrainte vise la pose, pas la
+  // croissance : une tierce déjà sur la table s'allonge par ses extrémités,
+  // un ajout à la fois, sans plafond.
+  const suiteDeCinq = () =>
+    tierce(
+      'pique',
+      [c('pique', 10), c('pique', 'V'), c('pique', 'D'), c('pique', 'R'), c('pique', 'A')],
+      'j2',
+    );
+
+  const dejaPose = {
+    j1: recap({ toursAvecPose: [1] }),
+    j2: recap({ toursAvecPose: [1] }),
+    j3: recap({ toursAvecPose: [] }),
+  };
+
+  it('accepte une sixieme carte sur une tierce de cinq deja posee', () => {
+    const neufPique = c('pique', 9);
+    const main = [neufPique, c('carreau', 4)];
+    const visible = suiteDeCinq();
+    const depart = coupJouable(main, { combinaisons: [visible], recapitulatifs: dejaPose });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: neufPique, remplace: null }] }],
+      carteDefausseeId: main[1]!.id,
+    });
+
+    expect(apres.combinaisons.find((comb) => comb.id === visible.id)?.cartes).toHaveLength(6);
+  });
+
+  it('refuse toujours de POSER six cartes d un coup', () => {
+    // La contrainte de scission reste entiere sur la pose elle-meme.
+    const six = [
+      c('pique', 9), c('pique', 10), c('pique', 'V'),
+      c('pique', 'D'), c('pique', 'R'), c('pique', 'A'),
+    ];
+    const main = [...six, c('carreau', 4)];
+    const depart = coupJouable(main);
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        poses: [tierce('pique', six)],
+        carteDefausseeId: main[6]!.id,
+      }),
+    ).toThrow(/pose/i);
+  });
+
+  it('refuse une carte qui ne prolonge pas la suite', () => {
+    const septPique = c('pique', 7);
+    const main = [septPique, c('carreau', 4)];
+    const visible = suiteDeCinq();
+    const depart = coupJouable(main, { combinaisons: [visible], recapitulatifs: dejaPose });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: septPique, remplace: null }] }],
+        carteDefausseeId: main[1]!.id,
+      }),
+    ).toThrow(/Ajout invalide/);
+  });
+});
+
 describe('jouerTour — un brelan complété devient un carré', () => {
   // § « Conditions pour poser » : un brelan réunit la même valeur en couleurs
   // différentes, un carré en réunit quatre. Compléter un brelan par la couleur

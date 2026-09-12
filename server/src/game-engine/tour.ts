@@ -16,7 +16,11 @@ import type {
   JoueurId,
 } from '../models/index.js';
 import { estJoker } from './cartes.js';
-import { estCombinaisonValide, verifierDeclarationsJokers } from './combinaisons.js';
+import {
+  estCombinaisonProlongeeValide,
+  estCombinaisonValide,
+  verifierDeclarationsJokers,
+} from './combinaisons.js';
 import { estCarteCollante } from './defausse.js';
 import { peutPoser, SEUIL_POSE, verifierFinDeCoupSpeciale } from './pose.js';
 import { calculerValeurCombinaison } from './combinaisons.js';
@@ -171,7 +175,8 @@ export const jouerTour = (
     if (ajout === undefined) return combinaison;
 
     const enrichie = avecCartes(combinaison, [...combinaison.cartes, ...ajout.cartes]);
-    if (!estCombinaisonValide(enrichie)) {
+    // Une combinaison qui grandit n'est pas une pose : elle n'a pas de plafond.
+    if (!estCombinaisonProlongeeValide(enrichie)) {
       throw new Error(`Ajout invalide sur la combinaison ${combinaison.id}`);
     }
     return enrichie;
@@ -367,7 +372,9 @@ export const recupererJoker = (
       cp.carte.id === jokerPosee.carte.id ? { carte: carteReelle, remplace: null } : cp,
     ),
   );
-  if (!estCombinaisonValide(cibleEchangee)) {
+  // La cible peut être une suite allongée au fil des tours : la juger avec le
+  // plafond de la pose la refuserait pour sa seule longueur.
+  if (!estCombinaisonProlongeeValide(cibleEchangee)) {
     throw new Error('L echange rendrait la combinaison invalide');
   }
 

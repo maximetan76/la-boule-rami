@@ -24,7 +24,7 @@
 ### Conditions pour poser (première pose d'un joueur)
 - Il faut réunir DEUX conditions : au moins 51 points ET au moins une "tierce pure" (voir ci-dessous).
 - Calcul des points : un As vaut 1 point s'il est dans une tierce As-2-3, et 11 points s'il est dans une tierce Q-K-A ou un brelan d'As. Les figures (V, D, R) valent 10 points. Les autres cartes valent leur valeur faciale.
-- Une "tierce" est une combinaison d'au moins 3 cartes consécutives de la même couleur (pique/cœur/carreau/trèfle), jusqu'à 5 cartes.
+- Une "tierce" est une combinaison d'au moins 3 cartes consécutives de la même couleur (pique/cœur/carreau/trèfle), jusqu'à 5 cartes **au moment où on la pose**. Une tierce déjà posée peut ensuite dépasser 5 cartes en s'allongeant par ses extrémités, un ajout à la fois.
 - Des brelans ou carrés sont aussi autorisés (même valeur, couleurs toutes différentes).
 - Une "tierce pure" est une tierce sans aucun joker dedans. Le joker peut remplacer n'importe quelle carte dans les autres combinaisons, MAIS il est interdit d'avoir un joker dans LA tierce qui sert à valider la condition de pose (il faut au moins une tierce à 100% naturelle parmi ce qu'on pose). En revanche, si le joueur a une tierce pure ET un joker dans une autre combinaison posée en même temps, c'est autorisé.
 - SEULE EXCEPTION : le "coucou" (super joker) peut, lui, remplacer une carte même dans la tierce servant à valider la condition de pose.
@@ -64,7 +64,7 @@
 - Ces croix sont cumulables sur plusieurs coups au sein de la même Boule.
 - Si le joueur qui obtient une croix réalise ce coup en "double" ou "triple" (voir plus haut), le nombre de croix obtenu ce coup-là est lui aussi doublé ou triplé en conséquence.
 - Contrainte de validité : pour prétendre à ce bonus, le joueur ne doit PAS poser la suite complète en une fois s'il a une carte supplémentaire qui prolongerait la quinte flush (exemple : s'il a A-K-Q-J-10 de cœur ET le 9 de cœur en main, il ne doit PAS poser les 6 cartes ensemble — il doit poser seulement A-K-Q-J-10 et garder le 9 pour un tour ultérieur, sinon la quinte flush royale n'est pas reconnue comme telle pour le bonus).
-- Contrainte générale : toute suite de 6 cartes ou plus de la même couleur doit obligatoirement être scindée en tierces distinctes de 3 cartes minimum chacune au moment de la pose (on ne peut jamais poser une seule combinaison de 6+ cartes d'un coup).
+- Contrainte générale : toute suite de 6 cartes ou plus de la même couleur doit obligatoirement être scindée en tierces distinctes de 3 cartes minimum chacune au moment de la pose (on ne peut jamais poser une seule combinaison de 6+ cartes d'un coup). Cette contrainte ne vise que la pose : elle ne s'applique pas à l'ajout d'une carte à une combinaison déjà sur la table, qui peut ainsi grandir au-delà de 5 cartes.
 - Chaque croix obtenue par un joueur pendant la Boule vaut -100 points, appliqués à la toute fin de la Boule (voir section suivante), APRÈS le calcul du bonus de victoire de la Boule (les croix n'influencent donc pas la détermination du gagnant de la Boule).
 
 ### Fin de la Boule (tous les coups joués)

@@ -59,11 +59,16 @@ const contientUnJoker = (cartes: readonly CartePosee[]): boolean =>
  * valide. La lecture as haut est essayée en premier ; seules les tierces
  * ambiguës (as entouré uniquement de jokers non déclarés) en dépendent.
  */
-export const resoudreTierce = (combinaison: Combinaison): boolean | null => {
+export const resoudreTierce = (
+  combinaison: Combinaison,
+  options: { readonly plafonnee?: boolean } = {},
+): boolean | null => {
   if (combinaison.type !== 'tierce') return null;
 
+  const { plafonnee = true } = options;
   const { cartes, couleur } = combinaison;
-  if (cartes.length < TIERCE_LONGUEUR_MIN || cartes.length > TIERCE_LONGUEUR_MAX) return null;
+  if (cartes.length < TIERCE_LONGUEUR_MIN) return null;
+  if (plafonnee && cartes.length > TIERCE_LONGUEUR_MAX) return null;
 
   const resolues = cartes.map(resoudre).filter((r): r is CarteResolue => r !== null);
   // Une tierce entièrement composée de jokers non déclarés n'est pas lisible.
@@ -96,7 +101,7 @@ export const resoudreTierce = (combinaison: Combinaison): boolean | null => {
  * suite pourrait se lire décalée d'un rang.
  */
 export const fenetreTierce = (combinaison: Combinaison): { debut: number; fin: number } | null => {
-  const asHaut = resoudreTierce(combinaison);
+  const asHaut = resoudreTierce(combinaison, { plafonnee: false });
   if (asHaut === null || combinaison.type !== 'tierce') return null;
 
   const rangs = combinaison.cartes
@@ -115,6 +120,17 @@ export const fenetreTierce = (combinaison: Combinaison): { debut: number; fin: n
 /** Une tierce valide : 3 à 5 cartes consécutives de la même couleur, jokers admis. */
 export const estTierceValide = (combinaison: Combinaison): boolean =>
   resoudreTierce(combinaison) !== null;
+
+/**
+ * Une tierce déjà posée que l'on prolonge, sans plafond de longueur.
+ *
+ * Réf. docs/REGLES.md § « Conditions pour poser » : la scission obligatoire
+ * d'une suite de 6 cartes ou plus vise la POSE — on ne pose jamais une telle
+ * combinaison d'un coup. Une combinaison déjà sur la table, elle, s'allonge
+ * par ses extrémités un ajout à la fois, et rien ne la plafonne.
+ */
+export const estTierceProlongeeValide = (combinaison: Combinaison): boolean =>
+  resoudreTierce(combinaison, { plafonnee: false }) !== null;
 
 /**
  * Un brelan (3 cartes) ou un carré (4 cartes) : même valeur, couleurs toutes
@@ -136,6 +152,12 @@ export const estEnsembleValide = (combinaison: Combinaison): boolean => {
 
 export const estCombinaisonValide = (combinaison: Combinaison): boolean =>
   combinaison.type === 'tierce' ? estTierceValide(combinaison) : estEnsembleValide(combinaison);
+
+/** La même chose, pour une combinaison que l'on vient d'allonger. */
+export const estCombinaisonProlongeeValide = (combinaison: Combinaison): boolean =>
+  combinaison.type === 'tierce'
+    ? estTierceProlongeeValide(combinaison)
+    : estEnsembleValide(combinaison);
 
 /**
  * Tierce « pure » au sens littéral des règles : une tierce valide sans aucun
