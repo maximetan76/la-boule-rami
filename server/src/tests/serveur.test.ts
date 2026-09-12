@@ -5,7 +5,7 @@ import { creerServeur, type Serveur } from '../server/index.js';
 import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { ouvrirTablePleine } from './aide-table.js';
-import { c } from './fixtures.js';
+import { c, coucou, recap } from './fixtures.js';
 import type { GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
@@ -396,6 +396,76 @@ describe('serveur socket.io', () => {
    * la carte prise doit servir immédiatement. Sans moyen de la rendre, un
    * joueur qui n'y parvient pas ne peut plus clore son tour.
    */
+  /**
+   * Réf. docs/REGLES.md § « Récupération d'un joker posé » : le joker repris
+   * doit être replacé dans la foulée. L'échange est donc tout ou rien — s'il
+   * échoue, rien ne doit transparaître chez les autres joueurs, qui n'ont pas
+   * à voir passer une tentative avortée.
+   */
+  it('ne laisse aucune trace d une recuperation de joker refusee', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const second = table.coup.ordreJoueurs[1] as JoueurId;
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    const temoin = espions.find((e) => e.joueurId === second) as Espion;
+
+    // Une tierce avec le coucou en place du Valet, deja posee par j1.
+    const dix = c('coeur', 10);
+    const coucouEnValet = { carte: coucou(), remplace: { couleur: 'coeur' as const, valeur: 'V' as const } };
+    const dame = c('coeur', 'D');
+    const posee = {
+      id: 'comb-temoin',
+      type: 'tierce' as const,
+      proprietaireId: premier,
+      tourDePose: 1,
+      couleur: 'coeur' as const,
+      cartes: [{ carte: dix, remplace: null }, coucouEnValet, { carte: dame, remplace: null }],
+      pure: false,
+    };
+    const vraiValet = c('coeur', 'V');
+    table.coup.combinaisons = [posee];
+    table.coup.mains[premier] = [vraiValet, c('pique', 3), c('carreau', 8), c('trefle', 9)];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+
+    const etatTemoinAvant = JSON.stringify(temoin.dernierEtat);
+    const etatsRecusAvant = temoin.etatsRecus;
+    const combinaisonsAvant = JSON.stringify(table.coup.combinaisons);
+    const mainAvant = JSON.stringify(table.coup.mains[premier]);
+
+    // Le coucou repris, mais replace dans une combinaison qui n'en est pas une.
+    const refus = await emettre(joueur.socket, 'recuperer-joker', {
+      carteReelleId: vraiValet.id,
+      combinaisonId: posee.id,
+      carteJokerId: coucouEnValet.carte.id,
+      replacement: {
+        type: 'tierce',
+        couleur: 'pique',
+        cartes: [
+          { carteId: coucouEnValet.carte.id, remplace: { couleur: 'pique', valeur: 2 } },
+          { carteId: (table.coup.mains[premier] as Carte[])[1]?.id },
+          { carteId: (table.coup.mains[premier] as Carte[])[2]?.id },
+        ],
+      },
+    });
+
+    expect(refus.ok).toBe(false);
+    // Rien n'a bouge : ni la table, ni la main, ni ce que voit le temoin.
+    expect(JSON.stringify(table.coup?.combinaisons)).toBe(combinaisonsAvant);
+    expect(JSON.stringify(table.coup?.mains[premier])).toBe(mainAvant);
+    expect(temoin.etatsRecus).toBe(etatsRecusAvant);
+    expect(JSON.stringify(temoin.dernierEtat)).toBe(etatTemoinAvant);
+    // Le coucou n'a pas quitte la table, le vrai Valet n'y est pas entre.
+    const surLaTable = table.coup?.combinaisons[0]?.cartes.map((cp) => cp.carte.id) ?? [];
+    expect(surLaTable).toContain(coucouEnValet.carte.id);
+    expect(surLaTable).not.toContain(vraiValet.id);
+  });
+
   it('rend une carte prise en defausse et rouvre le choix de la pioche', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);
