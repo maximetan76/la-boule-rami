@@ -37,7 +37,7 @@
 ### Règle spéciale : piocher la carte de la défausse
 - Un joueur peut piocher uniquement la DERNIÈRE carte défaussée par le joueur précédent (pas les cartes en dessous).
 - S'il pioche cette carte, il est OBLIGÉ de l'utiliser immédiatement dans une combinaison posée face visible.
-- Ce n'est possible QUE si : le joueur a déjà posé lors d'un tour précédent, OU si la combinaison qu'il forme avec cette carte atteint à elle seule 51 points (première pose direct via ce mécanisme).
+- Ce n'est possible QUE si : le joueur a déjà posé lors d'un tour précédent, OU s'il ouvre son jeu dans le même tour — c'est-à-dire si l'ensemble de ce qu'il pose alors remplit les conditions ordinaires de première pose (51 points au total et au moins une tierce pure). Peu importe laquelle des combinaisons posées contient la carte prise : elle n'a pas à atteindre 51 points à elle seule.
 - Notion de carte "collante" : si une carte piochée dans la défausse compléterait une suite déjà posée PAR LE MILIEU (ex : une suite 6-7-8-9 est visible, la carte 5 de la même couleur viendrait combler un "trou" avant le 6, mais ferait doublon avec une extension existante), cette carte est dite "collante" et NE PEUT PAS être piochée dans la défausse pour cet usage précis.
 - Notion de carte "sous-collante" : si la carte piochée dans la défausse prolonge une suite déjà posée PAR UN BOUT (ex : suite 7-8-9 visible, le joueur pioche le 5 pour former une paire 5-6 avec le 6 qu'il a en main, sans toucher à la suite 7-8-9 existante), c'est autorisé.
 

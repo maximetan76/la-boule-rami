@@ -23,7 +23,6 @@ import {
 } from './combinaisons.js';
 import { estCarteCollante } from './defausse.js';
 import { peutPoser, SEUIL_POSE, verifierFinDeCoupSpeciale } from './pose.js';
-import { calculerValeurCombinaison } from './combinaisons.js';
 import { melangerPaquet } from './distribution.js';
 
 /** Cartes ajoutées à une combinaison déjà visible. */
@@ -226,17 +225,12 @@ export const jouerTour = (
       }
     }
 
-    if (!dejaPose) {
-      const porteuse = poses.find((combinaison) =>
-        combinaison.cartes.some((cp) => cp.carte.id === cartePiochee.id),
-      );
-      const valeur = porteuse === undefined ? 0 : calculerValeurCombinaison(porteuse);
-      if (valeur < SEUIL_POSE) {
-        throw new Error(
-          `Sans pose prealable, la combinaison formee avec la carte de la defausse doit atteindre a elle seule ${String(SEUIL_POSE)} points`,
-        );
-      }
-    }
+    // Rien de plus à vérifier ici pour une première pose : la carte prise doit
+    // servir dans une combinaison posée — c'est contrôlé juste au-dessus — et
+    // la pose elle-même répond aux conditions ordinaires, déjà exigées plus
+    // haut par `peutPoser`. Réf. docs/REGLES.md § « Règle spéciale : piocher la
+    // carte de la défausse » : ce sont les 51 points de l'ensemble posé qui
+    // comptent, pas ceux de la seule combinaison qui porte cette carte.
   }
 
   // --- Application des poses et des ajouts --------------------------------

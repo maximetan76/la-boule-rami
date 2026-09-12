@@ -557,6 +557,48 @@ describe('jouerTour — pioche en défausse', () => {
     ).toThrow(/51/);
   });
 
+  it('accepte la defausse en premiere pose quand le TOTAL des poses atteint 51', () => {
+    // La carte de la defausse n'a pas a porter les 51 points a elle seule :
+    // c'est la somme de ce qui est pose ensemble qui compte, comme pour toute
+    // premiere pose. Ici la tierce pure coeur 10-V-D vaut 30, et le brelan de
+    // rois — forme avec le roi pris a la defausse — en vaut 33 : 63 au total.
+    const roiDefausse = c('trefle', 'R');
+    const tiercePure = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D')];
+    const deuxRois = [c('pique', 'R'), c('coeur', 'R')];
+    const main = [...tiercePure, ...deuxRois, c('pique', 2)];
+    const depart = coupJouable(main, { defausse: [roiDefausse] });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'defausse',
+      poses: [
+        tierce('coeur', tiercePure),
+        ensemble('R', [...deuxRois, roiDefausse]),
+      ],
+      carteDefausseeId: main[5]!.id,
+    });
+
+    expect(apres.combinaisons).toHaveLength(2);
+    expect(apres.recapitulatifs['j1']?.toursAvecPose).toEqual([1]);
+  });
+
+  it('refuse quand le total des poses n atteint pas 51, meme carte de defausse utilisee', () => {
+    // Tierce pure coeur 3-4-5 (12) + brelan de 2 forme avec la carte prise
+    // (6) : 18 points, loin des 51.
+    const deuxDefausse = c('trefle', 2);
+    const tiercePure = [c('coeur', 3), c('coeur', 4), c('coeur', 5)];
+    const deuxDeux = [c('pique', 2), c('coeur', 2)];
+    const main = [...tiercePure, ...deuxDeux, c('pique', 9)];
+    const depart = coupJouable(main, { defausse: [deuxDefausse] });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'defausse',
+        poses: [tierce('coeur', tiercePure), ensemble(2, [...deuxDeux, deuxDefausse])],
+        carteDefausseeId: main[5]!.id,
+      }),
+    ).toThrow(/51/);
+  });
+
   it('accepte la defausse en premiere pose si la combinaison formee atteint 51 points', () => {
     // La quinte flush royale vaut exactement 51 points.
     const as = c('coeur', 'A');
