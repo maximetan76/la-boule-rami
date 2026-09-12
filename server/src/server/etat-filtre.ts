@@ -61,6 +61,12 @@ export interface EtatCoupFiltre {
     readonly aPose: boolean;
     /** Carte piochée ce tour-ci, pas encore engagée dans une action validée. */
     readonly carteEnAttente: Carte | null;
+    /**
+     * D'où vient cette carte. Seul son propriétaire le voit — c'est déjà lui
+     * qui l'a prise — et cela décide de ce qu'il peut en faire : une prise en
+     * défausse se rend, une carte du talon a été vue et ne se rend pas.
+     */
+    readonly sourceCarteEnAttente: 'pioche' | 'defausse' | null;
   };
   readonly adversaires: MainAdversaire[];
   readonly coup: {
@@ -127,10 +133,9 @@ export const filtrerEtatPourJoueur = (
       connecte: connectes.includes(autre),
     }));
 
-  const carteEnAttente =
-    tourEnAttente !== null && tourEnAttente.joueurId === joueurId
-      ? tourEnAttente.cartePiochee
-      : null;
+  const monTour = tourEnAttente !== null && tourEnAttente.joueurId === joueurId;
+  const carteEnAttente = monTour ? (tourEnAttente?.cartePiochee ?? null) : null;
+  const sourceCarteEnAttente = monTour ? (tourEnAttente?.source ?? null) : null;
 
   return {
     tableId,
@@ -139,6 +144,7 @@ export const filtrerEtatPourJoueur = (
       main: [...(coup.mains[joueurId] ?? [])],
       aPose: aPose(coup, joueurId),
       carteEnAttente,
+      sourceCarteEnAttente,
     },
     adversaires,
     coup: {

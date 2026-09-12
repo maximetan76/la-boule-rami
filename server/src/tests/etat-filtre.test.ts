@@ -182,6 +182,24 @@ describe('filtrerEtatPourJoueur — carte piochée en attente', () => {
     expect(filtre.moi.carteEnAttente?.id).toBe(piochee.id);
   });
 
+  it('dit au joueur d ou vient sa carte en attente, et a personne d autre', () => {
+    const prise = c('trefle', 9);
+    const tour = { ...enAttente('j1', prise), source: 'defausse' as const };
+
+    const vuParJ1 = filtrerEtatPourJoueur(etatComplet(), boule(), 'j1', { tourEnAttente: tour });
+    // Sans cette information, une partie reprise en cours de tour perdrait de
+    // vue qu'une carte prise en defausse peut etre rendue, et le tour
+    // resterait bloque faute de pouvoir la servir.
+    expect(vuParJ1.moi.sourceCarteEnAttente).toBe('defausse');
+
+    const vuParJ2 = filtrerEtatPourJoueur(etatComplet(), boule(), 'j2', { tourEnAttente: tour });
+    expect(vuParJ2.moi.sourceCarteEnAttente).toBeNull();
+  });
+
+  it('ne dit rien de la source quand aucun tour n est entame', () => {
+    expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').moi.sourceCarteEnAttente).toBeNull();
+  });
+
   it('ne montre a personne d autre la carte piochee par le joueur actif', () => {
     const piochee = c('carreau', 4);
     const filtre = filtrerEtatPourJoueur(etatComplet(), boule(), 'j2', {
