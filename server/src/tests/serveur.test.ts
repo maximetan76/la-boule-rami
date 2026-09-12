@@ -391,6 +391,82 @@ describe('serveur socket.io', () => {
     expect(joueur.dernierEtat?.moi.aPose).toBe(true);
   });
 
+  /**
+   * Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la défausse » :
+   * la carte prise doit servir immédiatement. Sans moyen de la rendre, un
+   * joueur qui n'y parvient pas ne peut plus clore son tour.
+   */
+  it('rend une carte prise en defausse et rouvre le choix de la pioche', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const second = table.coup.ordreJoueurs[1] as JoueurId;
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    const suivant = espions.find((e) => e.joueurId === second) as Espion;
+
+    // Garnir la defausse : le premier joueur pioche au talon et jette.
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    const aJeter = joueur.dernierEtat?.moi.carteEnAttente as Carte;
+    await agir(joueur, 'defausser', { carteId: aJeter.id });
+
+    const enCours = () => {
+      if (table.coup === null) throw new Error('coup absent');
+      return table.coup;
+    };
+    const sommet = enCours().defausse.at(-1) as Carte;
+    const tailleDefausse = enCours().defausse.length;
+
+    await agir(suivant, 'piocher', { source: 'defausse' });
+    expect(table.tourEnCours?.cartePiochee.id).toBe(sommet.id);
+
+    // Sans pouvoir la placer, aucune defausse ne passe : le tour est bloque.
+    const bloque = await emettre(suivant.socket, 'defausser', { carteId: sommet.id });
+    expect(bloque.ok).toBe(false);
+    expect(bloque.ok === false && bloque.erreur).toContain('utilisee immediatement');
+
+    const rendue = await agir(suivant, 'annuler-pioche', {});
+    expect(rendue.ok).toBe(true);
+    expect(table.tourEnCours).toBeNull();
+    // La carte n'a jamais quitte la defausse : rien a y remettre.
+    expect(enCours().defausse).toHaveLength(tailleDefausse);
+    expect(enCours().defausse.at(-1)?.id).toBe(sommet.id);
+    expect(enCours().joueurActifId).toBe(second);
+
+    // Le choix de la pioche est rouvert, et le tour se clot normalement.
+    const reprise = await agir(suivant, 'piocher', { source: 'pioche' });
+    expect(reprise.ok).toBe(true);
+    const nouvelle = suivant.dernierEtat?.moi.carteEnAttente as Carte;
+    const clot = await agir(suivant, 'defausser', { carteId: nouvelle.id });
+    expect(clot.ok).toBe(true);
+    expect(enCours().joueurActifId).not.toBe(second);
+  });
+
+  it('ne rend jamais une carte prise au talon', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+    const avantToutTour = await emettre(joueur.socket, 'annuler-pioche', {});
+    expect(avantToutTour.ok).toBe(false);
+    expect(avantToutTour.ok === false && avantToutTour.erreur).toContain('Aucune pioche a annuler');
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+
+    // Une carte du talon a ete vue : la rendre reviendrait a regarder le
+    // dessus du talon sans rien risquer.
+    const refus = await emettre(joueur.socket, 'annuler-pioche', {});
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('Seule une prise en defausse');
+    expect(table.tourEnCours).not.toBeNull();
+  });
+
   it('refuse d annuler quand il n y a pas de pose, ou quand ce n est pas son tour', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);

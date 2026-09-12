@@ -500,6 +500,44 @@ export const enregistrerHandlers = (
     );
 
     /**
+     * Rend une carte prise dans la défausse, et rouvre le choix de la pioche.
+     *
+     * Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la
+     * défausse » : la carte prise doit servir immédiatement. Un joueur qui n'y
+     * parvient pas ne peut plus clore son tour — aucune défausse n'est
+     * acceptée — et attendait jusqu'ici l'expiration du délai de déconnexion.
+     *
+     * Seule une prise en défausse se rend. Le sommet de la défausse est
+     * public : le rendre n'apprend rien à personne. Rendre une carte du talon
+     * reviendrait à la regarder puis à la remettre, ce qui n'est pas la même
+     * chose.
+     *
+     * La carte n'a jamais quitté la défausse — `piocher` l'y lit sans l'en
+     * retirer, c'est le moteur qui la déplace en jouant le tour — il n'y a donc
+     * rien à remettre en place.
+     */
+    socket.on('annuler-pioche', (_payload: unknown, ack: unknown) => {
+      repondre(ack, () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const tour = table.tourEnCours;
+
+        if (tour === null) throw new Error('Aucune pioche a annuler');
+        if (tour.joueurId !== joueurId) throw new Error(`Ce n'est pas au tour de ${joueurId}`);
+        if (tour.source !== 'defausse') {
+          throw new Error(
+            'Seule une prise en defausse se rend : une carte du talon a ete vue, la rendre ne l effacerait pas',
+          );
+        }
+        if (tour.poses.length > 0 || tour.ajouts.length > 0) {
+          throw new Error('Reprenez d abord vos poses avant de rendre la carte');
+        }
+
+        table.tourEnCours = null;
+        publier(io, manager, table);
+      });
+    });
+
+    /**
      * Retire le brouillon du tour en cours, sans faire sortir le joueur de son
      * tour.
      *
