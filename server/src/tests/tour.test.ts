@@ -188,6 +188,89 @@ describe('jouerTour — première pose', () => {
   });
 });
 
+describe('jouerTour — un brelan complété devient un carré', () => {
+  // § « Conditions pour poser » : un brelan réunit la même valeur en couleurs
+  // différentes, un carré en réunit quatre. Compléter un brelan par la couleur
+  // manquante est donc l'exact pendant de l'allongement d'une tierce par ses
+  // extrémités.
+  const brelanVisible = () =>
+    ensemble('V', [c('pique', 'V'), c('coeur', 'V'), c('trefle', 'V')], 'j2');
+
+  it('accepte la quatrieme couleur sur un brelan deja pose', () => {
+    const valetCarreau = c('carreau', 'V');
+    const suite = suiteCoeur();
+    const main = [...suite, valetCarreau, c('pique', 2)];
+    const visible = brelanVisible();
+    // j1 a deja pose : il a le droit de completer la table.
+    const depart = coupJouable(main, {
+      combinaisons: [visible],
+      recapitulatifs: {
+        j1: recap({ toursAvecPose: [1] }),
+        j2: recap({ toursAvecPose: [1] }),
+        j3: recap({ toursAvecPose: [] }),
+      },
+    });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: valetCarreau, remplace: null }] }],
+      carteDefausseeId: main[4]!.id,
+    });
+
+    const enrichie = apres.combinaisons.find((comb) => comb.id === visible.id);
+    expect(enrichie?.cartes).toHaveLength(4);
+    expect(enrichie?.type).toBe('carre');
+  });
+
+  it('refuse une cinquieme carte sur un carre', () => {
+    const carreVisible = ensemble(
+      'V',
+      [c('pique', 'V'), c('coeur', 'V'), c('trefle', 'V'), c('carreau', 'V')],
+      'j2',
+    );
+    const cinquieme = c('pique', 'V');
+    const main = [cinquieme, c('pique', 2)];
+    const depart = coupJouable(main, {
+      combinaisons: [carreVisible],
+      recapitulatifs: {
+        j1: recap({ toursAvecPose: [1] }),
+        j2: recap({ toursAvecPose: [1] }),
+        j3: recap({ toursAvecPose: [] }),
+      },
+    });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        ajouts: [{ combinaisonId: carreVisible.id, cartes: [{ carte: cinquieme, remplace: null }] }],
+        carteDefausseeId: main[1]!.id,
+      }),
+    ).toThrow(/Ajout invalide/);
+  });
+
+  it('refuse une couleur deja presente dans le brelan', () => {
+    const secondValetPique = c('pique', 'V');
+    const main = [secondValetPique, c('pique', 2)];
+    const visible = brelanVisible();
+    const depart = coupJouable(main, {
+      combinaisons: [visible],
+      recapitulatifs: {
+        j1: recap({ toursAvecPose: [1] }),
+        j2: recap({ toursAvecPose: [1] }),
+        j3: recap({ toursAvecPose: [] }),
+      },
+    });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: secondValetPique, remplace: null }] }],
+        carteDefausseeId: main[1]!.id,
+      }),
+    ).toThrow(/Ajout invalide/);
+  });
+});
+
 describe('jouerTour — poser et ajouter dans le même tour', () => {
   // § « Il peut poser ses propres cartes ET ajouter des cartes chez d autres
   // joueurs dans le meme tour. »

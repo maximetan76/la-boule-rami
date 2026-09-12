@@ -73,8 +73,20 @@ export const reformerTalon = (
 const aDejaPose = (coup: Coup, joueurId: JoueurId): boolean =>
   (coup.recapitulatifs[joueurId]?.toursAvecPose.length ?? 0) > 0;
 
+/**
+ * La même combinaison, avec d'autres cartes.
+ *
+ * Un ensemble change de nom en grandissant : le brelan complété par sa
+ * quatrième couleur devient un carré. Garder « brelan » le rendrait invalide
+ * pour la seule raison qu'il a grandi — `estEnsembleValide` compte trois
+ * cartes pour un brelan, quatre pour un carré — et refuserait un ajout que les
+ * règles autorisent (§ « Conditions pour poser »). Au-delà de quatre, aucun
+ * nom ne convient et la combinaison est jugée invalide, ce qui est voulu.
+ */
 const avecCartes = (combinaison: Combinaison, cartes: readonly CartePosee[]): Combinaison =>
-  combinaison.type === 'tierce' ? { ...combinaison, cartes } : { ...combinaison, cartes };
+  combinaison.type === 'tierce'
+    ? { ...combinaison, cartes }
+    : { ...combinaison, type: cartes.length >= 4 ? 'carre' : 'brelan', cartes };
 
 /** Le moteur signe lui-même les combinaisons posées : ni propriétaire ni tour ne sont déclarés. */
 const attribuer = (combinaison: Combinaison, proprietaireId: JoueurId, tourDePose: number): Combinaison =>
