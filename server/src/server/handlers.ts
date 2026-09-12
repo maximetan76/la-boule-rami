@@ -499,6 +499,38 @@ export const enregistrerHandlers = (
       },
     );
 
+    /**
+     * Retire le brouillon du tour en cours, sans faire sortir le joueur de son
+     * tour.
+     *
+     * `poser` ne juge rien : le moteur ne tranche qu'à la défausse. Sans cet
+     * événement, une pose qu'il refuse resterait dans le tour, qu'aucune
+     * défausse ne pourrait plus clore — le joueur serait bloqué jusqu'à
+     * l'expiration du délai de déconnexion. Annuler lui rend ce qu'il avait
+     * engagé et le laisse recomposer.
+     *
+     * Rien d'autre ne bouge : ni la carte piochée, ni sa source, ni le talon,
+     * ni la défausse, ni le jeu des autres. Les cartes engagées n'ont d'ailleurs
+     * jamais quitté la main — `coup.mains` n'est mis à jour qu'à la défausse —
+     * elles redeviennent donc simplement libres de servir autrement.
+     */
+    socket.on('annuler-pose', (_payload: unknown, ack: unknown) => {
+      repondre(ack, () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const tour = table.tourEnCours;
+
+        if (tour === null) throw new Error('Aucun tour en cours : rien a annuler');
+        if (tour.joueurId !== joueurId) throw new Error(`Ce n'est pas au tour de ${joueurId}`);
+        if (tour.poses.length === 0 && tour.ajouts.length === 0) {
+          throw new Error('Aucune pose a annuler dans ce tour');
+        }
+
+        tour.poses = [];
+        tour.ajouts = [];
+        publier(io, manager, table);
+      });
+    });
+
     socket.on('defausser', (payload: { carteId?: string }, ack: unknown) => {
       repondre(ack, async () => {
         const { table, joueurId } = manager.placeDeLaSocket(socket.id);

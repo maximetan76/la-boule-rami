@@ -5,6 +5,7 @@ import { creerServeur, type Serveur } from '../server/index.js';
 import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { ouvrirTablePleine } from './aide-table.js';
+import { c } from './fixtures.js';
 import type { GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
@@ -302,6 +303,122 @@ describe('serveur socket.io', () => {
     const carteInventee = await emettre(premier.socket, 'defausser', { carteId: 'carte-bidon' });
     expect(carteInventee.ok).toBe(false);
     expect(serveur.manager.table(tableId).coup?.defausse).toHaveLength(0);
+  });
+
+  /**
+   * Réf. docs/REGLES.md § « Conditions pour poser » : la première pose exige 51
+   * points et une tierce pure. Le moteur ne le vérifie qu'à la défausse, quand
+   * le tour est complet ; sans « annuler-pose », une pose refusee resterait
+   * dans le tour et aucune defausse ne pourrait plus le clore.
+   */
+  it('laisse recomposer apres une pose refusee, sans faire perdre le tour', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    const coup = table.coup;
+    if (coup === null) throw new Error('coup absent');
+
+    const premier = coup.ordreJoueurs[0] as JoueurId;
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+    // Main installee pour le scenario : la tierce coeur 10-V-D-R-A vaut
+    // exactement 51 points et elle est pure, le reste ne forme rien.
+    const tierce = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+    const autres = [
+      c('pique', 2), c('trefle', 4), c('carreau', 6), c('pique', 8), c('trefle', 9),
+      c('carreau', 3), c('pique', 5), c('trefle', 7), c('carreau', 9),
+    ];
+    coup.mains[premier] = [...tierce, ...autres];
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+
+    // `defausser` remplace le coup par celui que rend le moteur : le relire à
+    // chaque fois, sinon on interroge un état périmé.
+    const enCours = () => {
+      if (table.coup === null) throw new Error('coup absent');
+      return table.coup;
+    };
+
+    const talonAvant = enCours().pioche.length;
+    const defausseAvant = enCours().defausse.length;
+    const cartePiochee = table.tourEnCours?.cartePiochee;
+
+    // Une tierce qui n'en est pas une.
+    const bancale = await agir(joueur, 'poser', {
+      poses: [{
+        type: 'tierce',
+        couleur: 'coeur',
+        cartes: autres.slice(0, 3).map((carte) => ({ carteId: carte.id })),
+      }],
+    });
+    expect(bancale.ok).toBe(true);
+
+    const refus = await emettre(joueur.socket, 'defausser', { carteId: (autres[3] as Carte).id });
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('Premiere pose invalide');
+
+    // Le tour est bloque tant que le brouillon reste : c'est ce qu'annuler leve.
+    const annulation = await agir(joueur, 'annuler-pose', {});
+    expect(annulation.ok).toBe(true);
+    expect(table.tourEnCours?.poses).toHaveLength(0);
+    expect(table.tourEnCours?.ajouts).toHaveLength(0);
+
+    // Rien d'autre n'a bouge : ni la carte piochee, ni le talon, ni la defausse.
+    expect(table.tourEnCours?.cartePiochee).toBe(cartePiochee);
+    expect(table.tourEnCours?.joueurId).toBe(premier);
+    expect(enCours().pioche).toHaveLength(talonAvant);
+    expect(enCours().defausse).toHaveLength(defausseAvant);
+    expect(enCours().joueurActifId).toBe(premier);
+    expect(enCours().combinaisons).toHaveLength(0);
+
+    // Recomposee autrement, la pose passe.
+    const bonne = await agir(joueur, 'poser', {
+      poses: [{
+        type: 'tierce',
+        couleur: 'coeur',
+        cartes: tierce.map((carte) => ({ carteId: carte.id })),
+      }],
+    });
+    expect(bonne.ok).toBe(true);
+
+    const clote = await agir(joueur, 'defausser', { carteId: (autres[3] as Carte).id });
+    expect(clote.ok).toBe(true);
+    expect(enCours().combinaisons).toHaveLength(1);
+    expect(enCours().combinaisons[0]?.proprietaireId).toBe(premier);
+    expect(enCours().mains[premier]).toHaveLength(9);
+    expect(enCours().joueurActifId).not.toBe(premier);
+    expect(table.tourEnCours).toBeNull();
+    expect(joueur.dernierEtat?.moi.aPose).toBe(true);
+  });
+
+  it('refuse d annuler quand il n y a pas de pose, ou quand ce n est pas son tour', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    const coup = table.coup;
+    if (coup === null) throw new Error('coup absent');
+
+    const premier = coup.ordreJoueurs[0] as JoueurId;
+    const second = coup.ordreJoueurs[1] as JoueurId;
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    const suivant = espions.find((e) => e.joueurId === second) as Espion;
+
+    const avantToutTour = await emettre(joueur.socket, 'annuler-pose', {});
+    expect(avantToutTour.ok).toBe(false);
+    expect(avantToutTour.ok === false && avantToutTour.erreur).toContain('Aucun tour en cours');
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+
+    const sansPose = await emettre(joueur.socket, 'annuler-pose', {});
+    expect(sansPose.ok).toBe(false);
+    expect(sansPose.ok === false && sansPose.erreur).toContain('Aucune pose a annuler');
+
+    const horsTour = await emettre(suivant.socket, 'annuler-pose', {});
+    expect(horsTour.ok).toBe(false);
+    expect(horsTour.ok === false && horsTour.erreur).toContain("Ce n'est pas au tour");
+
+    // Le tour de l'autre joueur n'a pas bouge.
+    expect(table.tourEnCours?.joueurId).toBe(premier);
   });
 
   it('rend sa place et son jeu a un joueur qui se reconnecte', async () => {
