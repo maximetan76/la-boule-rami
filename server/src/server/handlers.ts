@@ -38,6 +38,7 @@ import {
 } from '../game-engine/index.js';
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
+import type { ResultatCoupFiltre } from './etat-filtre.js';
 import {
   bouleEnCours,
   demarrerCoup,
@@ -206,9 +207,36 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         tableId: table.id,
         connectes,
         tourEnAttente: table.tourEnCours,
+        resultat: resultatFiltre(table),
       }),
     );
   }
+};
+
+/**
+ * Le décompte du coup terminé, mis en forme pour les clients.
+ *
+ * `null` pendant le jeu : c'est ce qui garde les mains des autres cachées, et
+ * cette fonction est le seul endroit où elles sont recopiées.
+ */
+const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
+  const resultat = table.resultatCoup;
+  if (resultat === null) return null;
+
+  return {
+    numero: resultat.numero,
+    gagnantId: resultat.score.gagnantId,
+    typeVictoire: resultat.score.typeVictoire,
+    estFriche: resultat.score.estFriche,
+    multiplicateur: resultat.score.multiplicateur,
+    scores: { ...resultat.score.scores },
+    croixGagnees: { ...resultat.score.croixGagnees },
+    mainsRevelees: Object.fromEntries(
+      Object.entries(resultat.mains).map(([joueurId, cartes]) => [joueurId, [...cartes]]),
+    ),
+    prets: [...resultat.prets],
+    derniereCoup: resultat.derniereCoup,
+  };
 };
 
 /**
@@ -232,7 +260,31 @@ const cloturerCoup = async (
 
   await manager.persister(table);
 
-  if (estBouleTerminee(bouleEnCours(table))) {
+  // Le coup suivant n'est pas distribué ici : la donne effacerait le décompte
+  // avant que personne ait pu le lire. La table entre en entracte, et n'en
+  // sort que lorsque tous les joueurs ont demandé la suite.
+  table.resultatCoup = {
+    numero: coup.numero,
+    score: scoreCoup,
+    mains: Object.fromEntries(
+      Object.entries(coup.mains).map(([joueurId, cartes]) => [joueurId, [...cartes]]),
+    ),
+    prets: [],
+    derniereCoup: estBouleTerminee(bouleEnCours(table)),
+  };
+};
+
+/**
+ * Sort de l'entracte : distribue le coup suivant, ou clôt la partie.
+ *
+ * N'est appelée qu'une fois tous les joueurs prêts — c'est le sens même de
+ * l'entracte.
+ */
+const enchainer = async (manager: GameRoomManager, table: Table): Promise<void> => {
+  const derniere = table.resultatCoup?.derniereCoup ?? false;
+  table.resultatCoup = null;
+
+  if (derniere) {
     await manager.cloreLaPartie(table);
     return;
   }
@@ -653,6 +705,29 @@ export const enregistrerHandlers = (
         });
       },
     );
+
+    /**
+     * « Je suis prêt pour le coup suivant. »
+     *
+     * Le coup suivant n'est distribué que lorsque tous les joueurs assis l'ont
+     * dit : chacun lit le décompte à son rythme, et personne ne se voit
+     * redistribuer une main sous les yeux.
+     */
+    socket.on('pret-pour-suivant', (_payload: unknown, ack: unknown) => {
+      repondre(ack, async () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const resultat = table.resultatCoup;
+
+        if (resultat === null) throw new Error('Aucun coup termine a enchainer');
+        if (!resultat.prets.includes(joueurId)) resultat.prets = [...resultat.prets, joueurId];
+
+        const attendus = table.joueurs.map((joueur) => joueur.id);
+        if (attendus.every((id) => resultat.prets.includes(id))) {
+          await enchainer(manager, table);
+        }
+        publier(io, manager, table);
+      });
+    });
 
     socket.on('disconnect', () => {
       const place = manager.detacherSocket(socket.id);

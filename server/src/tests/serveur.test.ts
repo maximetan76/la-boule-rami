@@ -402,6 +402,65 @@ describe('serveur socket.io', () => {
    * échoue, rien ne doit transparaître chez les autres joueurs, qui n'ont pas
    * à voir passer une tentative avortée.
    */
+  /**
+   * Réf. docs/REGLES.md § « Fin d'un coup et scoring » : le décompte se lit
+   * avant que la donne suivante ne l'efface. La table marque donc un entracte,
+   * et n'en sort que lorsque tous les joueurs ont demandé la suite.
+   */
+  it('attend que tous les joueurs demandent la suite avant de distribuer', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+
+    const coupAvant = table.coup;
+    const restes = { ...table.coup.mains };
+    table.resultatCoup = {
+      numero: coupAvant.numero,
+      score: {
+        gagnantId: JOUEURS[0]?.id as JoueurId,
+        typeVictoire: 'simple',
+        estFriche: false,
+        multiplicateur: 1,
+        scores: { 'p-ana': -30, 'p-bo': 12, 'p-cy': 18 },
+        croixGagnees: {},
+      },
+      mains: restes,
+      prets: [],
+      derniereCoup: false,
+    };
+    await agir(espions[0] as Espion, 'pret-pour-suivant', {});
+
+    // Un seul joueur prêt : le coup ne bouge pas, et chacun voit qui a dit oui.
+    expect(table.coup).toBe(coupAvant);
+    expect(espions[1]?.dernierEtat?.resultat?.prets).toEqual(['p-ana']);
+    expect(espions[1]?.dernierEtat?.resultat?.scores['p-bo']).toBe(12);
+
+    // Les mains sont révélées, mais seulement le temps de l'entracte.
+    const reveleesChezBo = espions[1]?.dernierEtat?.resultat?.mainsRevelees ?? {};
+    expect(Object.keys(reveleesChezBo)).toHaveLength(3);
+
+    await agir(espions[1] as Espion, 'pret-pour-suivant', {});
+    expect(table.coup).toBe(coupAvant);
+
+    // Le dernier prêt, et seulement lui, déclenche la donne suivante.
+    await agir(espions[2] as Espion, 'pret-pour-suivant', {});
+    expect(table.coup).not.toBe(coupAvant);
+    expect(table.resultatCoup).toBeNull();
+    // L'entracte fini, plus une carte d'autrui ne franchit la frontière.
+    expect(espions[1]?.dernierEtat?.resultat).toBeNull();
+    for (const espion of espions) expect(espion.dernierEtat?.moi.main).toHaveLength(14);
+  });
+
+  it('refuse « pret » quand aucun coup ne vient de se terminer', async () => {
+    const { tableId } = await ouvrirTable();
+    void tableId;
+
+    const refus = await emettre((espions[0] as Espion).socket, 'pret-pour-suivant', {});
+
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('Aucun coup termine');
+  });
+
   it('ne laisse aucune trace d une recuperation de joker refusee', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);

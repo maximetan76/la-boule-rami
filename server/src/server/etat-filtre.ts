@@ -53,6 +53,30 @@ export interface TourEnAttente {
   readonly ajouts: readonly { readonly combinaisonId: string }[];
 }
 
+/**
+ * Le décompte d'un coup terminé, tel que chacun le voit pendant l'entracte.
+ *
+ * C'est le seul moment où les mains des autres joueurs sont montrées : le coup
+ * est fini, plus rien n'en dépend, et c'est ce qui permet de vérifier le
+ * décompte. Réf. docs/REGLES.md § « Fin d'un coup et scoring ».
+ */
+export interface ResultatCoupFiltre {
+  readonly numero: number;
+  readonly gagnantId: JoueurId;
+  readonly typeVictoire: string;
+  readonly estFriche: boolean;
+  readonly multiplicateur: number;
+  /** Ce que ce coup a rapporté ou coûté à chacun. */
+  readonly scores: Readonly<Record<JoueurId, number>>;
+  readonly croixGagnees: Readonly<Record<JoueurId, number>>;
+  /** Cartes restées en main, révélées pour ce seul entracte. */
+  readonly mainsRevelees: Readonly<Record<JoueurId, Carte[]>>;
+  /** Joueurs ayant demandé la suite. */
+  readonly prets: JoueurId[];
+  /** La Boule s'arrête après ce coup. */
+  readonly derniereCoup: boolean;
+}
+
 export interface EtatCoupFiltre {
   readonly tableId: string;
   readonly moi: {
@@ -83,6 +107,8 @@ export interface EtatCoupFiltre {
   };
   readonly defausse: DefausseVisible;
   readonly combinaisons: Combinaison[];
+  /** Renseigné entre deux coups, `null` pendant le jeu. */
+  readonly resultat: ResultatCoupFiltre | null;
   readonly boule: {
     readonly nombreCoupsTotal: number;
     readonly nombreCoupsFriches: number;
@@ -118,9 +144,10 @@ export const filtrerEtatPourJoueur = (
     readonly tableId?: string;
     readonly connectes?: readonly JoueurId[];
     readonly tourEnAttente?: TourEnAttente | null;
+    readonly resultat?: ResultatCoupFiltre | null;
   } = {},
 ): EtatCoupFiltre => {
-  const { tableId = '', connectes = [], tourEnAttente = null } = options;
+  const { tableId = '', connectes = [], tourEnAttente = null, resultat = null } = options;
 
   const tousLesJoueurs = [...coup.ordreJoueurs, ...coup.joueursSurLeCote];
   const adversaires = tousLesJoueurs
@@ -165,6 +192,9 @@ export const filtrerEtatPourJoueur = (
     },
     // Les combinaisons sont face visible sur la table : tout le monde les voit.
     combinaisons: [...coup.combinaisons],
+    // Les mains des autres ne sortent que par ici, et seulement entre deux
+    // coups : c'est la seule porte, et elle ne s'ouvre qu'une fois le coup joué.
+    resultat,
     boule: {
       nombreCoupsTotal: boule.nombreCoupsTotal,
       nombreCoupsFriches: boule.nombreCoupsFriches,

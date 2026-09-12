@@ -14,7 +14,7 @@
  * de retrouver sa place après un redémarrage du serveur.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { Boule, Carte, Coup, Joueur, JoueurId } from '../models/index.js';
+import type { Boule, Carte, Coup, Joueur, JoueurId, ScoreCoup } from '../models/index.js';
 import {
   construirePaquet,
   determinerJoueursAssis,
@@ -77,6 +77,24 @@ export interface TourEnCours extends TourEnAttente {
   ajouts: { combinaisonId: string; cartes: import('../models/index.js').CartePosee[] }[];
 }
 
+/**
+ * L'entracte entre deux coups.
+ *
+ * Le coup terminé ne cède la place au suivant que lorsque tous les joueurs
+ * l'ont demandé : sans cette pause, la donne suivante effaçait le décompte
+ * avant que personne ait pu le lire.
+ */
+export interface ResultatCoupEnAttente {
+  readonly numero: number;
+  readonly score: ScoreCoup;
+  /** Cartes restées en main, révélées le temps de l'entracte seulement. */
+  readonly mains: Readonly<Record<JoueurId, Carte[]>>;
+  /** Joueurs ayant demandé la suite. */
+  prets: JoueurId[];
+  /** La Boule s'arrête après ce coup. */
+  readonly derniereCoup: boolean;
+}
+
 export interface Table {
   readonly id: TableId;
   readonly codeInvitation: string;
@@ -99,6 +117,8 @@ export interface Table {
   joueurEnSursis: JoueurId | null;
   /** Jokers tirés à l'ouverture, conservés pour la donne du premier coup. */
   cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
+  /** Décompte du coup qui vient de finir, tant que tous n'ont pas dit « suite ». */
+  resultatCoup: ResultatCoupEnAttente | null;
 }
 
 export interface TableCreee {
@@ -194,6 +214,7 @@ export class GameRoomManager {
       annulerMinuteur: null,
       joueurEnSursis: null,
       cartesConserveesParJoueur: new Map(),
+      resultatCoup: null,
     };
     this.tables.set(tableId, table);
     this.parCode.set(codeInvitation, tableId);
@@ -375,6 +396,7 @@ export class GameRoomManager {
         // Les jokers du tirage d'ouverture appartiennent au premier coup, déjà
         // joué si la Boule a un historique.
         cartesConserveesParJoueur: new Map(),
+      resultatCoup: null,
       };
 
       this.tables.set(table.id, table);
