@@ -587,6 +587,7 @@ describe('serveur socket.io', () => {
         multiplicateur: 1,
         scores: { 'p-ana': -30, 'p-bo': 12, 'p-cy': 18 },
         croixGagnees: {},
+        chocolatId: null,
       },
       mains: restes,
       prets: [],

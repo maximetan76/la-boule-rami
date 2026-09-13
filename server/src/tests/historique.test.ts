@@ -16,6 +16,7 @@ const score: ScoreCoup = {
   multiplicateur: 1,
   scores: { j1: -20, j2: 34, j3: 12 },
   croixGagnees: {},
+  chocolatId: null,
 };
 
 const archive = () => ({

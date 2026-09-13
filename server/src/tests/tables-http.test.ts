@@ -373,6 +373,7 @@ describe('API des tables', () => {
           multiplicateur: 1,
           scores: { [ana.id]: -10, [bo.id]: 40 },
           croixGagnees: {},
+          chocolatId: null,
         },
         {
           combinaisons: [

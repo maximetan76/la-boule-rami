@@ -22,6 +22,7 @@ const score = (partiel: Partial<ScoreCoup> = {}): ScoreCoup => ({
   multiplicateur: 1,
   scores: {},
   croixGagnees: {},
+  chocolatId: null,
   ...partiel,
 });
 
