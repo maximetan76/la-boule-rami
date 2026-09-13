@@ -182,3 +182,19 @@ describe('tirerSiegesEtDonneurInitial — jokers conservés', () => {
     expect(mains['j2']).toHaveLength(CARTES_PAR_JOUEUR);
   });
 });
+
+describe('tirerSiegesEtDonneurInitial — cartes tirees', () => {
+  it('rend la carte tiree par chacun, puis celles des retirages', () => {
+    // j1 et j2 tirent un 5 : eux seuls retirent, 9 pour j1, 2 pour j2.
+    const paquet = paquetOrdonne(
+      c('pique', 5), c('coeur', 5), c('trefle', 'R'), c('carreau', 9), c('pique', 2),
+    );
+    const tirage = tirerSiegesEtDonneurInitial(table('j1', 'j2', 'j3'), paquet);
+    const ids = (joueurId: JoueurId) => tirage.cartesTirees.get(joueurId)?.map((carte) => carte.id);
+
+    expect(ids('j1')).toEqual([paquet[0]!.id, paquet[3]!.id]);
+    expect(ids('j2')).toEqual([paquet[1]!.id, paquet[4]!.id]);
+    expect(ids('j3')).toEqual([paquet[2]!.id]);
+    expect(tirage.ordreTable).toEqual(['j2', 'j1', 'j3']);
+  });
+});

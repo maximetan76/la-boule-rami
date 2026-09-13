@@ -230,6 +230,11 @@ export interface TirageOuverture {
    * Chaque joueur y figure, avec une liste vide s'il n'a rien tiré de tel.
    */
   readonly cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
+  /**
+   * Toutes les cartes tirées par chaque joueur, dans l'ordre du tirage : la
+   * première, puis celles des retirages en cas d'égalité.
+   */
+  readonly cartesTirees: Map<JoueurId, Carte[]>;
 }
 
 /**
@@ -313,5 +318,6 @@ export const tirerSiegesEtDonneurInitial = (
     ordreTable,
     donneurInitial: ordreTable[0] as JoueurId,
     cartesConserveesParJoueur,
+    cartesTirees: new Map([...tirages].map(([joueurId, cartes]) => [joueurId, [...cartes]])),
   };
 };

@@ -133,6 +133,11 @@ export interface Table {
   cartesConserveesParJoueur: Map<JoueurId, Carte[]>;
   /** Décompte du coup qui vient de finir, tant que tous n'ont pas dit « suite ». */
   resultatCoup: ResultatCoupEnAttente | null;
+  /**
+   * Le tirage d'ouverture de la Boule, pour que chacun le voie se jouer.
+   * `null` avant le démarrage, et pour une partie relue après un redémarrage.
+   */
+  tirageOuverture: ReturnType<typeof tirerSiegesEtDonneurInitial> | null;
 }
 
 export interface TableCreee {
@@ -229,6 +234,7 @@ export class GameRoomManager {
       joueurEnSursis: null,
       cartesConserveesParJoueur: new Map(),
       resultatCoup: null,
+      tirageOuverture: null,
     };
     this.tables.set(tableId, table);
     this.parCode.set(codeInvitation, tableId);
@@ -282,6 +288,7 @@ export class GameRoomManager {
     );
     table.boule = initialiserBoule(table.joueurs);
     table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
+    table.tirageOuverture = tirage;
     table.statut = 'en-cours';
 
     await this.depot?.demarrerPartie(table.id, tirage.ordreTable);
@@ -411,6 +418,7 @@ export class GameRoomManager {
         // joué si la Boule a un historique.
         cartesConserveesParJoueur: new Map(),
       resultatCoup: null,
+      tirageOuverture: null,
       };
 
       this.tables.set(table.id, table);

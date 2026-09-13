@@ -91,6 +91,21 @@ export interface VueEchanges {
   readonly carteConsommee: boolean;
 }
 
+/**
+ * Le tirage d'ouverture de la Boule. Public : chacun a retourné sa carte sur
+ * la table, sous les yeux de tous.
+ */
+export interface TirageOuvertureFiltre {
+  /** Sièges, dans l'ordre croissant des cartes tirées. */
+  readonly ordreTable: JoueurId[];
+  /** Celui qui a tiré la carte la plus basse. */
+  readonly donneurInitial: JoueurId;
+  /** Cartes tirées par chaque joueur : la première, puis celles des retirages. */
+  readonly cartesTirees: Record<JoueurId, Carte[]>;
+  /** Jokers tirés, gardés en main pour la première donne. */
+  readonly jokersConserves: Record<JoueurId, Carte[]>;
+}
+
 export interface EtatCoupFiltre {
   readonly tableId: string;
   readonly moi: {
@@ -128,6 +143,8 @@ export interface EtatCoupFiltre {
   readonly combinaisons: Combinaison[];
   /** Renseigné entre deux coups, `null` pendant le jeu. */
   readonly resultat: ResultatCoupFiltre | null;
+  /** Le tirage d'ouverture, pendant le premier coup de la Boule seulement. */
+  readonly tirageOuverture: TirageOuvertureFiltre | null;
   readonly boule: {
     readonly nombreCoupsTotal: number;
     readonly nombreCoupsFriches: number;
@@ -165,6 +182,7 @@ export const filtrerEtatPourJoueur = (
     readonly tourEnAttente?: TourEnAttente | null;
     readonly resultat?: ResultatCoupFiltre | null;
     readonly echangesDuTour?: VueEchanges | null;
+    readonly tirageOuverture?: TirageOuvertureFiltre | null;
   } = {},
 ): EtatCoupFiltre => {
   const {
@@ -173,6 +191,7 @@ export const filtrerEtatPourJoueur = (
     tourEnAttente = null,
     resultat = null,
     echangesDuTour = null,
+    tirageOuverture = null,
   } = options;
 
   const tousLesJoueurs = [...coup.ordreJoueurs, ...coup.joueursSurLeCote];
@@ -226,6 +245,7 @@ export const filtrerEtatPourJoueur = (
     // Les mains des autres ne sortent que par ici, et seulement entre deux
     // coups : c'est la seule porte, et elle ne s'ouvre qu'une fois le coup joué.
     resultat,
+    tirageOuverture,
     boule: {
       nombreCoupsTotal: boule.nombreCoupsTotal,
       nombreCoupsFriches: boule.nombreCoupsFriches,

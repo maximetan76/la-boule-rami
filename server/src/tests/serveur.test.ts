@@ -195,6 +195,20 @@ describe('serveur socket.io', () => {
     }
   });
 
+  it('montre le tirage d ouverture au premier coup, sous des identifiants qui lui sont propres', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+
+    for (const espion of espions) {
+      const tirage = espion.dernierEtat?.tirageOuverture;
+      expect(tirage?.ordreTable).toEqual(table.joueurs.map((joueur) => joueur.id));
+      expect(tirage?.donneurInitial).toBe(table.joueurs[0]?.id);
+      const tirees = Object.values(tirage?.cartesTirees ?? {}).flat();
+      expect(tirees.length).toBeGreaterThanOrEqual(JOUEURS.length);
+      expect(tirees.every((carte) => carte.id.startsWith('tirage-'))).toBe(true);
+    }
+  });
+
   it('ne laisse jamais fuir la main d un autre joueur ni le talon, sur toute une partie', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);

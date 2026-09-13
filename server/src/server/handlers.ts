@@ -39,7 +39,7 @@ import {
 } from '../game-engine/index.js';
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
-import type { ResultatCoupFiltre, VueEchanges } from './etat-filtre.js';
+import type { ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
 import type { TourEnCours } from './game-room-manager.js';
 import {
   bouleEnCours,
@@ -280,9 +280,36 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         tourEnAttente: table.tourEnCours,
         resultat: resultatFiltre(table),
         echangesDuTour: echanges,
+        tirageOuverture: tirageFiltre(table),
       }),
     );
   }
+};
+
+/**
+ * Le tirage d'ouverture, tant que la Boule en est à son premier coup : c'est
+ * là que chacun le découvre, avant la première donne.
+ */
+const tirageFiltre = (table: Table): TirageOuvertureFiltre | null => {
+  const tirage = table.tirageOuverture;
+  if (tirage === null || table.coup?.numero !== 1) return null;
+
+  const cartesTirees: Record<JoueurId, Carte[]> = {};
+  const jokersConserves: Record<JoueurId, Carte[]> = {};
+  for (const [joueurId, tirees] of tirage.cartesTirees) {
+    // Des identifiants propres au tirage : ceux du paquet désignent des cartes
+    // redistribuées depuis — dont les jokers gardés, dans la main de leur
+    // joueur. Rien d'une main ne doit sortir, pas même un identifiant.
+    const renommees = tirees.map((carte, rang) => ({ ...carte, id: `tirage-${joueurId}-${String(rang)}` }));
+    cartesTirees[joueurId] = renommees;
+    jokersConserves[joueurId] = renommees.filter(estJoker);
+  }
+  return {
+    ordreTable: [...tirage.ordreTable],
+    donneurInitial: tirage.donneurInitial,
+    cartesTirees,
+    jokersConserves,
+  };
 };
 
 /**

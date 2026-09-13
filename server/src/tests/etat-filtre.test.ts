@@ -210,3 +210,23 @@ describe('filtrerEtatPourJoueur — carte piochée en attente', () => {
     expect(identifiantsPresents(filtre)).not.toContain(`"id":"${piochee.id}"`);
   });
 });
+
+describe('filtrerEtatPourJoueur — tirage d ouverture', () => {
+  it('le montre a chacun tel quel : les cartes ont ete retournees devant tous', () => {
+    const jokerTire = joker();
+    const tirage = {
+      ordreTable: ['j2', 'j1', 'j3'],
+      donneurInitial: 'j2',
+      cartesTirees: { j1: [c('pique', 5)], j2: [jokerTire], j3: [c('trefle', 'R')] },
+      jokersConserves: { j1: [], j2: [jokerTire], j3: [] },
+    };
+    for (const joueurId of ['j1', 'j2', 'j3']) {
+      const filtre = filtrerEtatPourJoueur(etatComplet(), boule(), joueurId, { tirageOuverture: tirage });
+      expect(filtre.tirageOuverture).toEqual(tirage);
+    }
+  });
+
+  it('vaut null quand aucun tirage n est fourni', () => {
+    expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').tirageOuverture).toBeNull();
+  });
+});
