@@ -46,6 +46,11 @@ model Partie {
   delaiJeuMs          Int?
   delaiProlongationMs Int?
 
+  /// Qui a abandonné la partie, et ce qu'était le coup interrompu à cet
+  /// instant, mains de tous les joueurs comprises. Voir AbandonEnregistre.
+  abandonneParId String?
+  interruption   Json?
+
   creeeLe    DateTime  @default(now())
   termineeLe DateTime?
   /// Pourquoi la partie s'est arrêtée : « abandon » ou « achevee ». Sert à

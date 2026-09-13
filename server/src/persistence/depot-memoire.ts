@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import type { JoueurId } from '../models/index.js';
 import type {
+  AbandonEnregistre,
   Depot,
   JoueurEnregistre,
   MotifFin,
@@ -60,6 +61,7 @@ export class DepotMemoire implements Depot {
       creeeLe: new Date(),
       termineeLe: null,
       motifFin: null,
+      abandon: null,
     };
     this.parties.set(partie.id, enregistree);
     return Promise.resolve(enregistree);
@@ -124,10 +126,10 @@ export class DepotMemoire implements Depot {
     return Promise.resolve();
   }
 
-  terminerPartie(id: string, motif: MotifFin): Promise<void> {
+  terminerPartie(id: string, motif: MotifFin, abandon?: AbandonEnregistre): Promise<void> {
     const partie = this.parties.get(id);
     if (partie !== undefined) {
-      this.parties.set(id, { ...partie, termineeLe: new Date(), motifFin: motif });
+      this.parties.set(id, { ...partie, termineeLe: new Date(), motifFin: motif, abandon: abandon ?? null });
     }
     return Promise.resolve();
   }
@@ -150,6 +152,16 @@ export class DepotMemoire implements Depot {
         etatBoule: this.boules.get(partie.id) ?? null,
       }));
     return Promise.resolve(actives);
+  }
+
+  chargerArchive(partieId: string): Promise<PartieRechargee | null> {
+    const partie = this.parties.get(partieId);
+    if (partie === undefined) return Promise.resolve(null);
+    return Promise.resolve({
+      partie,
+      joueurs: partie.joueursIds.map((id) => ({ id, pseudo: this.joueurs.get(id)?.pseudo ?? id })),
+      etatBoule: this.boules.get(partie.id) ?? null,
+    });
   }
 
   /** Inscrit un joueur sans passer par Apple — utile aux tests et au développement. */

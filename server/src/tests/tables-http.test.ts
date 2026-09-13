@@ -4,7 +4,7 @@ import { generateKeyPair, SignJWT, type JWTVerifyGetKey } from 'jose';
 import { EMETTEUR_APPLE } from '../auth/apple.js';
 import { secretDepuisTexte } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
-import { ALPHABET_CODE, LONGUEUR_CODE } from '../server/game-room-manager.js';
+import { ALPHABET_CODE, demarrerCoup, LONGUEUR_CODE } from '../server/game-room-manager.js';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
@@ -411,6 +411,94 @@ describe('API des tables', () => {
       });
       return { ana, bo, tableId };
     };
+
+    const scoreDuCoup = (ana: Compte, bo: Compte) => ({
+      gagnantId: ana.id,
+      typeVictoire: 'simple' as const,
+      estFriche: false,
+      multiplicateur: 1,
+      scores: { [ana.id]: -20, [bo.id]: 50 },
+      croixGagnees: {},
+      chocolatId: null,
+    });
+
+    it('archive un abandon : qui, quand, les coups joues et les mains de tous a cet instant', async () => {
+      const { ana, bo, tableId } = await tableDeDeux();
+      const table = serveur.manager.table(tableId);
+      if (table.boule === null) throw new Error('boule absente apres le remplissage');
+      table.boule = enregistrerResultatCoup(table.boule, 1, scoreDuCoup(ana, bo));
+      await serveur.manager.persister(table);
+      demarrerCoup(table);
+
+      const avant = Date.now();
+      expect((await appeler('POST', `/tables/${tableId}/abandonner`, { compte: bo })).statut).toBe(200);
+
+      const { statut, corps } = await appeler('GET', `/tables/${tableId}/historique`, { compte: ana });
+      expect(statut).toBe(200);
+      expect(corps['statut']).toBe('abandonnee');
+      expect(corps['coups']).toHaveLength(1);
+      const abandon = corps['abandon'] as {
+        parJoueurId: string;
+        le: string;
+        coupInterrompu: {
+          numero: number | null;
+          coupsJoues: number;
+          nombreCoupsTotal: number;
+          nombreCoupsFriches: number;
+          scoresCumules: Record<string, number>;
+          mains: Record<string, unknown[]>;
+        };
+      };
+      expect(abandon.parJoueurId).toBe(bo.id);
+      expect(Date.parse(abandon.le)).toBeGreaterThanOrEqual(avant - 1000);
+      expect(abandon.coupInterrompu.numero).toBe(2);
+      expect(abandon.coupInterrompu.coupsJoues).toBe(1);
+      expect(abandon.coupInterrompu.nombreCoupsTotal).toBe(8);
+      expect(abandon.coupInterrompu.nombreCoupsFriches).toBe(2);
+      expect(abandon.coupInterrompu.scoresCumules).toEqual({ [ana.id]: -20, [bo.id]: 50 });
+      expect(abandon.coupInterrompu.mains[ana.id]).toHaveLength(14);
+      expect(abandon.coupInterrompu.mains[bo.id]).toHaveLength(14);
+
+      // La liste des parties le dit aussi.
+      const parties = (await appeler('GET', '/tables', { compte: ana })).corps['parties'] as {
+        abandonneParId: string | null;
+      }[];
+      expect(parties[0]?.abandonneParId).toBe(bo.id);
+    });
+
+    it('rend l archive d une Boule achevee, meme sortie de la memoire du serveur', async () => {
+      const { ana, bo, tableId } = await tableDeDeux();
+      const table = serveur.manager.table(tableId);
+      if (table.boule === null) throw new Error('boule absente apres le remplissage');
+      table.boule = enregistrerResultatCoup(table.boule, 1, scoreDuCoup(ana, bo));
+      await serveur.manager.persister(table);
+      await serveur.manager.cloreLaPartie(table);
+
+      // Un second serveur sur la même base : une partie achevée n'y est pas
+      // rechargée en mémoire, elle ne vit plus qu'en base.
+      const autre = creerServeur({ depot, session: SESSION, apple: { clientId: CLIENT_ID } });
+      await new Promise<void>((resolve) => {
+        autre.httpServer.listen(0, resolve);
+      });
+      const baseAutre = `http://localhost:${String((autre.httpServer.address() as AddressInfo).port)}`;
+      try {
+        const reponse = await fetch(`${baseAutre}/tables/${tableId}/historique`, {
+          headers: { authorization: `Bearer ${bo.jeton}` },
+        });
+        const corps = (await reponse.json()) as Record<string, unknown>;
+        expect(reponse.status).toBe(200);
+        expect(corps['statut']).toBe('terminee');
+        expect(corps['coups']).toHaveLength(1);
+        expect(corps['abandon']).toBeNull();
+      } finally {
+        autre.io.close();
+        await new Promise<void>((resolve) => {
+          autre.httpServer.close(() => {
+            resolve();
+          });
+        });
+      }
+    });
 
     it('ne liste rien tant qu aucun coup n est joue', async () => {
       const { ana, tableId } = await tableDeDeux();

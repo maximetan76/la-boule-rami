@@ -22,6 +22,8 @@ import type {
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_PAR_DEFAUT } from '../persistence/depot.js';
 import type { DelaisDeJeu } from '../persistence/depot.js';
 import { joueurAttendu } from './handlers.js';
+import { deserialiserBoule } from '../persistence/serialisation.js';
+import type { ResultatCoup } from '../models/index.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { GameRoomManager, Table } from './game-room-manager.js';
 
@@ -251,7 +253,7 @@ const abandonner = async (
     throw new ErreurHttp(403, "Vous n'etes pas a cette table");
   }
 
-  const { table: abandonnee, socketsPrevenues } = await deps.manager.abandonner(tableId);
+  const { table: abandonnee, socketsPrevenues } = await deps.manager.abandonner(tableId, joueur.id);
   deps.annoncerAbandon?.(socketsPrevenues, {
     tableId,
     motif: 'abandon',
@@ -274,33 +276,72 @@ const abandonner = async (
  * les combinaisons étaient face visible, et les mains ont été révélées à
  * l'entracte de chaque coup. Le coup en cours, lui, n'y figure jamais.
  */
-const historiqueDeLaBoule = (
+/** Les coups archivés, tels que l'historique les montre. */
+const decrireCoups = (historique: readonly ResultatCoup[]) =>
+  historique.map((coup) => ({
+    numero: coup.numero,
+    gagnantId: coup.gagnantId,
+    typeVictoire: coup.typeVictoire,
+    estFriche: coup.estFriche,
+    scores: coup.scores,
+    croixGagnees: coup.croixGagnees,
+    combinaisons: coup.combinaisons ?? [],
+    mainsRevelees: coup.mainsRevelees ?? {},
+  }));
+
+/**
+ * L'historique complet d'une Boule, pendant la partie comme après.
+ *
+ * Tant que la table vit en mémoire, c'est elle qui répond. Une partie close —
+ * abandonnée, ou achevée puis sortie de la mémoire à un redémarrage — se relit
+ * en base, où chaque fin de coup a écrit la Boule. Un abandon y ajoute qui l'a
+ * décidé, quand, et le coup interrompu, mains de tous comprises. Seuls les
+ * joueurs de la partie y ont accès.
+ */
+const historiqueDeLaBoule = async (
   tableId: string,
   deps: DependancesHttp,
   joueur: JoueurEnregistre,
-): unknown => {
-  let table: Table;
-  try {
-    table = deps.manager.table(tableId);
-  } catch {
-    throw new ErreurHttp(404, 'Table introuvable');
+): Promise<unknown> => {
+  const vivante = deps.manager.tableVivante(tableId);
+  if (vivante !== null) {
+    if (!vivante.connexions.has(joueur.id)) {
+      throw new ErreurHttp(403, "Vous n'etes pas a cette table");
+    }
+    return {
+      tableId,
+      statut: vivante.statut,
+      coups: decrireCoups(vivante.boule?.historique ?? []),
+      abandon: null,
+    };
   }
-  if (!table.connexions.has(joueur.id)) {
+
+  const archive = await deps.depot.chargerArchive(tableId);
+  if (archive === null) throw new ErreurHttp(404, 'Table introuvable');
+  const { partie } = archive;
+  if (!partie.joueursIds.includes(joueur.id)) {
     throw new ErreurHttp(403, "Vous n'etes pas a cette table");
   }
 
   return {
     tableId,
-    coups: (table.boule?.historique ?? []).map((coup) => ({
-      numero: coup.numero,
-      gagnantId: coup.gagnantId,
-      typeVictoire: coup.typeVictoire,
-      estFriche: coup.estFriche,
-      scores: coup.scores,
-      croixGagnees: coup.croixGagnees,
-      combinaisons: coup.combinaisons ?? [],
-      mainsRevelees: coup.mainsRevelees ?? {},
-    })),
+    statut:
+      partie.termineeLe === null
+        ? partie.demarree
+          ? 'en-cours'
+          : 'salon'
+        : partie.motifFin === 'abandon'
+          ? 'abandonnee'
+          : 'terminee',
+    coups: decrireCoups(archive.etatBoule === null ? [] : deserialiserBoule(archive.etatBoule).historique),
+    abandon:
+      partie.abandon === null
+        ? null
+        : {
+            parJoueurId: partie.abandon.parJoueurId,
+            le: partie.abandon.le.toISOString(),
+            coupInterrompu: partie.abandon.coupInterrompu,
+          },
   };
 };
 
@@ -475,6 +516,7 @@ const mesParties = async (deps: DependancesHttp, joueur: JoueurEnregistre): Prom
           statut,
           creeeLe: partie.creeeLe.toISOString(),
           termineeLe: partie.termineeLe?.toISOString() ?? null,
+          abandonneParId: partie.abandon?.parJoueurId ?? null,
           // La table attend-elle ce joueur, là, maintenant ?
           aMoiDAgir:
             vivante !== null && vivante.resultatCoup === null && coup !== null && joueurAttendu(coup) === joueur.id,
@@ -549,7 +591,7 @@ export const gererRequeteHttp =
       const historique = HISTORIQUE.exec(chemin);
       if (methode === 'GET' && historique !== null) {
         const joueur = await authentifier(requete, deps);
-        return { code: 200, corps: historiqueDeLaBoule(historique[1] as string, deps, joueur) };
+        return { code: 200, corps: await historiqueDeLaBoule(historique[1] as string, deps, joueur) };
       }
 
       if (methode === 'PATCH' && chemin === '/joueur/pseudo') {

@@ -28,7 +28,13 @@ import {
   tirerSiegesEtDonneurInitial,
 } from '../game-engine/index.js';
 import { estJoker } from '../game-engine/cartes.js';
-import type { DelaisDeJeu, Depot, GestionDeconnexion, JoueurEnregistre } from '../persistence/depot.js';
+import type {
+  AbandonEnregistre,
+  DelaisDeJeu,
+  Depot,
+  GestionDeconnexion,
+  JoueurEnregistre,
+} from '../persistence/depot.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_ILLIMITES } from '../persistence/depot.js';
 import { deserialiserBoule, serialiserBoule } from '../persistence/serialisation.js';
 import type { TourEnAttente } from './etat-filtre.js';
@@ -172,6 +178,41 @@ export interface TableCreee {
 export const bouleEnCours = (table: Table): Boule => {
   if (table.boule === null) throw new Error("La partie n'a pas encore demarre");
   return table.boule;
+};
+
+/**
+ * L'état d'une table à l'instant d'un abandon, pour l'archive.
+ *
+ * Tout y est révélé, mains comprises — la carte piochée du joueur actif avec :
+ * la partie est finie, plus rien n'en dépend, et c'est ce qui permet d'y
+ * revenir. Entre deux coups, il n'y a pas de coup interrompu : le dernier est
+ * déjà dans l'historique.
+ */
+const photographierAbandon = (table: Table, parJoueurId: JoueurId): AbandonEnregistre => {
+  const boule = table.boule;
+  const coup = table.resultatCoup === null ? table.coup : null;
+
+  const mains: Record<JoueurId, Carte[]> = {};
+  for (const [joueurId, cartes] of Object.entries(coup?.mains ?? {})) mains[joueurId] = [...cartes];
+  const tour = table.tourEnCours;
+  if (coup !== null && tour !== null) {
+    mains[tour.joueurId] = [...(mains[tour.joueurId] ?? []), tour.cartePiochee];
+  }
+
+  return {
+    parJoueurId,
+    le: new Date(),
+    coupInterrompu: {
+      numero: coup?.numero ?? null,
+      coupsJoues: boule?.historique.length ?? 0,
+      nombreCoupsTotal: boule?.nombreCoupsTotal ?? 0,
+      nombreCoupsFriches: boule?.nombreCoupsFriches ?? 0,
+      scoresCumules: { ...(boule?.scoresCumules ?? {}) },
+      croix: { ...(boule?.croix ?? {}) },
+      mains,
+      combinaisons: [...(coup?.combinaisons ?? [])],
+    },
+  };
 };
 
 export class GameRoomManager {
@@ -319,8 +360,14 @@ export class GameRoomManager {
    * Les sockets encore rattachées sont rendues à l'appelant : c'est à lui de
    * les prévenir, avant qu'elles ne soient détachées ici.
    */
-  async abandonner(tableId: TableId): Promise<{ table: Table; socketsPrevenues: string[] }> {
+  async abandonner(
+    tableId: TableId,
+    /** Qui l'a décidé ; absent quand un salon se vide de lui-même. */
+    parJoueurId?: JoueurId,
+  ): Promise<{ table: Table; socketsPrevenues: string[] }> {
     const table = this.table(tableId);
+    // Photographiée avant que la table ne se vide : c'est l'archive de l'abandon.
+    const abandon = parJoueurId === undefined ? undefined : photographierAbandon(table, parJoueurId);
     const socketsPrevenues = [...table.connexions.values()].filter(
       (socketId): socketId is string => socketId !== null,
     );
@@ -342,7 +389,8 @@ export class GameRoomManager {
 
     // Le motif est ce qui permettra de dire à un joueur absent, à son retour,
     // que sa partie a été abandonnée plutôt qu'achevée.
-    await this.depot?.terminerPartie(tableId, 'abandon');
+    await this.persister(table);
+    await this.depot?.terminerPartie(tableId, 'abandon', abandon);
     return { table, socketsPrevenues };
   }
 

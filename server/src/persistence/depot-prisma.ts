@@ -6,6 +6,8 @@
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
+  AbandonEnregistre,
+  CoupInterrompu,
   Depot,
   GestionDeconnexion,
   JoueurEnregistre,
@@ -32,11 +34,26 @@ interface LignePartie {
   delaiAnnonceMs: number | null;
   delaiJeuMs: number | null;
   delaiProlongationMs: number | null;
+  abandonneParId: string | null;
+  interruption: unknown;
   joueurs?: { joueurId: string; position: number }[];
 }
 
 const relireGestion = (type: string, dureeMs: number): GestionDeconnexion =>
   type === 'illimite' ? { type: 'illimite' } : { type: 'delai', dureeMs };
+
+/**
+ * L'abandon enregistré, s'il y en a un. Le coup interrompu est une archive :
+ * aucune règle n'en dépend, il est repris tel que le serveur l'a écrit.
+ */
+const relireAbandon = (parJoueurId: string | null | undefined, interruption: unknown): AbandonEnregistre | null => {
+  if (typeof parJoueurId !== 'string' || typeof interruption !== 'object' || interruption === null) return null;
+  const brut = interruption as { le?: unknown; coupInterrompu?: unknown };
+  if (typeof brut.le !== 'string' || typeof brut.coupInterrompu !== 'object' || brut.coupInterrompu === null) {
+    return null;
+  }
+  return { parJoueurId, le: new Date(brut.le), coupInterrompu: brut.coupInterrompu as CoupInterrompu };
+};
 
 const versPartie = (ligne: LignePartie): PartieEnregistree => ({
   id: ligne.id,
@@ -50,6 +67,7 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
     jeuMs: ligne.delaiJeuMs,
     prolongationMs: ligne.delaiProlongationMs,
   },
+  abandon: relireAbandon(ligne.abandonneParId, ligne.interruption),
   // Les places ne sont là que si l'appel a demandé l'inclusion ; une partie
   // tout juste créée n'en a de toute façon aucune.
   joueursIds: [...(ligne.joueurs ?? [])]
@@ -178,10 +196,22 @@ export class DepotPrisma implements Depot {
     ]);
   }
 
-  async terminerPartie(id: string, motif: MotifFin): Promise<void> {
+  async terminerPartie(id: string, motif: MotifFin, abandon?: AbandonEnregistre): Promise<void> {
     await this.prisma.partie.update({
       where: { id },
-      data: { termineeLe: new Date(), motifFin: motif },
+      data: {
+        termineeLe: new Date(),
+        motifFin: motif,
+        ...(abandon === undefined
+          ? {}
+          : {
+              abandonneParId: abandon.parJoueurId,
+              interruption: {
+                le: abandon.le.toISOString(),
+                coupInterrompu: abandon.coupInterrompu,
+              } as unknown as Prisma.InputJsonValue,
+            }),
+      },
     });
   }
 
@@ -221,5 +251,22 @@ export class DepotPrisma implements Depot {
           ? null
           : serialiserBoule(deserialiserBoule(partie.boule.etat)),
     }));
+  }
+
+  async chargerArchive(partieId: string): Promise<PartieRechargee | null> {
+    const partie = await this.prisma.partie.findUnique({
+      where: { id: partieId },
+      include: {
+        boule: true,
+        joueurs: { include: { joueur: true }, orderBy: { position: 'asc' } },
+      },
+    });
+    if (partie === null) return null;
+
+    return {
+      partie: versPartie(partie as unknown as LignePartie),
+      joueurs: partie.joueurs.map((place) => ({ id: place.joueur.id, pseudo: place.joueur.pseudo })),
+      etatBoule: partie.boule === null ? null : serialiserBoule(deserialiserBoule(partie.boule.etat)),
+    };
   }
 }

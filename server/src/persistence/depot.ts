@@ -5,7 +5,7 @@
  * celle en mémoire sont interchangeables, ce qui permet de tester la logique de
  * sauvegarde et de rechargement sans base.
  */
-import type { JoueurId } from '../models/index.js';
+import type { Carte, Combinaison, JoueurId } from '../models/index.js';
 import type { EtatBoulePersiste } from './serialisation.js';
 
 /** Sort d'un tour entamé par un joueur qui se déconnecte. */
@@ -46,6 +46,31 @@ export interface JoueurEnregistre {
 /** Pourquoi une partie s'est arrêtée. */
 export type MotifFin = 'abandon' | 'achevee';
 
+/**
+ * Ce qu'était la table à l'instant d'un abandon. Une archive : aucune règle
+ * n'en dépend, tout y est révélé, mains comprises.
+ */
+export interface CoupInterrompu {
+  /** Le coup en cours à l'abandon ; `null` entre deux coups. */
+  readonly numero: number | null;
+  readonly coupsJoues: number;
+  readonly nombreCoupsTotal: number;
+  readonly nombreCoupsFriches: number;
+  readonly scoresCumules: Record<JoueurId, number>;
+  readonly croix: Record<JoueurId, number>;
+  /** Les cartes en main de chaque joueur à cet instant, carte piochée comprise. */
+  readonly mains: Record<JoueurId, Carte[]>;
+  /** Les combinaisons sur la table à cet instant. */
+  readonly combinaisons: Combinaison[];
+}
+
+/** Qui a abandonné, quand, et le coup interrompu. */
+export interface AbandonEnregistre {
+  readonly parJoueurId: JoueurId;
+  readonly le: Date;
+  readonly coupInterrompu: CoupInterrompu;
+}
+
 export interface PartieEnregistree {
   readonly id: string;
   readonly codeInvitation: string;
@@ -58,6 +83,8 @@ export interface PartieEnregistree {
   readonly creeeLe: Date;
   readonly termineeLe: Date | null;
   readonly motifFin: MotifFin | null;
+  /** Renseigné pour une partie abandonnée par un joueur. */
+  readonly abandon: AbandonEnregistre | null;
 }
 
 export interface NouvellePartie {
@@ -106,11 +133,15 @@ export interface Depot {
   ): Promise<void>;
   /** Fige l'ordre de la table issu du tirage et marque la partie démarrée. */
   demarrerPartie(partieId: string, ordreTable: readonly JoueurId[]): Promise<void>;
-  terminerPartie(id: string, motif: MotifFin): Promise<void>;
+  /** `abandon` : pour un abandon décidé par un joueur, ce qu'il faut en archiver. */
+  terminerPartie(id: string, motif: MotifFin, abandon?: AbandonEnregistre): Promise<void>;
 
   /** Écrit l'état de la Boule d'une partie, en écrasant le précédent. */
   enregistrerBoule(partieId: string, etat: EtatBoulePersiste): Promise<void>;
 
   /** Parties non terminées, avec leur Boule, pour la reprise au démarrage. */
   chargerPartiesActives(): Promise<PartieRechargee[]>;
+
+  /** Une partie avec sa Boule, terminée ou non : l'archive d'une partie close. */
+  chargerArchive(partieId: string): Promise<PartieRechargee | null>;
 }

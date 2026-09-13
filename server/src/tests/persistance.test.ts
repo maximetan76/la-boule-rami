@@ -306,6 +306,34 @@ describe('DepotPrisma', () => {
     });
   });
 
+  it('enregistre qui a abandonne et le coup interrompu', async () => {
+    const { appels, prisma } = clientSimule();
+    const le = new Date('2026-09-13T10:00:00.000Z');
+    await new DepotPrisma(prisma).terminerPartie('partie-1', 'abandon', {
+      parJoueurId: 'p-bo',
+      le,
+      coupInterrompu: {
+        numero: 3,
+        coupsJoues: 2,
+        nombreCoupsTotal: 8,
+        nombreCoupsFriches: 2,
+        scoresCumules: { 'p-ana': 40, 'p-bo': -20 },
+        croix: {},
+        mains: {},
+        combinaisons: [],
+      },
+    });
+
+    expect(appels[0]?.args).toMatchObject({
+      where: { id: 'partie-1' },
+      data: {
+        motifFin: 'abandon',
+        abandonneParId: 'p-bo',
+        interruption: { le: '2026-09-13T10:00:00.000Z', coupInterrompu: { numero: 3, coupsJoues: 2 } },
+      },
+    });
+  });
+
   it('assied un joueur a une place precise', async () => {
     const { appels, prisma } = clientSimule();
     await new DepotPrisma(prisma).asseoirJoueur('partie-1', 'p-ana', 2);
