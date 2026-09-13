@@ -186,7 +186,7 @@ export interface Table {
    * Jokers que chaque joueur a gardés en main lors d'une friche généralisée,
    * pour qu'il les reconnaisse à la reprise. Vidé à chaque nouvelle donne.
    */
-  jokersGardes: Map<JoueurId, Carte['id'][]>;
+  jokersGardes: Map<JoueurId, Carte[]>;
 }
 
 export interface TableCreee {
@@ -742,9 +742,7 @@ export const redistribuerCoup = (table: Table): Coup => {
     gagnantId: null,
   };
 
-  table.jokersGardes = new Map(
-    Object.entries(jokersConserves).map(([joueurId, jokers]) => [joueurId, jokers.map((joker) => joker.id)]),
-  );
+  table.jokersGardes = new Map(Object.entries(jokersConserves));
   table.coup = rejoue;
   table.tourEnCours = null;
   return rejoue;

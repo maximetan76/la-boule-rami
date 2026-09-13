@@ -135,6 +135,12 @@ export interface EcheanceFiltree {
   readonly dureeMs: number;
 }
 
+/** Ce qu'un joueur a gardé d'une friche généralisée : combien, jamais lesquels. */
+export interface JokersConservesFiltres {
+  readonly jokers: number;
+  readonly coucou: boolean;
+}
+
 export interface EtatCoupFiltre {
   readonly tableId: string;
   readonly moi: {
@@ -187,6 +193,14 @@ export interface EtatCoupFiltre {
   readonly tirageOuverture: TirageOuvertureFiltre | null;
   /** Le délai de jeu qui court, s'il y en a un. */
   readonly echeance: EcheanceFiltree | null;
+  /**
+   * Ce que chaque joueur a gardé de la friche généralisée qui a relancé ce
+   * coup : ses jokers normaux, comptés, et le coucou. Public — la friche
+   * s'est jouée devant tous —, mais sans identifiant : rien n'y désigne une
+   * carte d'une main. Vide dès que chaque joueur actif a joué son premier
+   * tour, et muet sur qui n'a rien gardé.
+   */
+  readonly jokersConserves: Record<JoueurId, JokersConservesFiltres>;
   readonly boule: {
     readonly nombreCoupsTotal: number;
     readonly nombreCoupsFriches: number;
@@ -226,6 +240,8 @@ export const filtrerEtatPourJoueur = (
     readonly echangesDuTour?: VueEchanges | null;
     readonly tirageOuverture?: TirageOuvertureFiltre | null;
     readonly jokersGardes?: readonly string[];
+    /** Les cartes gardées par chacun à la friche généralisée. */
+    readonly jokersConserves?: Readonly<Record<JoueurId, readonly Carte[]>>;
     readonly echeance?: EcheanceFiltree | null;
   } = {},
 ): EtatCoupFiltre => {
@@ -237,8 +253,20 @@ export const filtrerEtatPourJoueur = (
     echangesDuTour = null,
     tirageOuverture = null,
     jokersGardes = [],
+    jokersConserves = {},
     echeance = null,
   } = options;
+
+  // Le rappel tient le temps du premier tour de table : le tour ne passe au
+  // numéro 2 qu'une fois que le dernier joueur actif a défaussé.
+  const conserves: Record<JoueurId, JokersConservesFiltres> = {};
+  if (coup.numeroTour === 1 && coup.phase !== 'termine') {
+    for (const [id, cartes] of Object.entries(jokersConserves)) {
+      const jokers = cartes.filter((carte) => carte.type === 'joker').length;
+      const coucou = cartes.some((carte) => carte.type === 'coucou');
+      if (jokers > 0 || coucou) conserves[id] = { jokers, coucou };
+    }
+  }
 
   const tousLesJoueurs = [...coup.ordreJoueurs, ...coup.joueursSurLeCote];
   const adversaires = tousLesJoueurs
@@ -299,6 +327,7 @@ export const filtrerEtatPourJoueur = (
     resultat,
     tirageOuverture,
     echeance,
+    jokersConserves: conserves,
     boule: {
       nombreCoupsTotal: boule.nombreCoupsTotal,
       nombreCoupsFriches: boule.nombreCoupsFriches,

@@ -279,3 +279,37 @@ describe('filtrerEtatPourJoueur — carte prise en defausse', () => {
     expect(filtre.defausse.derniereCarte?.id).toBe(etat.defausse.at(-1)?.id);
   });
 });
+
+describe('filtrerEtatPourJoueur — jokers conserves d une friche generalisee', () => {
+  const conserves = () => ({ j1: [], j2: [joker(), joker()], j3: [coucou()] });
+
+  it('dit a chacun ce que chaque joueur a garde, compte, sans aucun identifiant de carte', () => {
+    const gardes = conserves();
+    const filtre = filtrerEtatPourJoueur(etatComplet({ phase: 'annonces', numeroTour: 1 }), boule(), 'j1', {
+      jokersConserves: gardes,
+    });
+
+    expect(filtre.jokersConserves).toEqual({ j2: { jokers: 2, coucou: false }, j3: { jokers: 0, coucou: true } });
+    for (const carte of [...gardes.j2, ...gardes.j3]) {
+      expect(identifiantsPresents(filtre.jokersConserves)).not.toContain(`"id":"${carte.id}"`);
+    }
+  });
+
+  it('le tient pendant le premier tour de jeu', () => {
+    const filtre = filtrerEtatPourJoueur(etatComplet({ numeroTour: 1, joueurActifId: 'j3' }), boule(), 'j2', {
+      jokersConserves: conserves(),
+    });
+    expect(filtre.jokersConserves['j2']).toEqual({ jokers: 2, coucou: false });
+  });
+
+  it('l efface des que chaque joueur actif a joue une fois', () => {
+    const filtre = filtrerEtatPourJoueur(etatComplet({ numeroTour: 2 }), boule(), 'j1', {
+      jokersConserves: conserves(),
+    });
+    expect(filtre.jokersConserves).toEqual({});
+  });
+
+  it('ne dit rien sans friche generalisee', () => {
+    expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').jokersConserves).toEqual({});
+  });
+});
