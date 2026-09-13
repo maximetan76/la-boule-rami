@@ -170,6 +170,12 @@ export interface EtatCoupFiltre {
     readonly annonces: Record<JoueurId, Annonce>;
     readonly joueurActifId: JoueurId;
     readonly numeroTour: number;
+    /**
+     * Le joueur actif a déjà pioché ce tour-ci. Autour d'une vraie table,
+     * chacun le voit prendre sa carte : l'information est publique, la carte
+     * piochée, elle, ne l'est pas.
+     */
+    readonly tourEntame: boolean;
     readonly estFriche: boolean;
     readonly gagnantId: JoueurId | null;
   };
@@ -275,6 +281,7 @@ export const filtrerEtatPourJoueur = (
       annonces: { ...coup.annonces },
       joueurActifId: coup.joueurActifId,
       numeroTour: coup.numeroTour,
+      tourEntame: tourEnAttente !== null && tourEnAttente.joueurId === coup.joueurActifId,
       estFriche: coup.estFriche,
       gagnantId: coup.gagnantId,
     },

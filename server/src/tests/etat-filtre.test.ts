@@ -200,6 +200,17 @@ describe('filtrerEtatPourJoueur — carte piochée en attente', () => {
     expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').moi.sourceCarteEnAttente).toBeNull();
   });
 
+  it('dit a tous que le joueur actif a pioche, sans rien montrer de sa carte', () => {
+    const piochee = c('carreau', 4);
+    const vuParJ2 = filtrerEtatPourJoueur(etatComplet({ joueurActifId: 'j1' }), boule(), 'j2', {
+      tourEnAttente: enAttente('j1', piochee),
+    });
+
+    expect(vuParJ2.coup.tourEntame).toBe(true);
+    expect(identifiantsPresents(vuParJ2)).not.toContain(`"id":"${piochee.id}"`);
+    expect(filtrerEtatPourJoueur(etatComplet({ joueurActifId: 'j1' }), boule(), 'j2').coup.tourEntame).toBe(false);
+  });
+
   it('ne montre a personne d autre la carte piochee par le joueur actif', () => {
     const piochee = c('carreau', 4);
     const filtre = filtrerEtatPourJoueur(etatComplet(), boule(), 'j2', {
