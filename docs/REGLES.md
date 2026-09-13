@@ -29,6 +29,7 @@
 - Des brelans ou carrés sont aussi autorisés (même valeur, couleurs toutes différentes).
 - Une "tierce pure" est une tierce sans aucun joker dedans. Le joker peut remplacer n'importe quelle carte dans les autres combinaisons, MAIS il est interdit d'avoir un joker dans LA tierce qui sert à valider la condition de pose (il faut au moins une tierce à 100% naturelle parmi ce qu'on pose). En revanche, si le joueur a une tierce pure ET un joker dans une autre combinaison posée en même temps, c'est autorisé.
 - SEULE EXCEPTION : le "coucou" (super joker) peut, lui, remplacer une carte même dans la tierce servant à valider la condition de pose.
+- Tierce d'UNE seule carte réelle et de DEUX jokers (normaux ou "coucou") : la carte réelle occupe OBLIGATOIREMENT la position centrale, un joker juste en dessous et un juste au-dessus. Aucune autre disposition n'est valide — jamais deux jokers côte à côte d'un même côté de la carte. Exemples : 8♣ + 2 jokers ne se lit que 7♣-8♣-9♣, sans qu'aucune déclaration soit nécessaire ; Valet de cœur + 2 jokers donne 10♥-V♥-D♥ (le 10 en dessous, la Dame au-dessus) ; Roi + 2 jokers donne D-R-A. Conséquence : un As ne peut JAMAIS être la seule carte réelle d'une telle tierce, puisqu'il est toujours à une extrémité (A-2-3 ou D-R-A) : la combinaison est refusée.
 - Si un joueur n'a pas les 2 conditions réunies, il ne peut pas poser : il défausse simplement une carte de son choix et le tour passe au joueur suivant.
 
 ### Après qu'un joueur a posé pour la première fois
