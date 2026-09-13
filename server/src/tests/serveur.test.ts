@@ -783,6 +783,52 @@ describe('serveur socket.io', () => {
     expect(serveur.manager.table(tableId).boule?.historique[0]?.poseFinale).toEqual([dix.id]);
   });
 
+  it('traite un double appui sur « Continuer » sans rien casser, avant comme apres la donne suivante', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId, JoueurId];
+    const espion = (joueurId: JoueurId) => espions.find((autre) => autre.joueurId === joueurId) as Espion;
+    const joueur = espion(premier);
+
+    // Un vrai coup gagné : le premier finit en ajoutant le 10♥ à une tierce.
+    const suite = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)], second);
+    const dix = c('coeur', 10);
+    const aJeter = c('pique', 2);
+    table.coup.combinaisons = [suite];
+    table.coup.mains[premier] = [dix];
+    table.coup.pioche.unshift(aJeter);
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    await emettre(joueur.socket, 'poser', { ajouts: [{ combinaisonId: suite.id, cartes: [{ carteId: dix.id }] }] });
+    await agir(joueur, 'defausser', { carteId: aJeter.id });
+    const numero = table.resultatCoup?.numero;
+    expect(numero).toBe(1);
+
+    // Deux appuis en rafale : les deux sont acquittés, un seul compte.
+    const [un, deux] = await Promise.all([
+      emettre(joueur.socket, 'pret-pour-suivant', { numero }),
+      emettre(joueur.socket, 'pret-pour-suivant', { numero }),
+    ]);
+    expect(un.ok).toBe(true);
+    expect(deux.ok).toBe(true);
+    expect(table.resultatCoup?.prets).toEqual([premier]);
+
+    // Les autres confirment : le coup suivant part normalement.
+    for (const autre of espions.filter((e) => e.joueurId !== premier)) {
+      expect((await agir(autre, 'pret-pour-suivant', { numero })).ok).toBe(true);
+    }
+    expect(table.resultatCoup).toBeNull();
+    expect(table.coup?.numero).toBe(2);
+
+    // Un doublon tardif, arrivé après la donne : acquitté, sans effet.
+    const tardif = await emettre(joueur.socket, 'pret-pour-suivant', { numero });
+    expect(tardif.ok).toBe(true);
+    expect(table.coup?.numero).toBe(2);
+    expect(table.coup?.phase).toBe('annonces');
+  });
+
   it('attend que tous les joueurs demandent la suite avant de distribuer', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);

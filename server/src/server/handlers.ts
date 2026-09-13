@@ -1010,13 +1010,24 @@ export const enregistrerHandlers = (
      * dit : chacun lit le décompte à son rythme, et personne ne se voit
      * redistribuer une main sous les yeux.
      */
-    socket.on('pret-pour-suivant', (_payload: unknown, ack: unknown) => {
+    socket.on('pret-pour-suivant', (payload: { numero?: unknown } | undefined, ack: unknown) => {
       repondre(ack, async () => {
         const { table, joueurId } = manager.placeDeLaSocket(socket.id);
         const resultat = table.resultatCoup;
+        const numero = typeof payload?.numero === 'number' ? payload.numero : null;
 
-        if (resultat === null) throw new Error('Aucun coup termine a enchainer');
-        if (!resultat.prets.includes(joueurId)) resultat.prets = [...resultat.prets, joueurId];
+        if (resultat === null) {
+          // Une confirmation en double — second appui, renvoi après une
+          // coupure — peut arriver après le départ du coup suivant : elle est
+          // sans objet, pas en faute. Le client dit pour quel coup il confirme.
+          if (numero !== null && (table.boule?.historique.length ?? 0) >= numero) return;
+          throw new Error('Aucun coup termine a enchainer');
+        }
+        // Une confirmation pour un coup déjà passé ne vaut rien pour celui-ci.
+        if (numero !== null && numero !== resultat.numero) return;
+        // Déjà prêt : la seconde confirmation est simplement acquittée.
+        if (resultat.prets.includes(joueurId)) return;
+        resultat.prets = [...resultat.prets, joueurId];
 
         const attendus = table.joueurs.map((joueur) => joueur.id);
         if (attendus.every((id) => resultat.prets.includes(id))) {
