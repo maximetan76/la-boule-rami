@@ -213,12 +213,14 @@ describe('filtrerEtatPourJoueur — carte piochée en attente', () => {
 
 describe('filtrerEtatPourJoueur — tirage d ouverture', () => {
   it('le montre a chacun tel quel : les cartes ont ete retournees devant tous', () => {
-    const jokerTire = joker();
     const tirage = {
-      ordreTable: ['j2', 'j1', 'j3'],
-      donneurInitial: 'j2',
-      cartesTirees: { j1: [c('pique', 5)], j2: [jokerTire], j3: [c('trefle', 'R')] },
-      jokersConserves: { j1: [], j2: [jokerTire], j3: [] },
+      joueurs: ['j1', 'j2', 'j3'],
+      retournees: { j1: [{ place: 3, carte: c('pique', 5) }], j2: [], j3: [] },
+      aRetourner: ['j2', 'j3'],
+      complet: false,
+      ordreTable: null,
+      donneurInitial: null,
+      jokersConserves: {},
     };
     for (const joueurId of ['j1', 'j2', 'j3']) {
       const filtre = filtrerEtatPourJoueur(etatComplet(), boule(), joueurId, { tirageOuverture: tirage });

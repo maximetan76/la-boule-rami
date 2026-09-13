@@ -91,18 +91,31 @@ export interface VueEchanges {
   readonly carteConsommee: boolean;
 }
 
+/** Une carte du tirage d'ouverture, retournée par son joueur. */
+export interface CarteRetournee {
+  /** Sa position dans l'étalage face cachée. */
+  readonly place: number;
+  readonly carte: Carte;
+}
+
 /**
- * Le tirage d'ouverture de la Boule. Public : chacun a retourné sa carte sur
- * la table, sous les yeux de tous.
+ * Le tirage d'ouverture de la Boule, tel qu'il se retourne en direct. Rien n'y
+ * figure d'une carte que son joueur n'a pas encore touchée.
  */
 export interface TirageOuvertureFiltre {
-  /** Sièges, dans l'ordre croissant des cartes tirées. */
-  readonly ordreTable: JoueurId[];
-  /** Celui qui a tiré la carte la plus basse. */
-  readonly donneurInitial: JoueurId;
-  /** Cartes tirées par chaque joueur : la première, puis celles des retirages. */
-  readonly cartesTirees: Record<JoueurId, Carte[]>;
-  /** Jokers tirés, gardés en main pour la première donne. */
+  /** Ceux qui prennent part au tirage. */
+  readonly joueurs: JoueurId[];
+  /** Les cartes retournées par chacun : la première, puis celles des retirages. */
+  readonly retournees: Record<JoueurId, CarteRetournee[]>;
+  /** Ceux qui peuvent retourner une carte maintenant. */
+  readonly aRetourner: JoueurId[];
+  /** Toutes les cartes tirées sont retournées. */
+  readonly complet: boolean;
+  /** Sièges, dans l'ordre croissant des cartes tirées : une fois le tirage complet. */
+  readonly ordreTable: JoueurId[] | null;
+  /** Celui qui a tiré la carte la plus basse : une fois le tirage complet. */
+  readonly donneurInitial: JoueurId | null;
+  /** Jokers tirés, gardés pour la première donne : vide tant que tout n'est pas retourné. */
   readonly jokersConserves: Record<JoueurId, Carte[]>;
 }
 

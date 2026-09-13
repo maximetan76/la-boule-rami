@@ -138,6 +138,8 @@ export interface Table {
    * `null` avant le démarrage, et pour une partie relue après un redémarrage.
    */
   tirageOuverture: ReturnType<typeof tirerSiegesEtDonneurInitial> | null;
+  /** Les places de l'étalage où chaque joueur a retourné ses cartes du tirage. */
+  retournementsTirage: Map<JoueurId, number[]>;
   /**
    * Jokers que chaque joueur a gardés en main lors d'une friche généralisée,
    * pour qu'il les reconnaisse à la reprise. Vidé à chaque nouvelle donne.
@@ -240,6 +242,7 @@ export class GameRoomManager {
       cartesConserveesParJoueur: new Map(),
       resultatCoup: null,
       tirageOuverture: null,
+      retournementsTirage: new Map(),
       jokersGardes: new Map(),
     };
     this.tables.set(tableId, table);
@@ -425,6 +428,7 @@ export class GameRoomManager {
         cartesConserveesParJoueur: new Map(),
       resultatCoup: null,
       tirageOuverture: null,
+      retournementsTirage: new Map(),
       jokersGardes: new Map(),
       };
 

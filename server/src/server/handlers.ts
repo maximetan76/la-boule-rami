@@ -41,6 +41,7 @@ import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
 import type { TourEnCours } from './game-room-manager.js';
+import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
 import {
   bouleEnCours,
   demarrerCoup,
@@ -295,22 +296,8 @@ const tirageFiltre = (table: Table): TirageOuvertureFiltre | null => {
   const tirage = table.tirageOuverture;
   if (tirage === null || table.coup?.numero !== 1) return null;
 
-  const cartesTirees: Record<JoueurId, Carte[]> = {};
-  const jokersConserves: Record<JoueurId, Carte[]> = {};
-  for (const [joueurId, tirees] of tirage.cartesTirees) {
-    // Des identifiants propres au tirage : ceux du paquet désignent des cartes
-    // redistribuées depuis — dont les jokers gardés, dans la main de leur
-    // joueur. Rien d'une main ne doit sortir, pas même un identifiant.
-    const renommees = tirees.map((carte, rang) => ({ ...carte, id: `tirage-${joueurId}-${String(rang)}` }));
-    cartesTirees[joueurId] = renommees;
-    jokersConserves[joueurId] = renommees.filter(estJoker);
-  }
-  return {
-    ordreTable: [...tirage.ordreTable],
-    donneurInitial: tirage.donneurInitial,
-    cartesTirees,
-    jokersConserves,
-  };
+  // Seules les cartes retournées par leur joueur sortent : voir tirage-en-direct.
+  return filtrerTirage(tirage, table.retournementsTirage);
 };
 
 /**
@@ -865,6 +852,24 @@ export const enregistrerHandlers = (
         }
 
         tour.echangesJoker = tour.echangesJoker.filter((echange) => echange.carteJokerId !== visee);
+        publier(io, manager, table);
+      });
+    });
+
+    /**
+     * Retourne une carte de l'étalage du tirage d'ouverture.
+     *
+     * Les cartes ont été tirées au démarrage ; chaque joueur retourne la sienne
+     * lui-même, et les autres ne la voient qu'à cet instant.
+     */
+    socket.on('retourner-carte-tirage', (payload: { place?: unknown }, ack: unknown) => {
+      repondre(ack, () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const tirage = table.tirageOuverture;
+        if (tirage === null || table.coup?.numero !== 1) {
+          throw new Error("Aucun tirage d'ouverture en cours");
+        }
+        table.retournementsTirage = retournerCarte(tirage, table.retournementsTirage, joueurId, payload?.place);
         publier(io, manager, table);
       });
     });

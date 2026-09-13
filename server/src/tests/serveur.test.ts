@@ -195,17 +195,45 @@ describe('serveur socket.io', () => {
     }
   });
 
-  it('montre le tirage d ouverture au premier coup, sous des identifiants qui lui sont propres', async () => {
+  it('retourne le tirage d ouverture en direct : une carte n apparait qu une fois retournee par son joueur', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);
+    const [premier, second] = espions as [Espion, Espion, Espion];
+
+    // Au départ, rien de retourné, et chacun peut toucher sa carte.
+    for (const espion of espions) {
+      const tirage = espion.dernierEtat?.tirageOuverture;
+      expect(Object.values(tirage?.retournees ?? {}).flat()).toEqual([]);
+      expect(tirage?.aRetourner).toHaveLength(JOUEURS.length);
+      expect(tirage?.ordreTable).toBeNull();
+    }
+
+    // Le premier retourne la sienne : tous la voient, rien des autres.
+    expect((await agir(premier, 'retourner-carte-tirage', { place: 7 })).ok).toBe(true);
+    for (const espion of espions) {
+      const retournees = espion.dernierEtat?.tirageOuverture?.retournees ?? {};
+      expect(retournees[premier.joueurId]?.map((retournee) => retournee.place)).toEqual([7]);
+      expect(retournees[second.joueurId]).toEqual([]);
+    }
+    expect((await emettre(second.socket, 'retourner-carte-tirage', { place: 7 })).ok).toBe(false);
+
+    // Chacun retourne les siennes, retirages compris, jusqu'au bout.
+    let place = 20;
+    for (let manche = 0; manche < 20 && premier.dernierEtat?.tirageOuverture?.complet !== true; manche += 1) {
+      for (const joueurId of premier.dernierEtat?.tirageOuverture?.aRetourner ?? []) {
+        const espion = espions.find((autre) => autre.joueurId === joueurId) as Espion;
+        place += 1;
+        expect((await agir(espion, 'retourner-carte-tirage', { place })).ok).toBe(true);
+      }
+    }
 
     for (const espion of espions) {
       const tirage = espion.dernierEtat?.tirageOuverture;
+      expect(tirage?.complet).toBe(true);
       expect(tirage?.ordreTable).toEqual(table.joueurs.map((joueur) => joueur.id));
       expect(tirage?.donneurInitial).toBe(table.joueurs[0]?.id);
-      const tirees = Object.values(tirage?.cartesTirees ?? {}).flat();
-      expect(tirees.length).toBeGreaterThanOrEqual(JOUEURS.length);
-      expect(tirees.every((carte) => carte.id.startsWith('tirage-'))).toBe(true);
+      const cartes = Object.values(tirage?.retournees ?? {}).flat().map((retournee) => retournee.carte);
+      expect(cartes.every((carte) => carte.id.startsWith('tirage-'))).toBe(true);
     }
   });
 
