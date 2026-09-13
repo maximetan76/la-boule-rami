@@ -343,6 +343,7 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
     prets: [...resultat.prets],
     derniereCoup: resultat.derniereCoup,
     poseFinale: [...(resultat.poseFinale ?? [])],
+    carteDefaussee: resultat.carteDefaussee ?? null,
   };
 };
 
@@ -385,6 +386,8 @@ const cloturerCoup = async (
     prets: [],
     derniereCoup: estBouleTerminee(bouleEnCours(table)),
     poseFinale: [...poseFinale],
+    // La défausse qui a clos le coup : la carte du dessus est la sienne.
+    carteDefaussee: poseFinale.length === 0 && coup.defausse.length === 0 ? null : (coup.defausse.at(-1) ?? null),
   };
 };
 

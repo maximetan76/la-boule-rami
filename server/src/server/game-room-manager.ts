@@ -126,6 +126,8 @@ export interface ResultatCoupEnAttente {
    * vraie carte donnée contre un joker —, pour montrer comment il a fini.
    */
   readonly poseFinale?: readonly CarteId[];
+  /** La carte jetée par le gagnant pour finir, s'il en a jeté une. */
+  readonly carteDefaussee?: Carte | null;
 }
 
 /** Le délai de jeu qui court pour le joueur attendu. */

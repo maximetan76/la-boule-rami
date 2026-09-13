@@ -776,6 +776,8 @@ describe('serveur socket.io', () => {
       const resultat = espion.dernierEtat?.resultat;
       expect(resultat?.gagnantId).toBe(premier);
       expect(resultat?.poseFinale).toEqual([dix.id]);
+      // Et la carte qu'il a jetée pour finir.
+      expect(resultat?.carteDefaussee?.id).toBe(aJeter.id);
     }
     // Et l'historique la garde, pour y revenir plus tard.
     expect(serveur.manager.table(tableId).boule?.historique[0]?.poseFinale).toEqual([dix.id]);

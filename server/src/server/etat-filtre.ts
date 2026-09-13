@@ -79,6 +79,8 @@ export interface ResultatCoupFiltre {
   readonly derniereCoup: boolean;
   /** Les cartes que le gagnant a engagées pour finir : sa pose finale. */
   readonly poseFinale: string[];
+  /** La carte qu'il a jetée pour finir ; `null` s'il n'en a pas jeté. */
+  readonly carteDefaussee: Carte | null;
 }
 
 /**
