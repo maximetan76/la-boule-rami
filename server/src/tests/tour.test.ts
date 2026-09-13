@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { detecterDoubleOuTriple } from '../game-engine/fin-de-coup.js';
 import { echangerJoker, jouerTour, recupererJoker } from '../game-engine/tour.js';
 import { verifierFinDeCoupSpeciale } from '../game-engine/pose.js';
-import { c, coucou, coup, ensemble, joker, jokerPour, recap, tierce } from './fixtures.js';
+import { c, coucou, coucouPour, coup, ensemble, joker, jokerPour, recap, tierce } from './fixtures.js';
 import type { Carte, Combinaison } from '../models/index.js';
 
 /**
@@ -615,8 +615,9 @@ describe('jouerTour — pioche en défausse', () => {
     expect(apres.defausse.at(-1)?.id).toBe(main[4]!.id);
   });
 
-  it('refuse une carte « collante » : le 5 face a une suite 6-7-8-9 posee', () => {
-    // § « cette carte est dite collante et NE PEUT PAS etre piochee ».
+  it('accepte une carte « collante » pour une autre combinaison : le 5 face a 6-7-8-9, pose en 3-4-5', () => {
+    // § « elle NE PEUT PAS etre piochee pour prolonger cette suite » : pour une
+    // autre combinaison, qui ne touche pas la suite posee, c'est permis.
     const suiteTable = tierce(
       'coeur',
       [c('coeur', 6), c('coeur', 7), c('coeur', 8), c('coeur', 9)],
@@ -630,13 +631,12 @@ describe('jouerTour — pioche en défausse', () => {
       recapitulatifs: { j1: recap({ toursAvecPose: [1] }) },
     });
 
-    expect(() =>
-      jouerTour(depart, 'j1', {
-        source: 'defausse',
-        poses: [tierce('coeur', [main[0]!, main[1]!, cinq])],
-        carteDefausseeId: main[2]!.id,
-      }),
-    ).toThrow(/collante/i);
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'defausse',
+      poses: [tierce('coeur', [main[0]!, main[1]!, cinq])],
+      carteDefausseeId: main[2]!.id,
+    });
+    expect(apres.combinaisons).toHaveLength(2);
   });
 
   it('accepte une carte « sous-collante » : le 5 face a une suite 7-8-9 posee', () => {
@@ -1204,5 +1204,75 @@ describe('jouerTour — la carte prise en defausse ne reprend pas de joker', () 
     // Le joker est resté dans la tierce : aucun échange n'a eu lieu.
     const tierceApres = apres.combinaisons.find((combinaison) => combinaison.id === tierceJoker.id);
     expect(tierceApres?.cartes.some((cp) => cp.carte.type === 'joker')).toBe(true);
+  });
+});
+
+describe('jouerTour — carte collante prise en defausse', () => {
+  // § « Règle spéciale : piocher la carte de la défausse » : la carte collante
+  // ne prolonge aucune suite posée, celle du joueur comprise.
+  const dejaPose = {
+    j1: recap({ toursAvecPose: [1] }),
+    j2: recap({ toursAvecPose: [1] }),
+    j3: recap({ toursAvecPose: [] }),
+  };
+  const suite789 = (proprietaire: string) =>
+    tierce('coeur', [c('coeur', 7), c('coeur', 8), coucouPour('coeur', 9)], proprietaire);
+
+  it('refuse d ajouter le 10 de coeur ramasse a sa propre suite 7-8-[coucou=9]', () => {
+    const suite = suite789('j1');
+    const dix = c('coeur', 10);
+    const aJeter = c('pique', 2);
+    const depart = coupJouable([aJeter], {
+      combinaisons: [suite],
+      recapitulatifs: dejaPose,
+      defausse: [c('carreau', 3), dix],
+    });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'defausse',
+        ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: dix, remplace: null }] }],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(/collante/i);
+  });
+
+  it('le refuse de meme sur la suite d un autre joueur', () => {
+    const suite = suite789('j2');
+    const dix = c('coeur', 10);
+    const aJeter = c('pique', 2);
+    const depart = coupJouable([aJeter], {
+      combinaisons: [suite],
+      recapitulatifs: dejaPose,
+      defausse: [c('carreau', 3), dix],
+    });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'defausse',
+        ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: dix, remplace: null }] }],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(/collante/i);
+  });
+
+  it('laisse la carte collante servir ailleurs : un brelan de 10', () => {
+    const suite = suite789('j1');
+    const dix = c('coeur', 10);
+    const dixPique = c('pique', 10);
+    const dixTrefle = c('trefle', 10);
+    const aJeter = c('pique', 2);
+    const depart = coupJouable([dixPique, dixTrefle, aJeter], {
+      combinaisons: [suite],
+      recapitulatifs: dejaPose,
+      defausse: [c('carreau', 3), dix],
+    });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'defausse',
+      poses: [ensemble(10, [dix, dixPique, dixTrefle])],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(apres.combinaisons).toHaveLength(2);
   });
 });

@@ -211,16 +211,16 @@ export const jouerTour = (
       );
     }
 
-    for (const existante of coup.combinaisons) {
-      if (!estCarteCollante(cartePiochee, existante)) continue;
-      const prolongeCetteSuite = ajouts.some(
-        (ajout) =>
-          ajout.combinaisonId === existante.id &&
-          ajout.cartes.some((cp) => cp.carte.id === cartePiochee.id),
-      );
-      if (!prolongeCetteSuite) {
+    // Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la
+    // défausse » : une carte collante — qui prolongerait par un bout une suite
+    // déjà posée — ne peut pas être prise dans la défausse pour prolonger cette
+    // suite-là, qu'elle soit au joueur ou à un autre. Elle peut servir ailleurs.
+    for (const ajout of ajouts) {
+      if (!ajout.cartes.some((cp) => cp.carte.id === cartePiochee.id)) continue;
+      const cible = coup.combinaisons.find((combinaison) => combinaison.id === ajout.combinaisonId);
+      if (cible !== undefined && estCarteCollante(cartePiochee, cible)) {
         throw new Error(
-          'Carte collante : elle ne fait que prolonger une suite deja posee, elle ne peut pas etre prise dans la defausse pour autre chose',
+          'Carte collante : prise dans la defausse, elle ne peut pas prolonger une suite deja posee, la votre comprise',
         );
       }
     }
