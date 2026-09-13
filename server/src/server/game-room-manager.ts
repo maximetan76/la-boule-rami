@@ -533,6 +533,11 @@ export class GameRoomManager {
     return { table, joueurId: place.joueurId };
   }
 
+  /** La table en mémoire, si elle y vit encore : une partie abandonnée n'y est plus. */
+  tableVivante(tableId: TableId): Table | null {
+    return this.tables.get(tableId) ?? null;
+  }
+
   /** La table que suit cette connexion, s'il y en a une. */
   tableDeLaSocket(socketId: string): Table | null {
     const place = this.sockets.get(socketId);

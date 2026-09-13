@@ -21,6 +21,7 @@ import type {
 } from '../persistence/depot.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_PAR_DEFAUT } from '../persistence/depot.js';
 import type { DelaisDeJeu } from '../persistence/depot.js';
+import { joueurAttendu } from './handlers.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { GameRoomManager, Table } from './game-room-manager.js';
 
@@ -439,6 +440,50 @@ const decrirePartie = async (partie: PartieEnregistree, depot: Depot) => {
   };
 };
 
+/** Où en est une partie, dans la liste d'un joueur. */
+type StatutDePartie = 'salon' | 'en-cours' | 'terminee' | 'abandonnee';
+
+/**
+ * Toutes les parties du joueur — salons, parties en cours, terminées ou
+ * abandonnées —, la plus récente d'abord.
+ *
+ * Une table vivante se décrit depuis la mémoire, qui sait si elle attend ce
+ * joueur ; une partie close ne vit plus qu'en base.
+ */
+const mesParties = async (deps: DependancesHttp, joueur: JoueurEnregistre): Promise<unknown> => {
+  const parties = await deps.depot.partiesDuJoueur(joueur.id);
+  return {
+    parties: await Promise.all(
+      parties.map(async (partie) => {
+        const vivante = partie.termineeLe === null ? deps.manager.tableVivante(partie.id) : null;
+        const description = vivante === null ? await decrirePartie(partie, deps.depot) : decrireTable(vivante);
+        const statut: StatutDePartie =
+          partie.termineeLe !== null
+            ? partie.motifFin === 'abandon'
+              ? 'abandonnee'
+              : 'terminee'
+            : (vivante?.statut ?? description.statut) === 'salon'
+              ? 'salon'
+              : 'en-cours';
+        const coup = vivante?.coup ?? null;
+        return {
+          tableId: description.tableId,
+          codeInvitation: description.codeInvitation,
+          capacite: description.capacite,
+          createurId: description.createurId,
+          joueurs: description.joueurs,
+          statut,
+          creeeLe: partie.creeeLe.toISOString(),
+          termineeLe: partie.termineeLe?.toISOString() ?? null,
+          // La table attend-elle ce joueur, là, maintenant ?
+          aMoiDAgir:
+            vivante !== null && vivante.resultatCoup === null && coup !== null && joueurAttendu(coup) === joueur.id,
+        };
+      }),
+    ),
+  };
+};
+
 const ABANDON = /^\/tables\/([^/]+)\/abandonner$/;
 const QUITTER = /^\/tables\/([^/]+)\/quitter$/;
 const HISTORIQUE = /^\/tables\/([^/]+)\/historique$/;
@@ -469,6 +514,10 @@ export const gererRequeteHttp =
         } catch {
           throw new ErreurHttp(401, 'Jeton de session refuse');
         }
+      }
+
+      if (methode === 'GET' && chemin === '/tables') {
+        return { code: 200, corps: await mesParties(deps, await authentifier(requete, deps)) };
       }
 
       if (methode === 'GET' && chemin === '/tables/moi') {

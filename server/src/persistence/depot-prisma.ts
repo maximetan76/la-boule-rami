@@ -127,6 +127,15 @@ export class DepotPrisma implements Depot {
     return ligne === null ? null : versPartie(ligne as LignePartie);
   }
 
+  async partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]> {
+    const lignes = await this.prisma.partie.findMany({
+      where: { joueurs: { some: { joueurId } } },
+      orderBy: { creeeLe: 'desc' },
+      include: PLACES,
+    });
+    return lignes.map((ligne) => versPartie(ligne as LignePartie));
+  }
+
   async asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void> {
     await this.prisma.joueurSurPartie.create({ data: { partieId, joueurId, position } });
   }

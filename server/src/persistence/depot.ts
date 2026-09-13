@@ -92,6 +92,8 @@ export interface Depot {
    * dire, à son retour, que sa partie a été abandonnée en son absence.
    */
   dernierePartieDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null>;
+  /** Toutes les parties du joueur, en cours ou terminées, la plus récente d'abord. */
+  partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]>;
   asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void>;
   /**
    * Libère la place d'un joueur et renumérote celles qui restent, pour que la

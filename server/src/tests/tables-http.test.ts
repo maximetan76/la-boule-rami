@@ -204,6 +204,44 @@ describe('API des tables', () => {
     });
   });
 
+  describe('GET /tables', () => {
+    it('liste toutes les parties du joueur, la plus recente d abord, avec leur statut', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const salon = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 3 } });
+      const enCours = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2 } });
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: enCours.corps['codeInvitation'] } });
+      const abandonnee = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2 } });
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: abandonnee.corps['codeInvitation'] } });
+      await appeler('POST', `/tables/${abandonnee.corps['tableId'] as string}/abandonner`, { compte: bo });
+
+      const { statut, corps } = await appeler('GET', '/tables', { compte: ana });
+      expect(statut).toBe(200);
+      const parties = corps['parties'] as {
+        tableId: string;
+        statut: string;
+        joueurs: unknown[];
+        termineeLe: string | null;
+        aMoiDAgir: boolean;
+      }[];
+      expect(parties.map((partie) => [partie.tableId, partie.statut])).toEqual([
+        [abandonnee.corps['tableId'], 'abandonnee'],
+        [enCours.corps['tableId'], 'en-cours'],
+        [salon.corps['tableId'], 'salon'],
+      ]);
+      expect(parties[0]?.termineeLe).not.toBeNull();
+      expect(parties[1]?.joueurs).toHaveLength(2);
+      expect(parties[2]?.aMoiDAgir).toBe(false);
+
+      const deBo = (await appeler('GET', '/tables', { compte: bo })).corps['parties'] as { tableId: string }[];
+      expect(deBo.map((partie) => partie.tableId)).toEqual([abandonnee.corps['tableId'], enCours.corps['tableId']]);
+    });
+
+    it('exige un jeton de session', async () => {
+      expect((await appeler('GET', '/tables')).statut).toBe(401);
+    });
+  });
+
   describe('POST /tables/rejoindre', () => {
     const ouvrirSalon = async (compte: Compte, nombreJoueurs = 3) => {
       const { corps } = await appeler('POST', '/tables', {

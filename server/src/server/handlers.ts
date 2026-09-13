@@ -204,7 +204,7 @@ const prochainAParler = (coup: Coup): JoueurId | null =>
  * Le joueur que la table attend, selon la phase : celui qui doit parler pendant
  * les annonces, celui qui doit jouer ensuite. `null` si rien n'est attendu.
  */
-const joueurAttendu = (coup: Coup): JoueurId | null => {
+export const joueurAttendu = (coup: Coup): JoueurId | null => {
   if (coup.phase === 'annonces') return prochainAParler(coup);
   if (coup.phase === 'jeu') return coup.joueurActifId;
   return null;
