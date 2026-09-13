@@ -39,7 +39,7 @@ import {
 } from '../game-engine/index.js';
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
-import type { ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
+import type { EcheanceFiltree, ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
 import type { AttenteDeJeu, TourEnCours } from './game-room-manager.js';
 import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
 import {
@@ -268,6 +268,7 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
   // Les échanges de joker ne sont montrés qu'à celui qui les fait :
   // `filtrerEtatPourJoueur` ne s'en sert que pour lui.
   const echanges = table.tourEnCours === null ? null : vueDesEchanges(coup, table.tourEnCours);
+  const echeance = echeanceFiltree(table, coup);
 
   for (const joueurId of connectes) {
     const socketId = manager.socketDe(table, joueurId);
@@ -283,9 +284,26 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         echangesDuTour: echanges,
         tirageOuverture: tirageFiltre(table),
         jokersGardes: table.jokersGardes.get(joueurId) ?? [],
+        echeance,
       }),
     );
   }
+};
+
+/**
+ * Le délai qui court, pour que chacun voie l'échéance approcher : le joueur
+ * attendu, la nature du délai, et ce qu'il en reste à l'instant de l'envoi.
+ */
+const echeanceFiltree = (table: Table, coup: Coup): EcheanceFiltree | null => {
+  const attente = table.attenteDeJeu;
+  const attendu = joueurAttendu(coup);
+  if (attente === null || attente.finLe === null || attente.dureeMs === null || attendu === null) return null;
+  return {
+    joueurId: attendu,
+    nature: attente.nature,
+    restantMs: Math.max(0, attente.finLe - Date.now()),
+    dureeMs: attente.dureeMs,
+  };
 };
 
 /**
@@ -525,8 +543,13 @@ const reevaluerDelaiDeJeu = (io: Server, manager: GameRoomManager, table: Table)
     const prolongationMs = table.delais.prolongationMs;
     if (attente.composition && !attente.prolongee && prolongationMs !== 0) {
       attente.prolongee = true;
+      attente.nature = 'prolongation';
+      attente.dureeMs = prolongationMs;
+      attente.finLe = prolongationMs === null ? null : Date.now() + prolongationMs;
       attente.annuler =
         prolongationMs === null ? () => undefined : manager.minuteur.programmer(expirer, prolongationMs);
+      // Sans nouvel état, le compte à rebours de chacun s'arrêterait à zéro.
+      diffuserEtat(io, manager, table);
       return;
     }
 
@@ -547,6 +570,9 @@ const reevaluerDelaiDeJeu = (io: Server, manager: GameRoomManager, table: Table)
     annuler: manager.minuteur.programmer(expirer, dureeMs),
     composition: false,
     prolongee: false,
+    nature: coup?.phase === 'annonces' ? 'annonce' : 'jeu',
+    finLe: Date.now() + dureeMs,
+    dureeMs,
   };
 };
 

@@ -124,6 +124,12 @@ export interface AttenteDeJeu {
   composition: boolean;
   /** La prolongation a déjà été accordée pour cette attente. */
   prolongee: boolean;
+  /** Ce qui court : le délai d'annonce, celui du tour, ou la prolongation. */
+  nature: 'annonce' | 'jeu' | 'prolongation';
+  /** Échéance, en millisecondes depuis l'époque ; `null` : prolongation illimitée. */
+  finLe: number | null;
+  /** Durée totale du délai qui court ; `null` : prolongation illimitée. */
+  dureeMs: number | null;
 }
 
 export interface Table {

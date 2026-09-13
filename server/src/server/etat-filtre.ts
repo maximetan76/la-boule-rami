@@ -119,6 +119,18 @@ export interface TirageOuvertureFiltre {
   readonly jokersConserves: Record<JoueurId, Carte[]>;
 }
 
+/** Le délai qui court pour le joueur attendu, tel que chacun le voit. */
+export interface EcheanceFiltree {
+  readonly joueurId: JoueurId;
+  readonly nature: 'annonce' | 'jeu' | 'prolongation';
+  /**
+   * Ce qu'il reste, en millisecondes, à l'envoi de cet état. L'app compte à
+   * partir de sa réception : elle n'a pas à connaître l'heure du serveur.
+   */
+  readonly restantMs: number;
+  readonly dureeMs: number;
+}
+
 export interface EtatCoupFiltre {
   readonly tableId: string;
   readonly moi: {
@@ -163,6 +175,8 @@ export interface EtatCoupFiltre {
   readonly resultat: ResultatCoupFiltre | null;
   /** Le tirage d'ouverture, pendant le premier coup de la Boule seulement. */
   readonly tirageOuverture: TirageOuvertureFiltre | null;
+  /** Le délai de jeu qui court, s'il y en a un. */
+  readonly echeance: EcheanceFiltree | null;
   readonly boule: {
     readonly nombreCoupsTotal: number;
     readonly nombreCoupsFriches: number;
@@ -202,6 +216,7 @@ export const filtrerEtatPourJoueur = (
     readonly echangesDuTour?: VueEchanges | null;
     readonly tirageOuverture?: TirageOuvertureFiltre | null;
     readonly jokersGardes?: readonly string[];
+    readonly echeance?: EcheanceFiltree | null;
   } = {},
 ): EtatCoupFiltre => {
   const {
@@ -212,6 +227,7 @@ export const filtrerEtatPourJoueur = (
     echangesDuTour = null,
     tirageOuverture = null,
     jokersGardes = [],
+    echeance = null,
   } = options;
 
   const tousLesJoueurs = [...coup.ordreJoueurs, ...coup.joueursSurLeCote];
@@ -267,6 +283,7 @@ export const filtrerEtatPourJoueur = (
     // coups : c'est la seule porte, et elle ne s'ouvre qu'une fois le coup joué.
     resultat,
     tirageOuverture,
+    echeance,
     boule: {
       nombreCoupsTotal: boule.nombreCoupsTotal,
       nombreCoupsFriches: boule.nombreCoupsFriches,

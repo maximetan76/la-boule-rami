@@ -225,12 +225,26 @@ describe('serveur socket.io', () => {
   it('fait friche d office quand le delai d annonce expire, joueur present', async () => {
     const { table, ordre } = await ouvrirTableMinutee({ annonceMs: 30000, jeuMs: null, prolongationMs: null });
     expect(minuteursActifs()).toEqual([30000]);
+    // Chacun voit l'échéance : qui est attendu, pour quoi, et ce qu'il reste.
+    for (const espion of espions) {
+      const echeance = espion.dernierEtat?.echeance;
+      expect(echeance?.joueurId).toBe(ordre[0]);
+      expect(echeance?.nature).toBe('annonce');
+      expect(echeance?.dureeMs).toBe(30000);
+      expect(echeance?.restantMs).toBeGreaterThan(29000);
+      expect(echeance?.restantMs).toBeLessThanOrEqual(30000);
+    }
 
     horloge.declencher();
     expect(table.coup?.annonces[ordre[0] as string]).toBe('friche');
     await patienter(20);
     // Le suivant a son propre délai.
     expect(minuteursActifs()).toEqual([30000]);
+  });
+
+  it('n envoie aucune echeance a une table sans delai', async () => {
+    await ouvrirTable();
+    for (const espion of espions) expect(espion.dernierEtat?.echeance).toBeNull();
   });
 
   it('defausse la carte piochee quand le delai de jeu expire', async () => {
@@ -268,6 +282,10 @@ describe('serveur socket.io', () => {
     horloge.declencher();
     expect(table.coup?.joueurActifId).toBe(ordre[0]);
     expect(minuteursActifs()).toEqual([20000]);
+    // La prolongation se voit aussitôt : un nouvel état part.
+    await patienter(30);
+    expect(premier.dernierEtat?.echeance?.nature).toBe('prolongation');
+    expect(premier.dernierEtat?.echeance?.dureeMs).toBe(20000);
 
     horloge.declencher();
     expect(table.coup?.joueurActifId).toBe(ordre[1]);
