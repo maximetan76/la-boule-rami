@@ -79,6 +79,7 @@ describe.skipIf(URL_TEST === undefined || URL_TEST.length === 0)('PostgreSQL', (
       createurId: ids[0] as string,
       capacite: 3,
       gestionDeconnexion: { type: 'delai', dureeMs: 45_000 },
+      delais: { annonceMs: 30_000, jeuMs: null, prolongationMs: 60_000 },
     });
     for (const [position, id] of ids.entries()) {
       await depot.asseoirJoueur('partie-pg', id, position);
@@ -88,6 +89,7 @@ describe.skipIf(URL_TEST === undefined || URL_TEST.length === 0)('PostgreSQL', (
     const parCode = await depot.trouverPartieParCode('PGTEST');
     expect(parCode?.id).toBe('partie-pg');
     expect(parCode?.gestionDeconnexion).toEqual({ type: 'delai', dureeMs: 45_000 });
+    expect(parCode?.delais).toEqual({ annonceMs: 30_000, jeuMs: null, prolongationMs: 60_000 });
     expect(parCode?.demarree).toBe(false);
     expect(parCode?.joueursIds).toEqual(ids);
 

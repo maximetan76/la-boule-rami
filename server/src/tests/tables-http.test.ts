@@ -169,6 +169,31 @@ describe('API des tables', () => {
       expect((await appeler('POST', '/tables')).statut).toBe(401);
     });
 
+    it('arme les delais par defaut, et accepte des delais choisis ou illimites', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const parDefaut = await appeler('POST', '/tables', { compte: ana });
+      expect(parDefaut.corps['delais']).toEqual({ annonceMs: 60000, jeuMs: 120000, prolongationMs: 60000 });
+
+      const choisis = await appeler('POST', '/tables', {
+        compte: ana,
+        corps: { delais: { annonceMs: 30000, jeuMs: null, prolongationMs: 0 } },
+      });
+      expect(choisis.statut).toBe(201);
+      expect(serveur.manager.table(choisis.corps['tableId'] as string).delais).toEqual({
+        annonceMs: 30000,
+        jeuMs: null,
+        prolongationMs: 0,
+      });
+    });
+
+    it('refuse un delai trop court ou mal forme', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const tropCourt = await appeler('POST', '/tables', { compte: ana, corps: { delais: { jeuMs: 100 } } });
+      expect(tropCourt.statut).toBe(400);
+      const malForme = await appeler('POST', '/tables', { compte: ana, corps: { delais: { annonceMs: 'vite' } } });
+      expect(malForme.statut).toBe(400);
+    });
+
     it('laisse ouvrir un second salon a un joueur deja assis ailleurs', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       const premier = await appeler('POST', '/tables', { compte: ana });

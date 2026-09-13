@@ -40,7 +40,7 @@ import {
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
-import type { TourEnCours } from './game-room-manager.js';
+import type { AttenteDeJeu, TourEnCours } from './game-room-manager.js';
 import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
 import {
   bouleEnCours,
@@ -488,11 +488,75 @@ const reevaluerSursis = (io: Server, manager: GameRoomManager, table: Table): vo
 };
 
 /**
+ * Arme, garde ou désarme le délai de jeu du joueur attendu.
+ *
+ * Contrairement au sursis, il court pour un joueur présent : c'est la table qui
+ * l'a voulu à sa création. Un même moment d'attente — même coup, même phase,
+ * même joueur, même tour — garde son minuteur d'une publication à l'autre :
+ * piocher ne le relance pas, le délai de jeu couvrant tout le tour. Tout
+ * changement d'attente le réarme à neuf.
+ */
+const reevaluerDelaiDeJeu = (io: Server, manager: GameRoomManager, table: Table): void => {
+  const coup = table.coup;
+  const attendu = coup === null || table.resultatCoup !== null ? null : joueurAttendu(coup);
+  const dureeMs =
+    coup === null || attendu === null
+      ? null
+      : coup.phase === 'annonces'
+        ? table.delais.annonceMs
+        : table.delais.jeuMs;
+  const cle =
+    coup === null || attendu === null || dureeMs === null
+      ? null
+      : [coup.numero, coup.phase, attendu, coup.numeroTour, Object.keys(coup.annonces).length].join(':');
+
+  if (table.attenteDeJeu !== null && table.attenteDeJeu.cle !== cle) {
+    table.attenteDeJeu.annuler();
+    table.attenteDeJeu = null;
+  }
+  if (cle === null || attendu === null || dureeMs === null || table.attenteDeJeu !== null) return;
+
+  const expirer = (): void => {
+    const attente: AttenteDeJeu | null = table.attenteDeJeu;
+    if (attente === null || attente.cle !== cle) return;
+
+    // Qui a commencé à composer une pose reçoit, une fois, le temps en plus
+    // prévu par la table. Illimitée, la prolongation lève l'échéance du tour.
+    const prolongationMs = table.delais.prolongationMs;
+    if (attente.composition && !attente.prolongee && prolongationMs !== 0) {
+      attente.prolongee = true;
+      attente.annuler =
+        prolongationMs === null ? () => undefined : manager.minuteur.programmer(expirer, prolongationMs);
+      return;
+    }
+
+    table.attenteDeJeu = null;
+    // Même issue qu'une absence prolongée : friche pendant les annonces, pioche
+    // et défausse d'office pendant le jeu.
+    expirerTour(manager, table, attendu)
+      .then(() => {
+        publier(io, manager, table);
+      })
+      .catch(() => {
+        // Comme pour le sursis : une expiration impossible laisse la table en l'état.
+      });
+  };
+
+  table.attenteDeJeu = {
+    cle,
+    annuler: manager.minuteur.programmer(expirer, dureeMs),
+    composition: false,
+    prolongee: false,
+  };
+};
+
+/**
  * Publie le nouvel état : chacun reçoit sa vue, après réévaluation du sursis.
  * Toute action qui modifie la table passe par ici.
  */
 const publier = (io: Server, manager: GameRoomManager, table: Table): void => {
   reevaluerSursis(io, manager, table);
+  reevaluerDelaiDeJeu(io, manager, table);
   diffuserEtat(io, manager, table);
 };
 
@@ -857,6 +921,24 @@ export const enregistrerHandlers = (
 
         tour.echangesJoker = tour.echangesJoker.filter((echange) => echange.carteJokerId !== visee);
         publier(io, manager, table);
+      });
+    });
+
+    /**
+     * « Je compose une pose. »
+     *
+     * Le brouillon reste dans l'app jusqu'à la défausse ; ce signal dit
+     * seulement au serveur que le joueur y travaille, pour qu'il reçoive, une
+     * fois, la prolongation prévue par la table.
+     */
+    socket.on('composition-commencee', (_payload: unknown, ack: unknown) => {
+      repondre(ack, () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const coup = coupEnCours(table);
+        if (coup.phase !== 'jeu' || coup.joueurActifId !== joueurId) {
+          throw new Error("Ce n'est pas a vous de jouer");
+        }
+        if (table.attenteDeJeu !== null) table.attenteDeJeu.composition = true;
       });
     });
 

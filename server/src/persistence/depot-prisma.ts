@@ -29,6 +29,9 @@ interface LignePartie {
   creeeLe: Date;
   termineeLe: Date | null;
   motifFin: string | null;
+  delaiAnnonceMs: number | null;
+  delaiJeuMs: number | null;
+  delaiProlongationMs: number | null;
   joueurs?: { joueurId: string; position: number }[];
 }
 
@@ -42,6 +45,11 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
   capacite: ligne.capacite,
   demarree: ligne.demarree,
   gestionDeconnexion: relireGestion(ligne.gestionDeconnexionType, ligne.gestionDeconnexionDureeMs),
+  delais: {
+    annonceMs: ligne.delaiAnnonceMs,
+    jeuMs: ligne.delaiJeuMs,
+    prolongationMs: ligne.delaiProlongationMs,
+  },
   // Les places ne sont là que si l'appel a demandé l'inclusion ; une partie
   // tout juste créée n'en a de toute façon aucune.
   joueursIds: [...(ligne.joueurs ?? [])]
@@ -85,6 +93,9 @@ export class DepotPrisma implements Depot {
         gestionDeconnexionType: partie.gestionDeconnexion.type,
         gestionDeconnexionDureeMs:
           partie.gestionDeconnexion.type === 'delai' ? partie.gestionDeconnexion.dureeMs : 0,
+        delaiAnnonceMs: partie.delais.annonceMs,
+        delaiJeuMs: partie.delais.jeuMs,
+        delaiProlongationMs: partie.delais.prolongationMs,
       },
       include: PLACES,
     });

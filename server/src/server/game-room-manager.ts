@@ -28,14 +28,14 @@ import {
   tirerSiegesEtDonneurInitial,
 } from '../game-engine/index.js';
 import { estJoker } from '../game-engine/cartes.js';
-import type { Depot, GestionDeconnexion, JoueurEnregistre } from '../persistence/depot.js';
-import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../persistence/depot.js';
+import type { DelaisDeJeu, Depot, GestionDeconnexion, JoueurEnregistre } from '../persistence/depot.js';
+import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_ILLIMITES } from '../persistence/depot.js';
 import { deserialiserBoule, serialiserBoule } from '../persistence/serialisation.js';
 import type { TourEnAttente } from './etat-filtre.js';
 
 export type TableId = string;
 
-export type { GestionDeconnexion };
+export type { DelaisDeJeu, GestionDeconnexion };
 export { DELAI_DECONNEXION_PAR_DEFAUT_MS };
 
 /** Horloge, injectable pour que les tests n'attendent pas 90 secondes. */
@@ -109,6 +109,17 @@ export interface ResultatCoupEnAttente {
   readonly derniereCoup: boolean;
 }
 
+/** Le délai de jeu qui court pour le joueur attendu. */
+export interface AttenteDeJeu {
+  /** Ce qu'on attend : même coup, même phase, même joueur, même moment. */
+  readonly cle: string;
+  annuler: () => void;
+  /** Le joueur a signalé qu'il compose une pose. */
+  composition: boolean;
+  /** La prolongation a déjà été accordée pour cette attente. */
+  prolongee: boolean;
+}
+
 export interface Table {
   readonly id: TableId;
   readonly codeInvitation: string;
@@ -125,6 +136,10 @@ export interface Table {
   readonly connexions: Map<JoueurId, string | null>;
   readonly alea: () => number;
   readonly gestionDeconnexion: GestionDeconnexion;
+  /** Délais de jeu : ils valent pour tous, présents ou non. */
+  readonly delais: DelaisDeJeu;
+  /** Le délai qui court pour le joueur attendu, s'il y en a un. */
+  attenteDeJeu: AttenteDeJeu | null;
   /** Annulation du minuteur d'abandon de tour en cours, s'il y en a un. */
   annulerMinuteur: (() => void) | null;
   /** Joueur dont le tour expirera si le minuteur va au bout. */
@@ -190,12 +205,14 @@ export class GameRoomManager {
     throw new Error("Impossible de tirer un code d'invitation libre");
   }
 
-  /** Refuse d'asseoir un joueur déjà engagé ailleurs. */
+  /** Ouvre un salon, son créateur assis à la première place. */
   async creerTable(
     createur: JoueurEnregistre | { id: JoueurId; pseudo: string },
     options: {
       readonly capacite?: number;
       readonly gestionDeconnexion?: GestionDeconnexion;
+      /** Sans précision, aucun délai : les valeurs par défaut sont celles de l'API. */
+      readonly delais?: DelaisDeJeu;
       readonly alea?: () => number;
     } = {},
   ): Promise<TableCreee> {
@@ -208,6 +225,7 @@ export class GameRoomManager {
 
     const tableId = randomUUID();
     const codeInvitation = await this.codeUnique();
+    const delais = options.delais ?? DELAIS_ILLIMITES;
     const gestionDeconnexion = options.gestionDeconnexion ?? {
       type: 'delai',
       dureeMs: DELAI_DECONNEXION_PAR_DEFAUT_MS,
@@ -226,6 +244,8 @@ export class GameRoomManager {
       connexions: new Map([[createur.id, null]]),
       alea: options.alea ?? Math.random,
       gestionDeconnexion,
+      delais,
+      attenteDeJeu: null,
       annulerMinuteur: null,
       joueurEnSursis: null,
       cartesConserveesParJoueur: new Map(),
@@ -243,6 +263,7 @@ export class GameRoomManager {
       createurId: createur.id,
       capacite,
       gestionDeconnexion,
+      delais,
     });
     await this.depot?.asseoirJoueur(tableId, createur.id, 0);
 
@@ -306,6 +327,8 @@ export class GameRoomManager {
     table.annulerMinuteur?.();
     table.annulerMinuteur = null;
     table.joueurEnSursis = null;
+    table.attenteDeJeu?.annuler();
+    table.attenteDeJeu = null;
     table.statut = 'terminee';
     table.coup = null;
     table.tourEnCours = null;
@@ -409,6 +432,8 @@ export class GameRoomManager {
         // La configuration de déconnexion est relue avec la partie : une table
         // ne repart pas sur la valeur par défaut après un redémarrage.
         gestionDeconnexion: partie.gestionDeconnexion,
+        delais: partie.delais,
+        attenteDeJeu: null,
         annulerMinuteur: null,
         joueurEnSursis: null,
         // Les jokers du tirage d'ouverture appartiennent au premier coup, déjà
@@ -435,6 +460,8 @@ export class GameRoomManager {
   }
 
   async cloreLaPartie(table: Table): Promise<void> {
+    table.attenteDeJeu?.annuler();
+    table.attenteDeJeu = null;
     table.statut = 'terminee';
     // Le code cesse d'être valide : mieux vaut « code inconnu » que « partie
     // déjà commencée » pour qui tenterait de rejoindre une table achevée.

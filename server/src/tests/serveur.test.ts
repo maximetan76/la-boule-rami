@@ -7,7 +7,7 @@ import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { publierTable } from '../server/handlers.js';
 import { ouvrirTablePleine } from './aide-table.js';
 import { c, coucou, recap } from './fixtures.js';
-import type { GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
+import type { DelaisDeJeu, GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
@@ -208,6 +208,69 @@ describe('serveur socket.io', () => {
       .filter((message) => (message as { tableId?: string } | null)?.tableId === premiere);
     expect(venusDeLaPremiere).toEqual([]);
     expect(bo.etatsRecus).toBeGreaterThan(etatsDeBo);
+  });
+
+  /** Une table aux délais choisis, tous les joueurs présents. */
+  const ouvrirTableMinutee = async (delais: DelaisDeJeu) => {
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, { alea: aleaFixe(), delais });
+    for (const joueur of JOUEURS) await connecter(tableId, joueur.id);
+    await attendrePremiersEtats(espions);
+    const table = serveur.manager.table(tableId);
+    const ordre = table.coup?.ordreJoueurs ?? [];
+    const espion = (joueurId: JoueurId | undefined) => espions.find((autre) => autre.joueurId === joueurId) as Espion;
+    return { table, ordre, espion };
+  };
+  const minuteursActifs = () => horloge.programmes.filter((programme) => !programme.annule).map((p) => p.delaiMs);
+
+  it('fait friche d office quand le delai d annonce expire, joueur present', async () => {
+    const { table, ordre } = await ouvrirTableMinutee({ annonceMs: 30000, jeuMs: null, prolongationMs: null });
+    expect(minuteursActifs()).toEqual([30000]);
+
+    horloge.declencher();
+    expect(table.coup?.annonces[ordre[0] as string]).toBe('friche');
+    await patienter(20);
+    // Le suivant a son propre délai.
+    expect(minuteursActifs()).toEqual([30000]);
+  });
+
+  it('defausse la carte piochee quand le delai de jeu expire', async () => {
+    const { table, ordre, espion } = await ouvrirTableMinutee({ annonceMs: null, jeuMs: 45000, prolongationMs: null });
+    const premier = espion(ordre[0]);
+    await agir(premier, 'annoncer', { annonce: 'je-joue' });
+    await agir(premier, 'piocher', { source: 'pioche' });
+    const piochee = table.tourEnCours?.cartePiochee;
+    // Piocher ne relance pas le délai : il couvre tout le tour.
+    expect(minuteursActifs()).toEqual([45000]);
+
+    horloge.declencher();
+    expect(table.coup?.defausse.at(-1)?.id).toBe(piochee?.id);
+    expect(table.coup?.joueurActifId).toBe(ordre[1]);
+  });
+
+  it('pioche et defausse pour le joueur qui n a rien fait de son tour', async () => {
+    const { table, ordre, espion } = await ouvrirTableMinutee({ annonceMs: null, jeuMs: 45000, prolongationMs: null });
+    await agir(espion(ordre[0]), 'annoncer', { annonce: 'je-joue' });
+
+    horloge.declencher();
+    expect(table.coup?.joueurActifId).toBe(ordre[1]);
+    expect(table.coup?.mains[ordre[0] as string]).toHaveLength(14);
+    expect(table.coup?.defausse).toHaveLength(1);
+  });
+
+  it('accorde une fois la prolongation a qui a commence a composer', async () => {
+    const { table, ordre, espion } = await ouvrirTableMinutee({ annonceMs: null, jeuMs: 45000, prolongationMs: 20000 });
+    const premier = espion(ordre[0]);
+    await agir(premier, 'annoncer', { annonce: 'je-joue' });
+    await agir(premier, 'piocher', { source: 'pioche' });
+    expect((await emettre(espion(ordre[1]).socket, 'composition-commencee', {})).ok).toBe(false);
+    expect((await emettre(premier.socket, 'composition-commencee', {})).ok).toBe(true);
+
+    horloge.declencher();
+    expect(table.coup?.joueurActifId).toBe(ordre[0]);
+    expect(minuteursActifs()).toEqual([20000]);
+
+    horloge.declencher();
+    expect(table.coup?.joueurActifId).toBe(ordre[1]);
   });
 
   it('distribue un coup des que tous les joueurs ont rejoint la table', async () => {

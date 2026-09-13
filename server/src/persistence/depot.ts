@@ -15,6 +15,27 @@ export type GestionDeconnexion =
 
 export const DELAI_DECONNEXION_PAR_DEFAUT_MS = 90_000;
 
+/**
+ * Délais de jeu d'une table, en millisecondes ; `null` : illimité.
+ *
+ * Contrairement à la gestion de déconnexion, ils valent pour tous les joueurs,
+ * présents ou non.
+ */
+export interface DelaisDeJeu {
+  /** Pour dire « Friche » ou « Je joue » : au-delà, friche d'office. */
+  readonly annonceMs: number | null;
+  /** Pour jouer son tour, pioche comprise : au-delà, le serveur pioche et défausse. */
+  readonly jeuMs: number | null;
+  /** Accordé une fois de plus à qui a commencé à composer une pose ; 0 : aucun. */
+  readonly prolongationMs: number | null;
+}
+
+/** Aucun délai : une table créée sans en préciser, hors API. */
+export const DELAIS_ILLIMITES: DelaisDeJeu = { annonceMs: null, jeuMs: null, prolongationMs: null };
+
+/** Les délais d'une table créée par l'API sans en préciser. */
+export const DELAIS_PAR_DEFAUT: DelaisDeJeu = { annonceMs: 60_000, jeuMs: 120_000, prolongationMs: 60_000 };
+
 export interface JoueurEnregistre {
   readonly id: JoueurId;
   readonly identifiantApple: string;
@@ -32,6 +53,7 @@ export interface PartieEnregistree {
   readonly capacite: number;
   readonly demarree: boolean;
   readonly gestionDeconnexion: GestionDeconnexion;
+  readonly delais: DelaisDeJeu;
   readonly joueursIds: JoueurId[];
   readonly creeeLe: Date;
   readonly termineeLe: Date | null;
@@ -44,6 +66,7 @@ export interface NouvellePartie {
   readonly createurId: JoueurId;
   readonly capacite: number;
   readonly gestionDeconnexion: GestionDeconnexion;
+  readonly delais: DelaisDeJeu;
 }
 
 /** Une partie en cours, avec l'état de sa Boule, tel qu'il revient de la base. */

@@ -287,6 +287,7 @@ describe('DepotPrisma', () => {
       createurId: 'p-cy',
       capacite: 3,
       gestionDeconnexion: { type: 'delai', dureeMs: 90000 },
+      delais: { annonceMs: 60000, jeuMs: null, prolongationMs: 0 },
     });
 
     expect(appels[0]?.args).toMatchObject({
@@ -297,6 +298,10 @@ describe('DepotPrisma', () => {
         capacite: 3,
         gestionDeconnexionType: 'delai',
         gestionDeconnexionDureeMs: 90000,
+        // Illimité s'écrit NULL, aucune prolongation 0.
+        delaiAnnonceMs: 60000,
+        delaiJeuMs: null,
+        delaiProlongationMs: 0,
       },
     });
   });

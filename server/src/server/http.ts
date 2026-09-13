@@ -19,7 +19,8 @@ import type {
   JoueurEnregistre,
   PartieEnregistree,
 } from '../persistence/depot.js';
-import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../persistence/depot.js';
+import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_PAR_DEFAUT } from '../persistence/depot.js';
+import type { DelaisDeJeu } from '../persistence/depot.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { GameRoomManager, Table } from './game-room-manager.js';
 
@@ -160,6 +161,34 @@ const lireGestionDeconnexion = (valeur: unknown): GestionDeconnexion | undefined
   throw new ErreurHttp(400, 'Gestion de deconnexion invalide : « delai » ou « illimite » attendus');
 };
 
+/**
+ * Lit les délais de jeu envoyés à la création d'une table.
+ *
+ * Un délai absent prend sa valeur par défaut, `null` le rend illimité. La
+ * prolongation peut valoir 0 : aucune.
+ */
+const lireDelais = (valeur: unknown): DelaisDeJeu => {
+  if (valeur === undefined || valeur === null) return DELAIS_PAR_DEFAUT;
+  if (typeof valeur !== 'object' || Array.isArray(valeur)) {
+    throw new ErreurHttp(400, 'Delais de jeu invalides');
+  }
+  const brut = valeur as Record<string, unknown>;
+  const lire = (cle: keyof DelaisDeJeu, minimumMs: number): number | null => {
+    if (!(cle in brut)) return DELAIS_PAR_DEFAUT[cle];
+    const ms = brut[cle];
+    if (ms === null) return null;
+    if (typeof ms !== 'number' || !Number.isInteger(ms) || ms < minimumMs) {
+      throw new ErreurHttp(400, `Delai ${cle} invalide`);
+    }
+    return ms;
+  };
+  return {
+    annonceMs: lire('annonceMs', 5_000),
+    jeuMs: lire('jeuMs', 5_000),
+    prolongationMs: lire('prolongationMs', 0),
+  };
+};
+
 const decrireTable = (table: Table) => ({
   tableId: table.id,
   codeInvitation: table.codeInvitation,
@@ -167,6 +196,7 @@ const decrireTable = (table: Table) => ({
   statut: table.statut,
   createurId: table.createurId,
   joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
+  delais: table.delais,
 });
 
 const creerTable = async (
@@ -181,6 +211,7 @@ const creerTable = async (
 
   const creee = await deps.manager.creerTable(joueur, {
     ...(capacite === undefined ? {} : { capacite }),
+    delais: lireDelais(corps['delais']),
     ...(() => {
       const gestion = lireGestionDeconnexion(corps['gestionDeconnexion']);
       return gestion === undefined ? {} : { gestionDeconnexion: gestion };

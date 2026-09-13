@@ -40,6 +40,12 @@ model Partie {
   gestionDeconnexionType    String @default("delai")
   gestionDeconnexionDureeMs Int    @default(90000)
 
+  /// Délais de jeu, en millisecondes ; absent : illimité. Voir DelaisDeJeu
+  /// côté serveur.
+  delaiAnnonceMs      Int?
+  delaiJeuMs          Int?
+  delaiProlongationMs Int?
+
   creeeLe    DateTime  @default(now())
   termineeLe DateTime?
   /// Pourquoi la partie s'est arrêtée : « abandon » ou « achevee ». Sert à
