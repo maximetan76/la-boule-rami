@@ -45,6 +45,7 @@
 ### Récupération d'un joker posé
 - Si un joueur a posé une combinaison contenant un joker à la place d'une carte précise (ex : 5-trèfle, joker, 7-trèfle, où le joker remplace le 6 de trèfle), tout autre joueur qui possède la vraie carte manquante (ici le 6 de trèfle) ET qui a déjà posé son propre jeu (51 pts + tierce pure) peut échanger : il place la vraie carte à la place du joker et récupère le joker.
 - Ce joker récupéré doit être IMMÉDIATEMENT replacé par ce joueur dans une combinaison de sa main (tierce ou brelan/carré), au même tour.
+- INTERDIT : récupérer un joker avec la carte qu'on vient de prendre dans la défausse, pour la combinaison que cet échange compléterait — même si le joueur a déjà posé. Exemple : A-R-[joker]-V de carreau est posé, le joker tenant la place de la Dame ; un adversaire défausse la Dame de carreau. Le joueur suivant ne peut pas la ramasser pour l'échanger contre ce joker. Il peut en revanche la ramasser pour l'utiliser ailleurs, par exemple dans un brelan de Dames avec la Dame de pique et la Dame de trèfle.
 
 ### Fin de coup automatique sans les conditions normales
 - Un joueur qui n'a ni tierce pure ni 51 points peut tout de même gagner le coup s'il pose la TOTALITÉ de ses 14 cartes d'un seul coup (seul, ou en s'aidant des combinaisons déjà visibles posées par d'autres joueurs), puis défausse la 15ème carte qu'il vient de piocher (après avoir pioché il a 15 cartes en main, il peut alors défausser celle de son choix).

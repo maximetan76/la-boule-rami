@@ -1003,7 +1003,8 @@ describe('echangerJoker — un echange sans replacement immediat', () => {
     expect(apres.combinaisons[0]?.cartes.map((cp) => cp.carte.id)).toContain(vraiValet.id);
   });
 
-  it('prend la carte prise a la defausse, et met le joker a son sommet', () => {
+  it('refuse de reprendre un joker avec la carte prise a la defausse, meme apres avoir pose', () => {
+    // § « Récupération d'un joker posé » : la carte ramassée ne sert pas à cet échange.
     const { joker, tierceAvecJoker } = table();
     const vraiValet = c('coeur', 'V');
     const depart = coupJouable([c('pique', 2)], {
@@ -1012,14 +1013,32 @@ describe('echangerJoker — un echange sans replacement immediat', () => {
       defausse: [c('trefle', 4), vraiValet],
     });
 
-    const { coup: apres } = echangerJoker(
-      depart, 'j1', vraiValet,
-      { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id },
-      { carte: vraiValet, source: 'defausse' },
-    );
+    expect(() =>
+      echangerJoker(
+        depart, 'j1', vraiValet,
+        { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id },
+        { carte: vraiValet, source: 'defausse' },
+      ),
+    ).toThrow(/prise dans la defausse ne peut pas reprendre un joker/);
+  });
 
-    expect(apres.defausse.at(-1)?.id).toBe(joker.id);
-    expect(apres.defausse).toHaveLength(2);
+  it('accepte le meme echange avec une copie de la carte tenue en main', () => {
+    // Deux jeux : la carte ramassée est interdite pour l'échange, pas sa jumelle.
+    const { joker, tierceAvecJoker } = table();
+    const priseEnDefausse = c('coeur', 'V');
+    const copieEnMain = c('coeur', 'V');
+    const depart = coupJouable([copieEnMain, c('pique', 2)], {
+      combinaisons: [tierceAvecJoker],
+      recapitulatifs: dejaPose,
+      defausse: [c('trefle', 4), priseEnDefausse],
+    });
+
+    const { joker: repris } = echangerJoker(
+      depart, 'j1', copieEnMain,
+      { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id },
+      { carte: priseEnDefausse, source: 'defausse' },
+    );
+    expect(repris.id).toBe(joker.id);
   });
 
   it('le joker mis a la place de la carte piochee se pose normalement au tour', () => {
@@ -1127,5 +1146,63 @@ describe('jouerTour — un joker ne se defausse jamais', () => {
     const depart = coupJouable([joker(), coucou(), ordinaire]);
     const { coup: apres } = jouerTour(depart, 'j1', { source: 'pioche', carteDefausseeId: ordinaire.id });
     expect(apres.defausse.at(-1)?.id).toBe(ordinaire.id);
+  });
+});
+
+describe('jouerTour — la carte prise en defausse ne reprend pas de joker', () => {
+  // Exemple de docs/REGLES.md § « Récupération d'un joker posé » :
+  // A-R-[joker]-V de carreau est posé, la Dame de carreau vient d'être défaussée.
+  const tierceAuJoker = () =>
+    tierce(
+      'carreau',
+      [c('carreau', 'V'), jokerPour('carreau', 'D'), c('carreau', 'R'), c('carreau', 'A')],
+      'j2',
+    );
+  const dejaPose = {
+    j1: recap({ toursAvecPose: [1] }),
+    j2: recap({ toursAvecPose: [1] }),
+    j3: recap({ toursAvecPose: [] }),
+  };
+
+  it('refuse d echanger le joker contre la Dame ramassee', () => {
+    const tierceJoker = tierceAuJoker();
+    const jokerDame = tierceJoker.cartes[1]!.carte;
+    const dameCarreau = c('carreau', 'D');
+    const depart = coupJouable([c('pique', 2)], {
+      combinaisons: [tierceJoker],
+      recapitulatifs: dejaPose,
+      defausse: [c('trefle', 4), dameCarreau],
+    });
+
+    expect(() =>
+      echangerJoker(
+        depart, 'j1', dameCarreau,
+        { combinaisonId: tierceJoker.id, carteJokerId: jokerDame.id },
+        { carte: dameCarreau, source: 'defausse' },
+      ),
+    ).toThrow(/prise dans la defausse ne peut pas reprendre un joker/);
+  });
+
+  it('laisse la Dame ramassee servir ailleurs : un brelan de Dames', () => {
+    const tierceJoker = tierceAuJoker();
+    const dameCarreau = c('carreau', 'D');
+    const dames = [c('pique', 'D'), c('trefle', 'D')];
+    const aJeter = c('pique', 2);
+    const depart = coupJouable([...dames, aJeter], {
+      combinaisons: [tierceJoker],
+      recapitulatifs: dejaPose,
+      defausse: [c('trefle', 4), dameCarreau],
+    });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'defausse',
+      poses: [ensemble('D', [dameCarreau, ...dames])],
+      carteDefausseeId: aJeter.id,
+    });
+
+    expect(apres.combinaisons).toHaveLength(2);
+    // Le joker est resté dans la tierce : aucun échange n'a eu lieu.
+    const tierceApres = apres.combinaisons.find((combinaison) => combinaison.id === tierceJoker.id);
+    expect(tierceApres?.cartes.some((cp) => cp.carte.type === 'joker')).toBe(true);
   });
 });

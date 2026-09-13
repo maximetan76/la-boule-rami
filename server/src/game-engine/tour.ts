@@ -357,12 +357,14 @@ export interface CartePiocheeDuTour {
  * même tour. Cette fonction ne fait que l'échange ; l'obligation se vérifie à
  * la clôture du tour, quand tout ce que le joueur a composé est connu.
  *
- * La vraie carte vient de la main, ou de la carte piochée ce tour-ci. Dans ce
- * second cas, le joker prend la place de la carte piochée là où `jouerTour`
- * ira la chercher — en tête du talon ou au sommet de la défausse : le moteur
- * « pioche » alors le joker, qui est bien ce que le joueur tient. Et si la
- * carte venait de la défausse, l'obligation de l'utiliser immédiatement se
- * reporte d'elle-même sur le joker.
+ * La vraie carte vient de la main, ou de la carte piochée au talon ce tour-ci.
+ * Dans ce second cas, le joker prend la place de la carte piochée en tête du
+ * talon, là où `jouerTour` ira la chercher : le moteur « pioche » alors le
+ * joker, qui est bien ce que le joueur tient.
+ *
+ * La carte prise dans la défausse, elle, ne reprend jamais de joker (§ «
+ * Récupération d'un joker posé ») : elle peut servir dans une autre
+ * combinaison, pas dans cet échange.
  */
 export const echangerJoker = (
   coup: Coup,
@@ -371,6 +373,11 @@ export const echangerJoker = (
   jokerCible: JokerCible,
   cartePiochee: CartePiocheeDuTour | null = null,
 ): { readonly coup: Coup; readonly joker: Carte } => {
+  if (cartePiochee?.source === 'defausse' && cartePiochee.carte.id === carteReelle.id) {
+    throw new Error(
+      'La carte prise dans la defausse ne peut pas reprendre un joker : elle peut servir dans une autre combinaison',
+    );
+  }
   const { cible, jokerPosee } = verifierEchange(coup, joueurId, carteReelle, jokerCible);
 
   const cibleEchangee = avecCartes(
@@ -401,16 +408,10 @@ export const echangerJoker = (
   }
 
   if (cartePiochee !== null && cartePiochee.carte.id === carteReelle.id) {
-    if (cartePiochee.source === 'pioche') {
-      if (coup.pioche[0]?.id !== carteReelle.id) {
-        throw new Error('La carte piochee n est plus en tete du talon');
-      }
-      return { coup: { ...coup, combinaisons, pioche: [joker, ...coup.pioche.slice(1)] }, joker };
+    if (coup.pioche[0]?.id !== carteReelle.id) {
+      throw new Error('La carte piochee n est plus en tete du talon');
     }
-    if (coup.defausse.at(-1)?.id !== carteReelle.id) {
-      throw new Error('La carte prise n est plus au sommet de la defausse');
-    }
-    return { coup: { ...coup, combinaisons, defausse: [...coup.defausse.slice(0, -1), joker] }, joker };
+    return { coup: { ...coup, combinaisons, pioche: [joker, ...coup.pioche.slice(1)] }, joker };
   }
 
   throw new Error(`La carte ${carteReelle.id} n est pas dans la main de ${joueurId}`);
