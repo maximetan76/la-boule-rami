@@ -65,6 +65,12 @@ export interface ScoreCoup {
   readonly multiplicateur: number;
   readonly scores: Readonly<Record<JoueurId, number>>;
   readonly croixGagnees: Readonly<Record<JoueurId, number>>;
+  /**
+   * Le joueur « chocolat » du coup, s'il y en a un : celui qui a dit « Je
+   * joue » sans jamais réussir sa première pose. Son score est déjà doublé
+   * dans `scores`.
+   */
+  readonly chocolatId: JoueurId | null;
 }
 
 /**

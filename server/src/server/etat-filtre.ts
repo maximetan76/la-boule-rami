@@ -69,6 +69,8 @@ export interface ResultatCoupFiltre {
   /** Ce que ce coup a rapporté ou coûté à chacun. */
   readonly scores: Readonly<Record<JoueurId, number>>;
   readonly croixGagnees: Readonly<Record<JoueurId, number>>;
+  /** Celui qui a dit « Je joue » sans jamais poser, s'il y en a un. */
+  readonly chocolatId: JoueurId | null;
   /** Cartes restées en main, révélées pour ce seul entracte. */
   readonly mainsRevelees: Readonly<Record<JoueurId, Carte[]>>;
   /** Joueurs ayant demandé la suite. */

@@ -165,3 +165,80 @@ describe('calculerScoreCoup', () => {
     expect(score.croixGagnees['j1']).toBe(1);
   });
 });
+
+describe('calculerScoreCoup — chocolat', () => {
+  // § « Fin d'un coup et scoring » : celui qui a dit « Je joue » sans jamais
+  // réussir sa première pose voit son score doublé.
+  const j2AnnonceJeJoue = { j1: 'friche', j2: 'je-joue' } as const;
+  const sansPoseDeJ2 = {
+    j1: recap({ toursAvecPose: [2] }),
+    j2: recap({ toursAvecPose: [] }),
+    j3: recap({ toursAvecPose: [4] }),
+  };
+
+  it('double le forfait de celui qui a dit « Je joue » sans jamais poser', () => {
+    const score = calculerScoreCoup(
+      coupA3({ annonces: j2AnnonceJeJoue, recapitulatifs: sansPoseDeJ2 }),
+      'j1',
+      'simple',
+      false,
+    );
+    expect(score.chocolatId).toBe('j2');
+    expect(score.scores).toEqual({ j1: -20, j2: 200, j3: 40 });
+  });
+
+  it('se cumule avec le friche et le double : 100 x 2 x 2 x 2 = 800', () => {
+    const score = calculerScoreCoup(
+      coupA3({ annonces: j2AnnonceJeJoue, recapitulatifs: sansPoseDeJ2 }),
+      'j1',
+      'double',
+      true,
+    );
+    expect(score.scores).toEqual({ j1: -80, j2: 800, j3: 160 });
+  });
+
+  it('se cumule avec le triple', () => {
+    const score = calculerScoreCoup(
+      coupA3({ annonces: j2AnnonceJeJoue, recapitulatifs: sansPoseDeJ2 }),
+      'j1',
+      'triple',
+      false,
+    );
+    expect(score.scores['j2']).toBe(600);
+  });
+
+  it('n est pas chocolat s il a pose au moins une fois, meme avec des cartes en main', () => {
+    // j2 a pose au tour 3 et garde une main de 34 points.
+    const score = calculerScoreCoup(coupA3({ annonces: j2AnnonceJeJoue }), 'j1', 'simple', false);
+    expect(score.chocolatId).toBeNull();
+    expect(score.scores['j2']).toBe(30);
+  });
+
+  it('ne vise que l annonceur : un autre joueur sans pose garde son simple forfait', () => {
+    const score = calculerScoreCoup(
+      coupA3({
+        annonces: j2AnnonceJeJoue,
+        recapitulatifs: {
+          j1: recap({ toursAvecPose: [2] }),
+          j2: recap({ toursAvecPose: [3] }),
+          j3: recap({ toursAvecPose: [] }),
+        },
+      }),
+      'j1',
+      'simple',
+      false,
+    );
+    expect(score.chocolatId).toBeNull();
+    expect(score.scores['j3']).toBe(100);
+  });
+
+  it('ne rend pas chocolat l annonceur qui remporte le coup', () => {
+    const score = calculerScoreCoup(
+      coupA3({ annonces: { j1: 'je-joue' }, recapitulatifs: sansPoseDeJ2 }),
+      'j1',
+      'simple',
+      false,
+    );
+    expect(score.chocolatId).toBeNull();
+  });
+});

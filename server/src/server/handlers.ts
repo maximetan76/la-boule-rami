@@ -303,6 +303,7 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
     multiplicateur: resultat.score.multiplicateur,
     scores: { ...resultat.score.scores },
     croixGagnees: { ...resultat.score.croixGagnees },
+    chocolatId: resultat.score.chocolatId,
     mainsRevelees: Object.fromEntries(
       Object.entries(resultat.mains).map(([joueurId, cartes]) => [joueurId, [...cartes]]),
     ),
