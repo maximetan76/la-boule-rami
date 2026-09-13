@@ -244,6 +244,7 @@ export const filtrerEtatPourJoueur = (
     }));
 
   const monTour = tourEnAttente !== null && tourEnAttente.joueurId === joueurId;
+  const pile = tourEnAttente?.source === 'defausse' ? coup.defausse.slice(0, -1) : coup.defausse;
   // Les échanges de joker ne regardent que celui qui les fait : les autres
   // voient la table telle qu'elle était, jusqu'à la défausse.
   const echanges = monTour ? echangesDuTour : null;
@@ -275,9 +276,12 @@ export const filtrerEtatPourJoueur = (
       estFriche: coup.estFriche,
       gagnantId: coup.gagnantId,
     },
+    // La carte prise en défausse a quitté la pile : elle est dans le jeu de
+    // qui l'a prise, jusqu'à ce qu'il la pose ou la rende. La pile montre la
+    // carte d'en dessous — jamais deux fois la même carte à l'écran.
     defausse: {
-      derniereCarte: coup.defausse.at(-1) ?? null,
-      cartesSorties: [...coup.defausse].sort(parIdentifiant),
+      derniereCarte: pile.at(-1) ?? null,
+      cartesSorties: [...pile].sort(parIdentifiant),
     },
     // Les combinaisons sont face visible sur la table : tout le monde les voit.
     combinaisons: echanges ? [...echanges.combinaisons] : [...coup.combinaisons],

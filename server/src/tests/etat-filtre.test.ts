@@ -245,3 +245,26 @@ describe('filtrerEtatPourJoueur — jokers gardes d une friche generalisee', () 
     expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').moi.jokersGardes).toEqual([]);
   });
 });
+
+describe('filtrerEtatPourJoueur — carte prise en defausse', () => {
+  it('ne la montre plus sur la pile, a personne : la pile montre la carte d en dessous', () => {
+    const etat = etatComplet();
+    const prise = etat.defausse.at(-1) as Carte;
+    const tour = { joueurId: 'j1', source: 'defausse' as const, cartePiochee: prise, poses: [], ajouts: [] };
+
+    for (const joueurId of ['j1', 'j2', 'j3']) {
+      const filtre = filtrerEtatPourJoueur(etat, boule(), joueurId, { tourEnAttente: tour });
+      expect(filtre.defausse.derniereCarte?.id).toBe(etat.defausse.at(-2)?.id);
+      expect(filtre.defausse.cartesSorties.map((carte) => carte.id)).not.toContain(prise.id);
+    }
+    // Celui qui l'a prise la tient à part.
+    expect(filtrerEtatPourJoueur(etat, boule(), 'j1', { tourEnAttente: tour }).moi.carteEnAttente?.id).toBe(prise.id);
+  });
+
+  it('laisse la pile entiere quand la carte vient du talon', () => {
+    const etat = etatComplet();
+    const tour = { joueurId: 'j1', source: 'pioche' as const, cartePiochee: c('carreau', 4), poses: [], ajouts: [] };
+    const filtre = filtrerEtatPourJoueur(etat, boule(), 'j2', { tourEnAttente: tour });
+    expect(filtre.defausse.derniereCarte?.id).toBe(etat.defausse.at(-1)?.id);
+  });
+});
