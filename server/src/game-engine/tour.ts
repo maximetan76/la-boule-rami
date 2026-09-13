@@ -293,20 +293,16 @@ export const jouerTour = (
 };
 
 /**
- * Récupération d'un joker posé.
- *
- * § « Récupération d'un joker posé » : un joueur qui a déjà posé et qui détient
- * la vraie carte représentée par un joker visible peut l'échanger. Le joker
- * récupéré doit être IMMÉDIATEMENT replacé dans une combinaison de sa main, au
- * même tour : c'est l'objet du paramètre `replacement`.
+ * Ce qu'un échange de joker exige, qu'il soit replacé dans la foulée ou plus
+ * tard dans le tour : un jeu déjà posé, un joker qui déclare ce qu'il
+ * représente, et la vraie carte correspondante.
  */
-export const recupererJoker = (
+const verifierEchange = (
   coup: Coup,
   joueurId: JoueurId,
   carteReelle: Carte,
   jokerCible: JokerCible,
-  replacement: Combinaison | null,
-): NouvelEtatCoup => {
+): { readonly cible: Combinaison; readonly jokerPosee: CartePosee } => {
   if (!aDejaPose(coup, joueurId)) {
     throw new Error(`${joueurId} doit avoir pose son jeu avant de recuperer un joker`);
   }
@@ -334,6 +330,99 @@ export const recupererJoker = (
       `La carte proposee n est pas celle que le joker represente (${String(valeur)} de ${couleur})`,
     );
   }
+
+  return { cible, jokerPosee };
+};
+
+/** La carte piochée ce tour-ci, et d'où `jouerTour` ira la prendre. */
+export interface CartePiocheeDuTour {
+  readonly carte: Carte;
+  readonly source: 'pioche' | 'defausse';
+}
+
+/**
+ * Échange la vraie carte contre un joker posé, sans exiger qu'il soit replacé
+ * dans la même action.
+ *
+ * § « Récupération d'un joker posé » : le joker repris doit être replacé au
+ * même tour. Cette fonction ne fait que l'échange ; l'obligation se vérifie à
+ * la clôture du tour, quand tout ce que le joueur a composé est connu.
+ *
+ * La vraie carte vient de la main, ou de la carte piochée ce tour-ci. Dans ce
+ * second cas, le joker prend la place de la carte piochée là où `jouerTour`
+ * ira la chercher — en tête du talon ou au sommet de la défausse : le moteur
+ * « pioche » alors le joker, qui est bien ce que le joueur tient. Et si la
+ * carte venait de la défausse, l'obligation de l'utiliser immédiatement se
+ * reporte d'elle-même sur le joker.
+ */
+export const echangerJoker = (
+  coup: Coup,
+  joueurId: JoueurId,
+  carteReelle: Carte,
+  jokerCible: JokerCible,
+  cartePiochee: CartePiocheeDuTour | null = null,
+): { readonly coup: Coup; readonly joker: Carte } => {
+  const { cible, jokerPosee } = verifierEchange(coup, joueurId, carteReelle, jokerCible);
+
+  const cibleEchangee = avecCartes(
+    cible,
+    cible.cartes.map((cp) =>
+      cp.carte.id === jokerPosee.carte.id ? { carte: carteReelle, remplace: null } : cp,
+    ),
+  );
+  if (!estCombinaisonProlongeeValide(cibleEchangee)) {
+    throw new Error('L echange rendrait la combinaison invalide');
+  }
+
+  const combinaisons = coup.combinaisons.map((combinaison) =>
+    combinaison.id === cible.id ? cibleEchangee : combinaison,
+  );
+  const joker = jokerPosee.carte;
+  const main = coup.mains[joueurId] ?? [];
+
+  if (main.some((carte) => carte.id === carteReelle.id)) {
+    return {
+      coup: {
+        ...coup,
+        combinaisons,
+        mains: { ...coup.mains, [joueurId]: [...main.filter((carte) => carte.id !== carteReelle.id), joker] },
+      },
+      joker,
+    };
+  }
+
+  if (cartePiochee !== null && cartePiochee.carte.id === carteReelle.id) {
+    if (cartePiochee.source === 'pioche') {
+      if (coup.pioche[0]?.id !== carteReelle.id) {
+        throw new Error('La carte piochee n est plus en tete du talon');
+      }
+      return { coup: { ...coup, combinaisons, pioche: [joker, ...coup.pioche.slice(1)] }, joker };
+    }
+    if (coup.defausse.at(-1)?.id !== carteReelle.id) {
+      throw new Error('La carte prise n est plus au sommet de la defausse');
+    }
+    return { coup: { ...coup, combinaisons, defausse: [...coup.defausse.slice(0, -1), joker] }, joker };
+  }
+
+  throw new Error(`La carte ${carteReelle.id} n est pas dans la main de ${joueurId}`);
+};
+
+/**
+ * Récupération d'un joker posé.
+ *
+ * § « Récupération d'un joker posé » : un joueur qui a déjà posé et qui détient
+ * la vraie carte représentée par un joker visible peut l'échanger. Le joker
+ * récupéré doit être IMMÉDIATEMENT replacé dans une combinaison de sa main, au
+ * même tour : c'est l'objet du paramètre `replacement`.
+ */
+export const recupererJoker = (
+  coup: Coup,
+  joueurId: JoueurId,
+  carteReelle: Carte,
+  jokerCible: JokerCible,
+  replacement: Combinaison | null,
+): NouvelEtatCoup => {
+  const { cible, jokerPosee } = verifierEchange(coup, joueurId, carteReelle, jokerCible);
 
   const main = coup.mains[joueurId] ?? [];
   if (!main.some((carte) => carte.id === carteReelle.id)) {

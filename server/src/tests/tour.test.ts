@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detecterDoubleOuTriple } from '../game-engine/fin-de-coup.js';
-import { jouerTour, recupererJoker } from '../game-engine/tour.js';
+import { echangerJoker, jouerTour, recupererJoker } from '../game-engine/tour.js';
 import { verifierFinDeCoupSpeciale } from '../game-engine/pose.js';
 import { c, coup, ensemble, joker, jokerPour, recap, tierce } from './fixtures.js';
 import type { Carte, Combinaison } from '../models/index.js';
@@ -950,5 +950,124 @@ describe('recupererJoker', () => {
     );
 
     expect(apres.combinaisons).toHaveLength(2);
+  });
+});
+
+describe('echangerJoker — un echange sans replacement immediat', () => {
+  // § « Récupération d'un joker posé » : le joker repris doit être replacé au
+  // même tour, mais pas forcément dans la même action.
+  const table = () => {
+    const joker = jokerPour('coeur', 'V');
+    const tierceAvecJoker = tierce('coeur', [c('coeur', 10), joker, c('coeur', 'D')], 'j2');
+    return { joker: joker.carte, tierceAvecJoker };
+  };
+  const dejaPose = {
+    j1: recap({ toursAvecPose: [1] }),
+    j2: recap({ toursAvecPose: [1] }),
+    j3: recap({ toursAvecPose: [] }),
+  };
+
+  it('prend la vraie carte dans la main et y met le joker', () => {
+    const { joker, tierceAvecJoker } = table();
+    const vraiValet = c('coeur', 'V');
+    const main = [vraiValet, c('pique', 2)];
+    const depart = coupJouable(main, { combinaisons: [tierceAvecJoker], recapitulatifs: dejaPose });
+
+    const { coup: apres, joker: repris } = echangerJoker(depart, 'j1', vraiValet, {
+      combinaisonId: tierceAvecJoker.id,
+      carteJokerId: joker.id,
+    });
+
+    expect(repris.id).toBe(joker.id);
+    expect(apres.combinaisons[0]?.cartes.map((cp) => cp.carte.id)).toContain(vraiValet.id);
+    expect(apres.combinaisons[0]?.cartes.map((cp) => cp.carte.id)).not.toContain(joker.id);
+    expect(apres.mains['j1']?.map((carte) => carte.id)).toEqual([main[1]?.id, joker.id]);
+  });
+
+  it('prend la carte piochee au talon, et met le joker la ou le moteur la piochera', () => {
+    const { joker, tierceAvecJoker } = table();
+    const vraiValet = c('coeur', 'V');
+    const depart = coupJouable([c('pique', 2)], {
+      combinaisons: [tierceAvecJoker],
+      recapitulatifs: dejaPose,
+      pioche: [vraiValet, c('carreau', 3)],
+    });
+
+    const { coup: apres } = echangerJoker(
+      depart, 'j1', vraiValet,
+      { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id },
+      { carte: vraiValet, source: 'pioche' },
+    );
+
+    expect(apres.pioche[0]?.id).toBe(joker.id);
+    expect(apres.combinaisons[0]?.cartes.map((cp) => cp.carte.id)).toContain(vraiValet.id);
+  });
+
+  it('prend la carte prise a la defausse, et met le joker a son sommet', () => {
+    const { joker, tierceAvecJoker } = table();
+    const vraiValet = c('coeur', 'V');
+    const depart = coupJouable([c('pique', 2)], {
+      combinaisons: [tierceAvecJoker],
+      recapitulatifs: dejaPose,
+      defausse: [c('trefle', 4), vraiValet],
+    });
+
+    const { coup: apres } = echangerJoker(
+      depart, 'j1', vraiValet,
+      { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id },
+      { carte: vraiValet, source: 'defausse' },
+    );
+
+    expect(apres.defausse.at(-1)?.id).toBe(joker.id);
+    expect(apres.defausse).toHaveLength(2);
+  });
+
+  it('le joker mis a la place de la carte piochee se pose normalement au tour', () => {
+    const { joker, tierceAvecJoker } = table();
+    const vraiValet = c('coeur', 'V');
+    const valets = [c('pique', 'V'), c('trefle', 'V')];
+    const aJeter = c('pique', 2);
+    const depart = coupJouable([...valets, aJeter], {
+      combinaisons: [tierceAvecJoker],
+      recapitulatifs: dejaPose,
+      pioche: [vraiValet, c('carreau', 3)],
+    });
+
+    const { coup: avecEchange } = echangerJoker(
+      depart, 'j1', vraiValet,
+      { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id },
+      { carte: vraiValet, source: 'pioche' },
+    );
+    const { coup: apres } = jouerTour(avecEchange, 'j1', {
+      source: 'pioche',
+      poses: [ensemble('V', [...valets, { carte: joker, remplace: { couleur: 'carreau', valeur: 'V' } }])],
+      carteDefausseeId: aJeter.id,
+    });
+
+    expect(apres.combinaisons).toHaveLength(2);
+    expect(apres.mains['j1']).toHaveLength(0);
+    // Pas de doublon : la vraie carte n'est qu'une fois sur la table.
+    const toutes = apres.combinaisons.flatMap((comb) => comb.cartes.map((cp) => cp.carte.id));
+    expect(toutes.filter((id) => id === vraiValet.id)).toHaveLength(1);
+  });
+
+  it('refuse un joueur qui n a pas encore pose', () => {
+    const { joker, tierceAvecJoker } = table();
+    const vraiValet = c('coeur', 'V');
+    const depart = coupJouable([vraiValet], { combinaisons: [tierceAvecJoker] });
+
+    expect(() =>
+      echangerJoker(depart, 'j1', vraiValet, { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id }),
+    ).toThrow(/pose/);
+  });
+
+  it('refuse une carte qui n est pas celle que le joker represente', () => {
+    const { joker, tierceAvecJoker } = table();
+    const valetPique = c('pique', 'V');
+    const depart = coupJouable([valetPique], { combinaisons: [tierceAvecJoker], recapitulatifs: dejaPose });
+
+    expect(() =>
+      echangerJoker(depart, 'j1', valetPique, { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id }),
+    ).toThrow(/represente/);
   });
 });

@@ -55,7 +55,8 @@ export {
 export { orchestrerPhaseFricheOuJoue } from './annonces.js';
 export type { ResultatAnnonces } from './annonces.js';
 export { verifierFinDeCoupSpeciale } from './pose.js';
-export { jouerTour, recupererJoker, reformerTalon } from './tour.js';
+export { jouerTour, echangerJoker,
+  recupererJoker, reformerTalon } from './tour.js';
 export type { ActionTour, AjoutCombinaison, JokerCible, NouvelEtatCoup } from './tour.js';
 export type { DistributionResultat } from './distribution.js';
 export {

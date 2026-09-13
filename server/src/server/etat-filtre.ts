@@ -77,6 +77,18 @@ export interface ResultatCoupFiltre {
   readonly derniereCoup: boolean;
 }
 
+/**
+ * Ce que les échanges de joker du tour changent pour celui qui les fait — et
+ * pour lui seul : la vraie carte est sur la table, le joker est à part.
+ */
+export interface VueEchanges {
+  readonly combinaisons: Combinaison[];
+  readonly main: Carte[];
+  readonly jokers: Carte[];
+  /** La carte piochée a servi à un échange : elle est sur la table. */
+  readonly carteConsommee: boolean;
+}
+
 export interface EtatCoupFiltre {
   readonly tableId: string;
   readonly moi: {
@@ -91,6 +103,11 @@ export interface EtatCoupFiltre {
      * défausse se rend, une carte du talon a été vue et ne se rend pas.
      */
     readonly sourceCarteEnAttente: 'pioche' | 'defausse' | null;
+    /**
+     * Jokers repris ce tour-ci et pas encore replacés. Ils ne sont pas dans
+     * `main` : ils se tiennent à part, comme la carte piochée.
+     */
+    readonly jokersRecuperes: Carte[];
   };
   readonly adversaires: MainAdversaire[];
   readonly coup: {
@@ -145,9 +162,16 @@ export const filtrerEtatPourJoueur = (
     readonly connectes?: readonly JoueurId[];
     readonly tourEnAttente?: TourEnAttente | null;
     readonly resultat?: ResultatCoupFiltre | null;
+    readonly echangesDuTour?: VueEchanges | null;
   } = {},
 ): EtatCoupFiltre => {
-  const { tableId = '', connectes = [], tourEnAttente = null, resultat = null } = options;
+  const {
+    tableId = '',
+    connectes = [],
+    tourEnAttente = null,
+    resultat = null,
+    echangesDuTour = null,
+  } = options;
 
   const tousLesJoueurs = [...coup.ordreJoueurs, ...coup.joueursSurLeCote];
   const adversaires = tousLesJoueurs
@@ -161,17 +185,22 @@ export const filtrerEtatPourJoueur = (
     }));
 
   const monTour = tourEnAttente !== null && tourEnAttente.joueurId === joueurId;
-  const carteEnAttente = monTour ? (tourEnAttente?.cartePiochee ?? null) : null;
-  const sourceCarteEnAttente = monTour ? (tourEnAttente?.source ?? null) : null;
+  // Les échanges de joker ne regardent que celui qui les fait : les autres
+  // voient la table telle qu'elle était, jusqu'à la défausse.
+  const echanges = monTour ? echangesDuTour : null;
+  const consommee = echanges?.carteConsommee ?? false;
+  const carteEnAttente = monTour && !consommee ? (tourEnAttente?.cartePiochee ?? null) : null;
+  const sourceCarteEnAttente = monTour && !consommee ? (tourEnAttente?.source ?? null) : null;
 
   return {
     tableId,
     moi: {
       joueurId,
-      main: [...(coup.mains[joueurId] ?? [])],
+      main: echanges ? [...echanges.main] : [...(coup.mains[joueurId] ?? [])],
       aPose: aPose(coup, joueurId),
       carteEnAttente,
       sourceCarteEnAttente,
+      jokersRecuperes: echanges ? [...echanges.jokers] : [],
     },
     adversaires,
     coup: {
@@ -191,7 +220,7 @@ export const filtrerEtatPourJoueur = (
       cartesSorties: [...coup.defausse].sort(parIdentifiant),
     },
     // Les combinaisons sont face visible sur la table : tout le monde les voit.
-    combinaisons: [...coup.combinaisons],
+    combinaisons: echanges ? [...echanges.combinaisons] : [...coup.combinaisons],
     // Les mains des autres ne sortent que par ici, et seulement entre deux
     // coups : c'est la seule porte, et elle ne s'ouvre qu'une fois le coup joué.
     resultat,

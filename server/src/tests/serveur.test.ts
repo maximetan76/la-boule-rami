@@ -392,15 +392,177 @@ describe('serveur socket.io', () => {
   });
 
   /**
+   * Réf. docs/REGLES.md § « Récupération d'un joker posé ». La table de départ :
+   * une tierce coeur 10-[coucou en Valet]-D posée par le premier joueur, qui a
+   * déjà ouvert son jeu, et en main le vrai Valet de coeur, deux 9 pour
+   * accueillir le coucou, et un 3 à jeter.
+   */
+  const tableAvecJokerARecuperer = async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const second = table.coup.ordreJoueurs[1] as JoueurId;
+    const coucouEnValet = {
+      carte: coucou(),
+      remplace: { couleur: 'coeur' as const, valeur: 'V' as const },
+    };
+    const posee = {
+      id: 'comb-joker',
+      type: 'tierce' as const,
+      proprietaireId: premier,
+      tourDePose: 1,
+      couleur: 'coeur' as const,
+      cartes: [{ carte: c('coeur', 10), remplace: null }, coucouEnValet, { carte: c('coeur', 'D'), remplace: null }],
+      pure: false,
+    };
+    const vraiValet = c('coeur', 'V');
+    const neufPique = c('pique', 9);
+    const neufCarreau = c('carreau', 9);
+    const aJeter = c('pique', 3);
+    table.coup.combinaisons = [posee];
+    table.coup.mains[premier] = [vraiValet, neufPique, neufCarreau, aJeter];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    const temoin = espions.find((e) => e.joueurId === second) as Espion;
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+
+    const enCours = () => {
+      if (table.coup === null) throw new Error('coup absent');
+      return table.coup;
+    };
+    const recuperer = () =>
+      agir(joueur, 'recuperer-joker', {
+        carteReelleId: vraiValet.id,
+        combinaisonId: posee.id,
+        carteJokerId: coucouEnValet.carte.id,
+      });
+
+    return {
+      table, enCours, joueur, temoin, posee, coucou: coucouEnValet.carte,
+      vraiValet, neufPique, neufCarreau, aJeter, recuperer,
+    };
+  };
+
+  it('reprend un joker sans exiger de le replacer aussitot, et ne le montre qu au joueur', async () => {
+    const t = await tableAvecJokerARecuperer();
+    const vuParLeTemoin = JSON.stringify(t.temoin.dernierEtat);
+
+    expect((await t.recuperer()).ok).toBe(true);
+
+    // Le joueur voit l'échange : la vraie carte sur la table, le coucou à part.
+    const chezLui = t.joueur.dernierEtat;
+    expect(chezLui?.moi.jokersRecuperes.map((carte) => carte.id)).toEqual([t.coucou.id]);
+    expect(chezLui?.moi.main.map((carte) => carte.id)).not.toContain(t.vraiValet.id);
+    const tierceChezLui = chezLui?.combinaisons.find((comb) => comb.id === t.posee.id);
+    expect(tierceChezLui?.cartes.map((cp) => cp.carte.id)).toContain(t.vraiValet.id);
+    expect(tierceChezLui?.cartes.map((cp) => cp.carte.id)).not.toContain(t.coucou.id);
+
+    // Le témoin, lui, ne voit rien bouger — pas plus que la table réelle.
+    expect(JSON.stringify(t.temoin.dernierEtat)).toBe(vuParLeTemoin);
+    expect(t.enCours().combinaisons[0]?.cartes.map((cp) => cp.carte.id)).toContain(t.coucou.id);
+  });
+
+  it('refuse la defausse tant que le joker repris n est pas replace, puis la permet', async () => {
+    const t = await tableAvecJokerARecuperer();
+    await t.recuperer();
+
+    const refus = await emettre(t.joueur.socket, 'defausser', { carteId: t.aJeter.id });
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('joker recupere doit etre replace');
+
+    // Le coucou part n'importe où : ici, un brelan de 9 qu'il complète.
+    const pose = await agir(t.joueur, 'poser', {
+      poses: [{
+        type: 'ensemble',
+        valeur: 9,
+        cartes: [
+          { carteId: t.neufPique.id },
+          { carteId: t.neufCarreau.id },
+          { carteId: t.coucou.id, remplace: { couleur: 'trefle', valeur: 9 } },
+        ],
+      }],
+    });
+    expect(pose.ok).toBe(true);
+
+    const clos = await agir(t.joueur, 'defausser', { carteId: t.aJeter.id });
+    expect(clos.ok).toBe(true);
+
+    // À la défausse, l'échange devient réel, et le témoin le voit enfin.
+    const tierce = t.enCours().combinaisons.find((comb) => comb.id === t.posee.id);
+    expect(tierce?.cartes.map((cp) => cp.carte.id)).toContain(t.vraiValet.id);
+    expect(t.enCours().combinaisons.some((comb) =>
+      comb.cartes.some((cp) => cp.carte.id === t.coucou.id))).toBe(true);
+    const tierceChezLeTemoin = t.temoin.dernierEtat?.combinaisons.find((comb) => comb.id === t.posee.id);
+    expect(tierceChezLeTemoin?.cartes.map((cp) => cp.carte.id)).toContain(t.vraiValet.id);
+  });
+
+  it('annule un echange sans que le temoin en voie jamais rien', async () => {
+    const t = await tableAvecJokerARecuperer();
+    const vuParLeTemoin = JSON.stringify(t.temoin.dernierEtat);
+    const vuParLeJoueur = JSON.stringify(t.joueur.dernierEtat?.combinaisons);
+
+    await t.recuperer();
+    expect(JSON.stringify(t.temoin.dernierEtat)).toBe(vuParLeTemoin);
+
+    const annulation = await agir(t.joueur, 'annuler-echange-joker', { carteJokerId: t.coucou.id });
+    expect(annulation.ok).toBe(true);
+
+    // Le coucou a retrouvé sa place, le vrai Valet est revenu en main.
+    expect(JSON.stringify(t.joueur.dernierEtat?.combinaisons)).toBe(vuParLeJoueur);
+    expect(t.joueur.dernierEtat?.moi.jokersRecuperes).toEqual([]);
+    expect(t.joueur.dernierEtat?.moi.main.map((carte) => carte.id)).toContain(t.vraiValet.id);
+    expect(JSON.stringify(t.temoin.dernierEtat)).toBe(vuParLeTemoin);
+
+    // Et le tour se clôt comme si de rien n'était.
+    expect((await agir(t.joueur, 'defausser', { carteId: t.aJeter.id })).ok).toBe(true);
+    expect(t.enCours().combinaisons[0]?.cartes.map((cp) => cp.carte.id)).toContain(t.coucou.id);
+  });
+
+  it('refuse un echange invalide sans rien laisser derriere lui', async () => {
+    const t = await tableAvecJokerARecuperer();
+    const vuParLeTemoin = JSON.stringify(t.temoin.dernierEtat);
+
+    const refus = await emettre(t.joueur.socket, 'recuperer-joker', {
+      carteReelleId: t.aJeter.id,
+      combinaisonId: t.posee.id,
+      carteJokerId: t.coucou.id,
+    });
+
+    expect(refus.ok).toBe(false);
+    expect(t.table.tourEnCours?.echangesJoker).toEqual([]);
+    expect(JSON.stringify(t.temoin.dernierEtat)).toBe(vuParLeTemoin);
+  });
+
+  it('refuse d annuler un echange quand le joker est deja engage dans une pose', async () => {
+    const t = await tableAvecJokerARecuperer();
+    await t.recuperer();
+    await agir(t.joueur, 'poser', {
+      poses: [{
+        type: 'ensemble',
+        valeur: 9,
+        cartes: [
+          { carteId: t.neufPique.id },
+          { carteId: t.neufCarreau.id },
+          { carteId: t.coucou.id, remplace: { couleur: 'trefle', valeur: 9 } },
+        ],
+      }],
+    });
+
+    const refus = await emettre(t.joueur.socket, 'annuler-echange-joker', { carteJokerId: t.coucou.id });
+
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('Reprenez d abord la pose');
+  });
+
+  /**
    * Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la défausse » :
    * la carte prise doit servir immédiatement. Sans moyen de la rendre, un
    * joueur qui n'y parvient pas ne peut plus clore son tour.
-   */
-  /**
-   * Réf. docs/REGLES.md § « Récupération d'un joker posé » : le joker repris
-   * doit être replacé dans la foulée. L'échange est donc tout ou rien — s'il
-   * échoue, rien ne doit transparaître chez les autres joueurs, qui n'ont pas
-   * à voir passer une tentative avortée.
    */
   /**
    * Réf. docs/REGLES.md § « Fin d'un coup et scoring » : le décompte se lit
@@ -459,70 +621,6 @@ describe('serveur socket.io', () => {
 
     expect(refus.ok).toBe(false);
     expect(refus.ok === false && refus.erreur).toContain('Aucun coup termine');
-  });
-
-  it('ne laisse aucune trace d une recuperation de joker refusee', async () => {
-    const { tableId } = await ouvrirTable();
-    const table = serveur.manager.table(tableId);
-    if (table.coup === null) throw new Error('coup absent');
-
-    const premier = table.coup.ordreJoueurs[0] as JoueurId;
-    const second = table.coup.ordreJoueurs[1] as JoueurId;
-    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
-    const temoin = espions.find((e) => e.joueurId === second) as Espion;
-
-    // Une tierce avec le coucou en place du Valet, deja posee par j1.
-    const dix = c('coeur', 10);
-    const coucouEnValet = { carte: coucou(), remplace: { couleur: 'coeur' as const, valeur: 'V' as const } };
-    const dame = c('coeur', 'D');
-    const posee = {
-      id: 'comb-temoin',
-      type: 'tierce' as const,
-      proprietaireId: premier,
-      tourDePose: 1,
-      couleur: 'coeur' as const,
-      cartes: [{ carte: dix, remplace: null }, coucouEnValet, { carte: dame, remplace: null }],
-      pure: false,
-    };
-    const vraiValet = c('coeur', 'V');
-    table.coup.combinaisons = [posee];
-    table.coup.mains[premier] = [vraiValet, c('pique', 3), c('carreau', 8), c('trefle', 9)];
-    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
-
-    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
-    await agir(joueur, 'piocher', { source: 'pioche' });
-
-    const etatTemoinAvant = JSON.stringify(temoin.dernierEtat);
-    const etatsRecusAvant = temoin.etatsRecus;
-    const combinaisonsAvant = JSON.stringify(table.coup.combinaisons);
-    const mainAvant = JSON.stringify(table.coup.mains[premier]);
-
-    // Le coucou repris, mais replace dans une combinaison qui n'en est pas une.
-    const refus = await emettre(joueur.socket, 'recuperer-joker', {
-      carteReelleId: vraiValet.id,
-      combinaisonId: posee.id,
-      carteJokerId: coucouEnValet.carte.id,
-      replacement: {
-        type: 'tierce',
-        couleur: 'pique',
-        cartes: [
-          { carteId: coucouEnValet.carte.id, remplace: { couleur: 'pique', valeur: 2 } },
-          { carteId: (table.coup.mains[premier] as Carte[])[1]?.id },
-          { carteId: (table.coup.mains[premier] as Carte[])[2]?.id },
-        ],
-      },
-    });
-
-    expect(refus.ok).toBe(false);
-    // Rien n'a bouge : ni la table, ni la main, ni ce que voit le temoin.
-    expect(JSON.stringify(table.coup?.combinaisons)).toBe(combinaisonsAvant);
-    expect(JSON.stringify(table.coup?.mains[premier])).toBe(mainAvant);
-    expect(temoin.etatsRecus).toBe(etatsRecusAvant);
-    expect(JSON.stringify(temoin.dernierEtat)).toBe(etatTemoinAvant);
-    // Le coucou n'a pas quitte la table, le vrai Valet n'y est pas entre.
-    const surLaTable = table.coup?.combinaisons[0]?.cartes.map((cp) => cp.carte.id) ?? [];
-    expect(surLaTable).toContain(coucouEnValet.carte.id);
-    expect(surLaTable).not.toContain(vraiValet.id);
   });
 
   it('rend une carte prise en defausse et rouvre le choix de la pioche', async () => {

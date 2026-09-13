@@ -69,12 +69,26 @@ export const CAPACITE_MAX = 6;
 export type StatutTable = 'salon' | 'en-cours' | 'terminee';
 
 /** Tour entamé par un joueur, tant que le moteur ne l'a pas validé. */
+/**
+ * Un joker repris pendant le tour, pas encore replacé.
+ *
+ * L'échange vit dans le brouillon du tour, comme les poses : le joueur le voit
+ * aussitôt, les autres ne le voient qu'à la défausse. C'est ce qui permet de
+ * l'annuler sans que personne en ait rien vu.
+ */
+export interface EchangeJokerEnAttente {
+  readonly combinaisonId: string;
+  readonly carteJokerId: string;
+  readonly carteReelleId: string;
+}
+
 export interface TourEnCours extends TourEnAttente {
   readonly joueurId: JoueurId;
   readonly source: 'pioche' | 'defausse';
   readonly cartePiochee: Carte;
   poses: import('../models/index.js').Combinaison[];
   ajouts: { combinaisonId: string; cartes: import('../models/index.js').CartePosee[] }[];
+  echangesJoker: EchangeJokerEnAttente[];
 }
 
 /**

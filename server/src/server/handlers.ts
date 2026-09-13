@@ -33,12 +33,13 @@ import {
   enregistrerResultatCoup,
   estBouleTerminee,
   jouerTour,
-  recupererJoker,
+  echangerJoker,
   reformerTalon,
 } from '../game-engine/index.js';
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
-import type { ResultatCoupFiltre } from './etat-filtre.js';
+import type { ResultatCoupFiltre, VueEchanges } from './etat-filtre.js';
+import type { TourEnCours } from './game-room-manager.js';
 import {
   bouleEnCours,
   demarrerCoup,
@@ -68,14 +69,79 @@ let compteurCombinaison = 0;
 const cartesDuJoueur = (table: Table, joueurId: JoueurId): Map<CarteId, Carte> => {
   const coup = table.coup;
   const disponibles = new Map<CarteId, Carte>();
-  for (const carte of coup?.mains[joueurId] ?? []) disponibles.set(carte.id, carte);
-
   const tour = table.tourEnCours;
-  if (tour !== null && tour.joueurId === joueurId) {
-    disponibles.set(tour.cartePiochee.id, tour.cartePiochee);
+  const monTour = tour !== null && tour.joueurId === joueurId;
+
+  // Les échanges de joker du tour changent ce que le joueur tient : la vraie
+  // carte est partie sur la table, le joker est à lui.
+  const vue = coup !== null && monTour ? vueDesEchanges(coup, tour) : null;
+  for (const carte of vue?.main ?? coup?.mains[joueurId] ?? []) disponibles.set(carte.id, carte);
+
+  if (monTour) {
+    if (!(vue?.carteConsommee ?? false)) disponibles.set(tour.cartePiochee.id, tour.cartePiochee);
+    for (const joker of vue?.jokers ?? []) disponibles.set(joker.id, joker);
   }
   return disponibles;
 };
+
+/**
+ * Le coup tel que le joueur actif le tient, ses échanges de joker appliqués.
+ *
+ * Rien de tout cela n'est écrit dans `table.coup` : c'est le brouillon du
+ * tour, que la défausse rend réel et qu'une annulation efface sans trace.
+ */
+const appliquerEchanges = (
+  coup: Coup,
+  tour: TourEnCours,
+): { readonly coup: Coup; readonly jokers: Carte[]; readonly carteConsommee: boolean } => {
+  let courant = coup;
+  const jokers: Carte[] = [];
+  let carteConsommee = false;
+
+  for (const echange of tour.echangesJoker) {
+    const depuisLaMain = (courant.mains[tour.joueurId] ?? []).find(
+      (carte) => carte.id === echange.carteReelleId,
+    );
+    const depuisLaPioche =
+      !carteConsommee && tour.cartePiochee.id === echange.carteReelleId ? tour.cartePiochee : undefined;
+    const carteReelle = depuisLaMain ?? depuisLaPioche;
+    if (carteReelle === undefined) {
+      throw new Error(`Carte ${echange.carteReelleId} indisponible pour cet echange`);
+    }
+
+    const resultat = echangerJoker(
+      courant,
+      tour.joueurId,
+      carteReelle,
+      { combinaisonId: echange.combinaisonId, carteJokerId: echange.carteJokerId },
+      depuisLaMain === undefined ? { carte: tour.cartePiochee, source: tour.source } : null,
+    );
+    courant = resultat.coup;
+    jokers.push(resultat.joker);
+    if (depuisLaMain === undefined) carteConsommee = true;
+  }
+
+  return { coup: courant, jokers, carteConsommee };
+};
+
+/** Ce que les échanges du tour montrent à celui qui les fait, et à lui seul. */
+const vueDesEchanges = (coup: Coup, tour: TourEnCours): VueEchanges | null => {
+  if (tour.echangesJoker.length === 0) return null;
+
+  const { coup: applique, jokers, carteConsommee } = appliquerEchanges(coup, tour);
+  const idsJokers = new Set(jokers.map((joker) => joker.id));
+  return {
+    combinaisons: [...applique.combinaisons],
+    main: (applique.mains[tour.joueurId] ?? []).filter((carte) => !idsJokers.has(carte.id)),
+    jokers,
+    carteConsommee,
+  };
+};
+
+/** Un joker repris est-il engagé dans le brouillon du tour ? */
+const jokerEngage = (tour: TourEnCours, jokerId: string): boolean =>
+  tour.poses.some((pose) => pose.cartes.some((cp) => cp.carte.id === jokerId)) ||
+  tour.ajouts.some((ajout) => ajout.cartes.some((cp) => cp.carte.id === jokerId));
 
 const resoudreCarte = (disponibles: Map<CarteId, Carte>, carteId: unknown): Carte => {
   if (typeof carteId !== 'string') throw new Error('Identifiant de carte invalide');
@@ -197,6 +263,10 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
     return;
   }
 
+  // Les échanges de joker ne sont montrés qu'à celui qui les fait :
+  // `filtrerEtatPourJoueur` ne s'en sert que pour lui.
+  const echanges = table.tourEnCours === null ? null : vueDesEchanges(coup, table.tourEnCours);
+
   for (const joueurId of connectes) {
     const socketId = manager.socketDe(table, joueurId);
     if (socketId === null) continue;
@@ -208,6 +278,7 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         connectes,
         tourEnAttente: table.tourEnCours,
         resultat: resultatFiltre(table),
+        echangesDuTour: echanges,
       }),
     );
   }
@@ -502,6 +573,7 @@ export const enregistrerHandlers = (
           cartePiochee,
           poses: [],
           ajouts: [],
+          echangesJoker: [],
         };
         publier(io, manager, table);
       });
@@ -635,10 +707,14 @@ export const enregistrerHandlers = (
         }
         if (typeof payload?.carteId !== 'string') throw new Error('Carte a defausser manquante');
 
+        // Les echanges de joker du tour deviennent reels ici, avec le reste :
+        // jusque-la, seul le joueur les voyait.
+        const { coup: avecEchanges, jokers } = appliquerEchanges(coup, tour);
+
         // Le moteur tranche : tant qu'il n'a pas rendu un nouvel etat, la table
         // reste exactement dans l'etat ou elle etait.
         const { coup: apres } = jouerTour(
-          coup,
+          avecEchanges,
           joueurId,
           {
             source: tour.source,
@@ -649,6 +725,15 @@ export const enregistrerHandlers = (
           table.alea,
         );
 
+        // Réf. docs/REGLES.md § « Récupération d'un joker posé » : un joker
+        // repris doit etre replace au meme tour. Ni garde en main, ni jete.
+        const mainApres = apres.mains[joueurId] ?? [];
+        for (const joker of jokers) {
+          if (payload.carteId === joker.id || mainApres.some((carte) => carte.id === joker.id)) {
+            throw new Error('Le joker recupere doit etre replace dans une combinaison avant de defausser');
+          }
+        }
+
         table.coup = apres;
         table.tourEnCours = null;
         if (apres.gagnantId !== null) await cloturerCoup(manager, table, apres);
@@ -657,57 +742,92 @@ export const enregistrerHandlers = (
       });
     });
 
+    /**
+     * Reprend un joker posé en lui substituant la vraie carte.
+     *
+     * Réf. docs/REGLES.md § « Récupération d'un joker posé ». L'échange entre
+     * dans le brouillon du tour : le joueur le voit aussitôt — la vraie carte
+     * sur la table, le joker à part —, les autres ne le voient qu'à la
+     * défausse. Le joker se replace ensuite comme on l'entend : nouvelle pose
+     * ou ajout, n'importe où. La défausse refuse tant qu'il ne l'est pas.
+     */
     socket.on(
       'recuperer-joker',
       (
-        payload: {
-          carteReelleId?: string;
-          combinaisonId?: string;
-          carteJokerId?: string;
-          replacement?: CombinaisonProposee;
-        },
+        payload: { carteReelleId?: string; combinaisonId?: string; carteJokerId?: string },
         ack: unknown,
       ) => {
         repondre(ack, () => {
           const { table, joueurId } = manager.placeDeLaSocket(socket.id);
           const coup = coupEnCours(table);
+          const tour = table.tourEnCours;
 
-          if (typeof payload?.combinaisonId !== 'string' || typeof payload.carteJokerId !== 'string') {
-            throw new Error('Joker cible manquant');
+          if (tour === null || tour.joueurId !== joueurId) {
+            throw new Error('Il faut piocher avant de recuperer un joker');
           }
-          if (payload.replacement === undefined) {
-            throw new Error('Le joker recupere doit etre immediatement replace dans une combinaison');
+          if (
+            typeof payload?.combinaisonId !== 'string' ||
+            typeof payload.carteJokerId !== 'string' ||
+            typeof payload.carteReelleId !== 'string'
+          ) {
+            throw new Error('Joker cible ou carte reelle manquant');
+          }
+          const carteReelleId = payload.carteReelleId;
+          const engageeAilleurs =
+            tour.poses.some((pose) => pose.cartes.some((cp) => cp.carte.id === carteReelleId)) ||
+            tour.ajouts.some((ajout) => ajout.cartes.some((cp) => cp.carte.id === carteReelleId));
+          if (engageeAilleurs) {
+            throw new Error('Reprenez d abord la pose qui utilise cette carte');
           }
 
-          const disponibles = cartesDuJoueur(table, joueurId);
-          const carteReelle = resoudreCarte(disponibles, payload.carteReelleId);
+          const echange = {
+            combinaisonId: payload.combinaisonId,
+            carteJokerId: payload.carteJokerId,
+            carteReelleId,
+          };
+          // Tout se vérifie avant d'écrire : un échange refusé ne laisse rien
+          // derrière lui, ni dans le brouillon ni chez les autres.
+          appliquerEchanges(coup, { ...tour, echangesJoker: [...tour.echangesJoker, echange] });
 
-          // Le joker vise est sur la table : on le relit depuis l'etat serveur.
-          const cible = coup.combinaisons.find((comb) => comb.id === payload.combinaisonId);
-          const jokerPose = cible?.cartes.find((cp) => cp.carte.id === payload.carteJokerId);
-          if (jokerPose === undefined) throw new Error('Joker introuvable sur la table');
-          disponibles.set(jokerPose.carte.id, jokerPose.carte);
-
-          const replacement = construireCombinaison(
-            payload.replacement,
-            disponibles,
-            joueurId,
-            coup.numeroTour,
-          );
-
-          const { coup: apres } = recupererJoker(
-            coup,
-            joueurId,
-            carteReelle,
-            { combinaisonId: payload.combinaisonId, carteJokerId: payload.carteJokerId },
-            replacement,
-          );
-
-          table.coup = apres;
+          tour.echangesJoker = [...tour.echangesJoker, echange];
           publier(io, manager, table);
         });
       },
     );
+
+    /**
+     * Annule un échange de joker : le joker retrouve sa place sur la table, la
+     * vraie carte revient au joueur.
+     *
+     * L'échange n'ayant jamais quitté le brouillon du tour, les autres joueurs
+     * n'en ont rien vu et n'en verront rien. Refusé tant que le joker est
+     * engagé dans une pose ou un ajout en préparation : il faut la reprendre
+     * d'abord.
+     */
+    socket.on('annuler-echange-joker', (payload: { carteJokerId?: string }, ack: unknown) => {
+      repondre(ack, () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const tour = table.tourEnCours;
+
+        if (tour === null || tour.joueurId !== joueurId) {
+          throw new Error('Aucun echange de joker a annuler');
+        }
+        if (tour.echangesJoker.length === 0) {
+          throw new Error('Aucun joker recupere ce tour-ci');
+        }
+
+        const visee = payload?.carteJokerId ?? tour.echangesJoker.at(-1)?.carteJokerId;
+        if (!tour.echangesJoker.some((echange) => echange.carteJokerId === visee)) {
+          throw new Error('Ce joker n a pas ete recupere ce tour-ci');
+        }
+        if (visee !== undefined && jokerEngage(tour, visee)) {
+          throw new Error('Reprenez d abord la pose qui utilise ce joker');
+        }
+
+        tour.echangesJoker = tour.echangesJoker.filter((echange) => echange.carteJokerId !== visee);
+        publier(io, manager, table);
+      });
+    });
 
     /**
      * « Je suis prêt pour le coup suivant. »
