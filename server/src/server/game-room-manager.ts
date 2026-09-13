@@ -14,7 +14,15 @@
  * de retrouver sa place après un redémarrage du serveur.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { Boule, Carte, Coup, Joueur, JoueurId, ScoreCoup } from '../models/index.js';
+import type {
+  Boule,
+  Carte,
+  CarteId,
+  Coup,
+  Joueur,
+  JoueurId,
+  ScoreCoup,
+} from '../models/index.js';
 import {
   construirePaquet,
   determinerJoueursAssis,
@@ -113,6 +121,11 @@ export interface ResultatCoupEnAttente {
   prets: JoueurId[];
   /** La Boule s'arrête après ce coup. */
   readonly derniereCoup: boolean;
+  /**
+   * Les cartes que le gagnant a engagées à son dernier tour — poses, ajouts,
+   * vraie carte donnée contre un joker —, pour montrer comment il a fini.
+   */
+  readonly poseFinale?: readonly CarteId[];
 }
 
 /** Le délai de jeu qui court pour le joueur attendu. */

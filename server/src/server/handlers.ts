@@ -342,6 +342,7 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
     ),
     prets: [...resultat.prets],
     derniereCoup: resultat.derniereCoup,
+    poseFinale: [...(resultat.poseFinale ?? [])],
   };
 };
 
@@ -356,6 +357,8 @@ const cloturerCoup = async (
   manager: GameRoomManager,
   table: Table,
   coup: Coup,
+  /** Les cartes engagées par le gagnant à son dernier tour. */
+  poseFinale: readonly CarteId[] = [],
 ): Promise<void> => {
   const gagnantId = coup.gagnantId;
   if (gagnantId === null) return;
@@ -380,6 +383,7 @@ const cloturerCoup = async (
     ),
     prets: [],
     derniereCoup: estBouleTerminee(bouleEnCours(table)),
+    poseFinale: [...poseFinale],
   };
 };
 
@@ -857,7 +861,16 @@ export const enregistrerHandlers = (
 
         table.coup = apres;
         table.tourEnCours = null;
-        if (apres.gagnantId !== null) await cloturerCoup(manager, table, apres);
+        if (apres.gagnantId !== null) {
+          // Ce que le gagnant vient d'engager pour finir : c'est ce que chacun
+          // verra mis en évidence avant les scores.
+          const poseFinale = [
+            ...tour.poses.flatMap((pose) => pose.cartes.map((cp) => cp.carte.id)),
+            ...tour.ajouts.flatMap((ajout) => ajout.cartes.map((cp) => cp.carte.id)),
+            ...tour.echangesJoker.map((echange) => echange.carteReelleId),
+          ];
+          await cloturerCoup(manager, table, apres, poseFinale);
+        }
 
         publier(io, manager, table);
       });

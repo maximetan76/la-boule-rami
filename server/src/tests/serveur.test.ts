@@ -6,7 +6,7 @@ import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { publierTable } from '../server/handlers.js';
 import { ouvrirTablePleine } from './aide-table.js';
-import { c, coucou, recap } from './fixtures.js';
+import { c, coucou, recap, tierce } from './fixtures.js';
 import type { DelaisDeJeu, GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
@@ -748,6 +748,37 @@ describe('serveur socket.io', () => {
    * avant que la donne suivante ne l'efface. La table marque donc un entracte,
    * et n'en sort que lorsque tous les joueurs ont demandé la suite.
    */
+  it('montre, a la fin du coup, les cartes que le gagnant vient d engager pour finir', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId, JoueurId];
+    const joueur = espions.find((espion) => espion.joueurId === premier) as Espion;
+
+    // Le premier a déjà posé et ne tient plus que le 10♥ ; la tierce 7-8-9♥ de
+    // l'autre l'attend. Le talon lui sert une carte ordinaire à jeter.
+    const suite = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)], second);
+    const dix = c('coeur', 10);
+    const aJeter = c('pique', 2);
+    table.coup.combinaisons = [suite];
+    table.coup.mains[premier] = [dix];
+    table.coup.pioche.unshift(aJeter);
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    expect(
+      (await emettre(joueur.socket, 'poser', { ajouts: [{ combinaisonId: suite.id, cartes: [{ carteId: dix.id }] }] })).ok,
+    ).toBe(true);
+    expect((await agir(joueur, 'defausser', { carteId: aJeter.id })).ok).toBe(true);
+
+    for (const espion of espions) {
+      const resultat = espion.dernierEtat?.resultat;
+      expect(resultat?.gagnantId).toBe(premier);
+      expect(resultat?.poseFinale).toEqual([dix.id]);
+    }
+  });
+
   it('attend que tous les joueurs demandent la suite avant de distribuer', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);

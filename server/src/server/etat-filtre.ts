@@ -77,6 +77,8 @@ export interface ResultatCoupFiltre {
   readonly prets: JoueurId[];
   /** La Boule s'arrête après ce coup. */
   readonly derniereCoup: boolean;
+  /** Les cartes que le gagnant a engagées pour finir : sa pose finale. */
+  readonly poseFinale: string[];
 }
 
 /**
