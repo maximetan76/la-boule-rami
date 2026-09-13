@@ -8,6 +8,7 @@ import { ALPHABET_CODE, LONGUEUR_CODE } from '../server/game-room-manager.js';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
+import { enregistrerResultatCoup } from '../game-engine/boule.js';
 
 /** Salons, invitations, abandon et pseudo, vus depuis l'API HTTP. */
 
@@ -328,6 +329,105 @@ describe('API des tables', () => {
     it('repond 404 pour une table inconnue', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       const { statut } = await appeler('POST', '/tables/inexistante/abandonner', { compte: ana });
+      expect(statut).toBe(404);
+    });
+  });
+
+  describe('GET /tables/:id/historique', () => {
+    const tableDeDeux = async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const { corps: salon } = await appeler('POST', '/tables', {
+        compte: ana,
+        corps: { nombreJoueurs: 2 },
+      });
+      const tableId = salon['tableId'] as string;
+      await appeler('POST', '/tables/rejoindre', {
+        compte: bo,
+        corps: { code: salon['codeInvitation'] },
+      });
+      return { ana, bo, tableId };
+    };
+
+    it('ne liste rien tant qu aucun coup n est joue', async () => {
+      const { ana, tableId } = await tableDeDeux();
+
+      const { statut, corps } = await appeler('GET', `/tables/${tableId}/historique`, { compte: ana });
+
+      expect(statut).toBe(200);
+      expect(corps['coups']).toEqual([]);
+    });
+
+    it('rend qui a pose quoi et les mains restantes des coups deja joues', async () => {
+      const { ana, bo, tableId } = await tableDeDeux();
+      const table = serveur.manager.table(tableId);
+      if (table.boule === null) throw new Error('boule absente apres le remplissage');
+
+      table.boule = enregistrerResultatCoup(
+        table.boule,
+        1,
+        {
+          gagnantId: ana.id,
+          typeVictoire: 'simple',
+          estFriche: false,
+          multiplicateur: 1,
+          scores: { [ana.id]: -10, [bo.id]: 40 },
+          croixGagnees: {},
+        },
+        {
+          combinaisons: [
+            {
+              id: 'comb-histo',
+              type: 'tierce',
+              proprietaireId: ana.id,
+              tourDePose: 2,
+              couleur: 'coeur',
+              pure: true,
+              cartes: [
+                { carte: { type: 'normale', id: 'coeur-7-1', couleur: 'coeur', valeur: 7 }, remplace: null },
+                { carte: { type: 'normale', id: 'coeur-8-1', couleur: 'coeur', valeur: 8 }, remplace: null },
+                { carte: { type: 'normale', id: 'coeur-9-1', couleur: 'coeur', valeur: 9 }, remplace: null },
+              ],
+            },
+          ],
+          mainsRevelees: {
+            [ana.id]: [],
+            [bo.id]: [{ type: 'normale', id: 'pique-R-2', couleur: 'pique', valeur: 'R' }],
+          },
+        },
+      );
+
+      // Consultable par n'importe quel joueur de la table, a tout moment.
+      const { statut, corps } = await appeler('GET', `/tables/${tableId}/historique`, { compte: bo });
+
+      expect(statut).toBe(200);
+      const coups = corps['coups'] as {
+        numero: number;
+        combinaisons: { proprietaireId: string }[];
+        mainsRevelees: Record<string, unknown[]>;
+        scores: Record<string, number>;
+      }[];
+      expect(coups).toHaveLength(1);
+      expect(coups[0]?.numero).toBe(1);
+      expect(coups[0]?.combinaisons[0]?.proprietaireId).toBe(ana.id);
+      expect(coups[0]?.mainsRevelees[bo.id]).toHaveLength(1);
+      expect(coups[0]?.scores[bo.id]).toBe(40);
+    });
+
+    it('refuse un joueur qui n est pas a cette table', async () => {
+      const { tableId } = await tableDeDeux();
+      const intrus = await ouvrirCompte('001.zed', 'Zed');
+
+      const { statut } = await appeler('GET', `/tables/${tableId}/historique`, { compte: intrus });
+
+      expect(statut).toBe(403);
+    });
+
+    it('repond 404 pour une table inconnue', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+
+      const { statut } = await appeler('GET', '/tables/inexistante/historique', { compte: ana });
+
       expect(statut).toBe(404);
     });
   });

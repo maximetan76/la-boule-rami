@@ -22,6 +22,7 @@ export type {
   ResultatBoule,
   ResultatCoup,
   ScoreCoup,
+  ArchiveCoup,
   TypeVictoire,
 } from './boule.js';
 export { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS } from './boule.js';

@@ -3,6 +3,8 @@
  *
  * Réf. `docs/REGLES.md` § « Structure d'une Boule » et § « Fin de la Boule ».
  */
+import type { Carte } from './carte.js';
+import type { Combinaison } from './combinaison.js';
 import type { Coup } from './coup.js';
 import type { JoueurId } from './joueur.js';
 
@@ -33,6 +35,22 @@ export interface ResultatCoup {
   readonly scores: Readonly<Record<JoueurId, number>>;
   /** Croix gagnées sur ce coup (quinte flush royale), multiplicateurs appliqués. */
   readonly croixGagnees: Readonly<Record<JoueurId, number>>;
+  /**
+   * Combinaisons sur la table à la fin du coup, chacune avec son propriétaire.
+   * Absent des coups archivés avant que l'historique ne les retienne.
+   */
+  readonly combinaisons?: readonly Combinaison[];
+  /**
+   * Cartes restées en main à la fin du coup — celles que l'entracte a
+   * révélées. Absent des coups archivés avant l'historique.
+   */
+  readonly mainsRevelees?: Readonly<Record<JoueurId, readonly Carte[]>>;
+}
+
+/** Ce qu'un coup laisse derrière lui, pour qu'on puisse y revenir. */
+export interface ArchiveCoup {
+  readonly combinaisons: readonly Combinaison[];
+  readonly mainsRevelees: Readonly<Record<JoueurId, readonly Carte[]>>;
 }
 
 /**

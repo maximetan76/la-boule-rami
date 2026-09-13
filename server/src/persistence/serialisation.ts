@@ -10,7 +10,7 @@
  * fin de coup, et un redémarrage refait la donne du coup entamé. C'est ce que
  * signifie « ne jamais perdre plus d'un coup en cours ».
  */
-import type { Boule, JoueurId, ResultatCoup, TypeVictoire } from '../models/index.js';
+import type { Boule, Carte, Combinaison, JoueurId, ResultatCoup, TypeVictoire } from '../models/index.js';
 
 /** Version du format, pour pouvoir faire évoluer le schéma sans casser l'existant. */
 export const VERSION_ETAT_BOULE = 1;
@@ -87,6 +87,12 @@ const resultatCoup = (valeur: unknown, chemin: string): ResultatCoup => {
     throw new EtatIllisibleError(`${chemin}.estFriche n'est pas un booleen`);
   }
 
+  // L'archive d'un coup ne sert qu'à le relire : aucune règle n'en dépend.
+  // Elle est reprise telle que le serveur l'a écrite, et son absence — un coup
+  // enregistré avant qu'on la retienne — est tolérée.
+  const combinaisons = brut['combinaisons'];
+  const mainsRevelees = brut['mainsRevelees'];
+
   return {
     numero: entier(brut['numero'], `${chemin}.numero`),
     gagnantId: texte(brut['gagnantId'], `${chemin}.gagnantId`),
@@ -94,6 +100,10 @@ const resultatCoup = (valeur: unknown, chemin: string): ResultatCoup => {
     estFriche: brut['estFriche'],
     scores: scores(brut['scores'], `${chemin}.scores`),
     croixGagnees: scores(brut['croixGagnees'], `${chemin}.croixGagnees`),
+    ...(Array.isArray(combinaisons) ? { combinaisons: combinaisons as Combinaison[] } : {}),
+    ...(typeof mainsRevelees === 'object' && mainsRevelees !== null && !Array.isArray(mainsRevelees)
+      ? { mainsRevelees: mainsRevelees as Record<JoueurId, Carte[]> }
+      : {}),
   };
 };
 

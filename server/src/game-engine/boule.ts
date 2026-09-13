@@ -5,7 +5,7 @@
  * Réf. `docs/REGLES.md` § « Structure d'une Boule » et § « Joueurs et
  * matériel ».
  */
-import type { Boule, Carte, Joueur, JoueurId, ScoreCoup } from '../models/index.js';
+import type { ArchiveCoup, Boule, Carte, Joueur, JoueurId, ScoreCoup } from '../models/index.js';
 import { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
 import { estJoker, rang } from './cartes.js';
 
@@ -153,6 +153,7 @@ export const enregistrerResultatCoup = (
   boule: Boule,
   numeroCoup: number,
   resultat: ScoreCoup | FricheGeneralisee,
+  archive?: ArchiveCoup,
 ): Boule => {
   const attendu = boule.historique.length + 1;
   if (numeroCoup !== attendu) {
@@ -189,6 +190,19 @@ export const enregistrerResultatCoup = (
         estFriche: resultat.estFriche,
         scores: resultat.scores,
         croixGagnees: resultat.croixGagnees,
+        // Ce qui s'est posé et ce qui est resté en main : de quoi revenir sur
+        // ce coup plus tard dans la Boule, sans en rien recalculer.
+        ...(archive === undefined
+          ? {}
+          : {
+              combinaisons: archive.combinaisons.map((combinaison) => ({ ...combinaison })),
+              mainsRevelees: Object.fromEntries(
+                Object.entries(archive.mainsRevelees).map(([joueurId, cartes]) => [
+                  joueurId,
+                  [...cartes],
+                ]),
+              ),
+            }),
       },
     ],
   };

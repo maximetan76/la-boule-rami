@@ -256,7 +256,10 @@ const cloturerCoup = async (
 
   const typeVictoire = detecterDoubleOuTriple(coup, gagnantId);
   const scoreCoup = calculerScoreCoup(coup, gagnantId, typeVictoire, coup.estFriche);
-  table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, scoreCoup);
+  table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, scoreCoup, {
+    combinaisons: coup.combinaisons,
+    mainsRevelees: coup.mains,
+  });
 
   await manager.persister(table);
 

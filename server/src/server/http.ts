@@ -234,6 +234,44 @@ const abandonner = async (
  * Départ d'un salon : la place se libère et le salon poursuit sans le partant.
  * Une partie déjà commencée ne se quitte pas, elle s'abandonne.
  */
+/**
+ * Les coups déjà joués de la Boule en cours : qui a posé quoi, et ce qui est
+ * resté dans les mains.
+ *
+ * Réservé aux joueurs de la table. Rien n'y fuit qui n'ait déjà été montré :
+ * les combinaisons étaient face visible, et les mains ont été révélées à
+ * l'entracte de chaque coup. Le coup en cours, lui, n'y figure jamais.
+ */
+const historiqueDeLaBoule = (
+  tableId: string,
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): unknown => {
+  let table: Table;
+  try {
+    table = deps.manager.table(tableId);
+  } catch {
+    throw new ErreurHttp(404, 'Table introuvable');
+  }
+  if (!table.connexions.has(joueur.id)) {
+    throw new ErreurHttp(403, "Vous n'etes pas a cette table");
+  }
+
+  return {
+    tableId,
+    coups: (table.boule?.historique ?? []).map((coup) => ({
+      numero: coup.numero,
+      gagnantId: coup.gagnantId,
+      typeVictoire: coup.typeVictoire,
+      estFriche: coup.estFriche,
+      scores: coup.scores,
+      croixGagnees: coup.croixGagnees,
+      combinaisons: coup.combinaisons ?? [],
+      mainsRevelees: coup.mainsRevelees ?? {},
+    })),
+  };
+};
+
 const quitterSalon = async (
   tableId: string,
   deps: DependancesHttp,
@@ -372,6 +410,7 @@ const decrirePartie = async (partie: PartieEnregistree, depot: Depot) => {
 
 const ABANDON = /^\/tables\/([^/]+)\/abandonner$/;
 const QUITTER = /^\/tables\/([^/]+)\/quitter$/;
+const HISTORIQUE = /^\/tables\/([^/]+)\/historique$/;
 
 /**
  * Gestionnaire de requêtes, à brancher sur le serveur HTTP que socket.io
@@ -425,6 +464,12 @@ export const gererRequeteHttp =
       if (methode === 'POST' && depart !== null) {
         const joueur = await authentifier(requete, deps);
         return { code: 200, corps: await quitterSalon(depart[1] as string, deps, joueur) };
+      }
+
+      const historique = HISTORIQUE.exec(chemin);
+      if (methode === 'GET' && historique !== null) {
+        const joueur = await authentifier(requete, deps);
+        return { code: 200, corps: historiqueDeLaBoule(historique[1] as string, deps, joueur) };
       }
 
       if (methode === 'PATCH' && chemin === '/joueur/pseudo') {
