@@ -368,6 +368,7 @@ const cloturerCoup = async (
   table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, scoreCoup, {
     combinaisons: coup.combinaisons,
     mainsRevelees: coup.mains,
+    poseFinale: [...poseFinale],
   });
 
   await manager.persister(table);

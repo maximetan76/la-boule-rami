@@ -202,6 +202,7 @@ export const enregistrerResultatCoup = (
                   [...cartes],
                 ]),
               ),
+              ...(archive.poseFinale === undefined ? {} : { poseFinale: [...archive.poseFinale] }),
             }),
       },
     ],

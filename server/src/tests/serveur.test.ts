@@ -777,6 +777,8 @@ describe('serveur socket.io', () => {
       expect(resultat?.gagnantId).toBe(premier);
       expect(resultat?.poseFinale).toEqual([dix.id]);
     }
+    // Et l'historique la garde, pour y revenir plus tard.
+    expect(serveur.manager.table(tableId).boule?.historique[0]?.poseFinale).toEqual([dix.id]);
   });
 
   it('attend que tous les joueurs demandent la suite avant de distribuer', async () => {

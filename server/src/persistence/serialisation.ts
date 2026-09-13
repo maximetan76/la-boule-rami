@@ -104,6 +104,9 @@ const resultatCoup = (valeur: unknown, chemin: string): ResultatCoup => {
     ...(typeof mainsRevelees === 'object' && mainsRevelees !== null && !Array.isArray(mainsRevelees)
       ? { mainsRevelees: mainsRevelees as Record<JoueurId, Carte[]> }
       : {}),
+    ...(Array.isArray(brut['poseFinale'])
+      ? { poseFinale: listeDeTextes(brut['poseFinale'], `${chemin}.poseFinale`) }
+      : {}),
   };
 };
 

@@ -287,6 +287,8 @@ const decrireCoups = (historique: readonly ResultatCoup[]) =>
     croixGagnees: coup.croixGagnees,
     combinaisons: coup.combinaisons ?? [],
     mainsRevelees: coup.mainsRevelees ?? {},
+    // Vide pour un coup archivé avant qu'on la retienne.
+    poseFinale: coup.poseFinale ?? [],
   }));
 
 /**

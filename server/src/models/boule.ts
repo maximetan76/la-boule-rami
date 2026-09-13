@@ -45,12 +45,18 @@ export interface ResultatCoup {
    * révélées. Absent des coups archivés avant l'historique.
    */
   readonly mainsRevelees?: Readonly<Record<JoueurId, readonly Carte[]>>;
+  /**
+   * Les cartes engagées par le gagnant à son dernier tour : sa pose finale.
+   * Absent des coups archivés avant qu'on la retienne.
+   */
+  readonly poseFinale?: readonly string[];
 }
 
 /** Ce qu'un coup laisse derrière lui, pour qu'on puisse y revenir. */
 export interface ArchiveCoup {
   readonly combinaisons: readonly Combinaison[];
   readonly mainsRevelees: Readonly<Record<JoueurId, readonly Carte[]>>;
+  readonly poseFinale?: readonly string[];
 }
 
 /**
