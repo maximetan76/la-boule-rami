@@ -248,6 +248,15 @@ export const jouerTour = (
   if (carteDefaussee === undefined) {
     throw new Error(`Carte a defausser ${action.carteDefausseeId} absente de la main`);
   }
+  // Réf. docs/REGLES.md § « Déroulement d'un tour de jeu » : un joker ne se
+  // défausse jamais, qu'il vienne de la donne, de la pioche ou d'une reprise.
+  if (estJoker(carteDefaussee)) {
+    throw new Error(
+      carteDefaussee.type === 'coucou'
+        ? 'Le coucou ne se defausse jamais : il ne quitte la main que pour une combinaison'
+        : 'Un joker ne se defausse jamais : il ne quitte la main que pour une combinaison',
+    );
+  }
   const mainFinale = mainApresPose.filter((carte) => carte.id !== carteDefaussee.id);
   defausse.push(carteDefaussee);
 

@@ -32,6 +32,7 @@ import {
   detecterDoubleOuTriple,
   enregistrerResultatCoup,
   estBouleTerminee,
+  estJoker,
   jouerTour,
   echangerJoker,
   reformerTalon,
@@ -388,7 +389,11 @@ const abandonnerTour = (table: Table, joueurId: JoueurId): Coup | null => {
   coup.pioche = talon.pioche;
   coup.defausse = talon.defausse;
 
-  const aDefausser = coup.pioche[0];
+  const piochee = coup.pioche[0];
+  if (piochee === undefined) return null;
+  // Un joker ne se défausse jamais (§ « Déroulement d'un tour de jeu ») : si le
+  // talon en sert un, il reste en main et c'est une carte ordinaire qui part.
+  const aDefausser = [piochee, ...(coup.mains[joueurId] ?? [])].find((carte) => !estJoker(carte));
   if (aDefausser === undefined) return null;
 
   const { coup: apres } = jouerTour(
@@ -710,6 +715,12 @@ export const enregistrerHandlers = (
         // Les echanges de joker du tour deviennent reels ici, avec le reste :
         // jusque-la, seul le joueur les voyait.
         const { coup: avecEchanges, jokers } = appliquerEchanges(coup, tour);
+
+        // Le moteur refuse tout joker a la defausse ; celui-ci vient d'etre
+        // repris, et c'est sa reprise qui oblige a le replacer : autant le dire.
+        if (jokers.some((joker) => joker.id === payload.carteId)) {
+          throw new Error('Le joker recupere doit etre replace dans une combinaison avant de defausser');
+        }
 
         // Le moteur tranche : tant qu'il n'a pas rendu un nouvel etat, la table
         // reste exactement dans l'etat ou elle etait.

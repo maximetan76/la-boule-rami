@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { detecterDoubleOuTriple } from '../game-engine/fin-de-coup.js';
 import { echangerJoker, jouerTour, recupererJoker } from '../game-engine/tour.js';
 import { verifierFinDeCoupSpeciale } from '../game-engine/pose.js';
-import { c, coup, ensemble, joker, jokerPour, recap, tierce } from './fixtures.js';
+import { c, coucou, coup, ensemble, joker, jokerPour, recap, tierce } from './fixtures.js';
 import type { Carte, Combinaison } from '../models/index.js';
 
 /**
@@ -1069,5 +1069,63 @@ describe('echangerJoker — un echange sans replacement immediat', () => {
     expect(() =>
       echangerJoker(depart, 'j1', valetPique, { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id }),
     ).toThrow(/represente/);
+  });
+});
+
+describe('jouerTour — un joker ne se defausse jamais', () => {
+  // § « Déroulement d'un tour de jeu » : ni le joker tenu depuis la donne, ni
+  // celui qu'on vient de piocher, ni celui qu'on vient de reprendre — et le
+  // coucou pas davantage.
+  it('refuse le joker tenu en main depuis la donne', () => {
+    const tenu = joker();
+    const depart = coupJouable([tenu, c('pique', 4)]);
+    expect(() => jouerTour(depart, 'j1', { source: 'pioche', carteDefausseeId: tenu.id })).toThrow(
+      /joker ne se defausse jamais/,
+    );
+  });
+
+  it('refuse le coucou', () => {
+    const tenu = coucou();
+    const depart = coupJouable([tenu, c('pique', 4)]);
+    expect(() => jouerTour(depart, 'j1', { source: 'pioche', carteDefausseeId: tenu.id })).toThrow(
+      /coucou ne se defausse jamais/,
+    );
+  });
+
+  it('refuse le joker tout juste pioche au talon', () => {
+    const pioche = joker();
+    const depart = coupJouable([c('pique', 4)], { pioche: [pioche, c('carreau', 3)] });
+    expect(() => jouerTour(depart, 'j1', { source: 'pioche', carteDefausseeId: pioche.id })).toThrow(
+      /joker ne se defausse jamais/,
+    );
+  });
+
+  it('refuse le joker tout juste recupere sur la table', () => {
+    const jokerPose = jokerPour('coeur', 'V');
+    const tierceAvecJoker = tierce('coeur', [c('coeur', 10), jokerPose, c('coeur', 'D')], 'j2');
+    const vraiValet = c('coeur', 'V');
+    const depart = coupJouable([vraiValet, c('pique', 2)], {
+      combinaisons: [tierceAvecJoker],
+      recapitulatifs: {
+        j1: recap({ toursAvecPose: [1] }),
+        j2: recap({ toursAvecPose: [1] }),
+        j3: recap({ toursAvecPose: [] }),
+      },
+    });
+    const { coup: avecEchange, joker: repris } = echangerJoker(depart, 'j1', vraiValet, {
+      combinaisonId: tierceAvecJoker.id,
+      carteJokerId: jokerPose.carte.id,
+    });
+
+    expect(() =>
+      jouerTour(avecEchange, 'j1', { source: 'pioche', carteDefausseeId: repris.id }),
+    ).toThrow(/joker ne se defausse jamais/);
+  });
+
+  it('laisse defausser une carte ordinaire a cote des jokers', () => {
+    const ordinaire = c('pique', 4);
+    const depart = coupJouable([joker(), coucou(), ordinaire]);
+    const { coup: apres } = jouerTour(depart, 'j1', { source: 'pioche', carteDefausseeId: ordinaire.id });
+    expect(apres.defausse.at(-1)?.id).toBe(ordinaire.id);
   });
 });

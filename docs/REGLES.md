@@ -19,6 +19,7 @@
 ### Déroulement d'un tour de jeu
 - À son tour, un joueur doit piocher une carte : soit dans la pioche, soit en prenant la dernière carte de la défausse (le tout premier joueur du coup n'a pas le choix, la défausse étant vide, il doit piocher).
 - Après avoir pioché, il doit défausser une carte. Avant de défausser, il peut choisir de "poser" son jeu face visible.
+- Un joker, normal ou "coucou", ne peut JAMAIS être défaussé : ni celui qu'on tient en main depuis la distribution, ni celui qu'on vient de piocher, ni celui qu'on vient de récupérer sur la table. Il ne quitte la main que pour entrer dans une combinaison.
 - Si la pioche est épuisée en cours de coup, on remélange toutes les cartes de la défausse SAUF la dernière carte visible, qui reste la défausse courante, pour reformer un nouveau talon.
 
 ### Conditions pour poser (première pose d'un joueur)

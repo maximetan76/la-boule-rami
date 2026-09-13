@@ -210,7 +210,7 @@ describe('serveur socket.io', () => {
       const actif = espions.find((espion) => espion.joueurId === actifId) as Espion;
 
       expect((await agir(actif, 'piocher', { source: 'pioche' })).ok).toBe(true);
-      const aDefausser = actif.dernierEtat?.moi.main[0]?.id;
+      const aDefausser = actif.dernierEtat?.moi.main.find((carte) => carte.type === 'normale')?.id;
       expect((await agir(actif, 'defausser', { carteId: aDefausser })).ok).toBe(true);
     }
 
@@ -250,7 +250,9 @@ describe('serveur socket.io', () => {
       const actif = espions.find((espion) => espion.joueurId === actifId) as Espion;
 
       await agir(actif, 'piocher', { source: 'pioche' });
-      await agir(actif, 'defausser', { carteId: actif.dernierEtat?.moi.main[0]?.id });
+      // Un joker ne se defausse jamais : on jette la premiere carte ordinaire.
+      const ordinaire = actif.dernierEtat?.moi.main.find((carte) => carte.type === 'normale');
+      await agir(actif, 'defausser', { carteId: ordinaire?.id });
 
       const vue = espions[0]?.dernierEtat?.defausse;
       tailles.push(vue?.cartesSorties.length ?? 0);
@@ -914,6 +916,26 @@ describe('gestion des deconnexions', () => {
     // Aucune pose n a ete faite en son nom.
     expect(table.coup?.combinaisons).toEqual([]);
     expect(table.coup?.mains[ordre[0] as string]).toHaveLength(14);
+  });
+
+  it('garde en main un joker servi par le talon, et defausse une carte ordinaire a sa place', async () => {
+    // Un joker ne se defausse jamais, pas meme au nom d un joueur absent.
+    const { tableId, ordre, actif } = await preparerTourSansAction({ type: 'delai', dureeMs: 90000 });
+    const coup = serveur.manager.table(tableId).coup;
+    if (coup === null) throw new Error('coup absent');
+    const jokerDuTalon: Carte = { type: 'joker', id: 'joker-du-talon' };
+    coup.pioche.unshift(jokerDuTalon);
+
+    actif.socket.disconnect();
+    await patienter(50);
+    horloge.declencher();
+
+    const table = serveur.manager.table(tableId);
+    expect(table.coup?.joueurActifId).toBe(ordre[1]);
+    expect(table.coup?.defausse.at(-1)?.type).toBe('normale');
+    const main = table.coup?.mains[ordre[0] as string] ?? [];
+    expect(main.map((carte) => carte.id)).toContain(jokerDuTalon.id);
+    expect(main).toHaveLength(14);
   });
 
   it('previent les joueurs restants du nouvel etat apres l abandon', async () => {
