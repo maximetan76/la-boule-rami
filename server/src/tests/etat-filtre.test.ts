@@ -230,3 +230,16 @@ describe('filtrerEtatPourJoueur — tirage d ouverture', () => {
     expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').tirageOuverture).toBeNull();
   });
 });
+
+describe('filtrerEtatPourJoueur — jokers gardes d une friche generalisee', () => {
+  it('ne signale que les jokers encore dans la main du joueur', () => {
+    const etat = etatComplet();
+    const jokerDeJ2 = etat.mains['j2']![2]!;
+    const vuParJ2 = filtrerEtatPourJoueur(etat, boule(), 'j2', { jokersGardes: [jokerDeJ2.id, 'joker-parti'] });
+    expect(vuParJ2.moi.jokersGardes).toEqual([jokerDeJ2.id]);
+  });
+
+  it('vaut une liste vide par defaut', () => {
+    expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').moi.jokersGardes).toEqual([]);
+  });
+});

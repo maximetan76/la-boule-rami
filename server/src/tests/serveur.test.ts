@@ -209,6 +209,33 @@ describe('serveur socket.io', () => {
     }
   });
 
+  it('signale les jokers gardes d une friche generalisee a celui qui les tient, et a lui seul', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const ordre = table.coup.ordreJoueurs;
+    const detenteur = ordre[0] as JoueurId;
+    const jokerGarde: Carte = { type: 'joker', id: 'joker-garde' };
+    const main = table.coup.mains[detenteur] as Carte[];
+    table.coup.pioche.push(main[0] as Carte);
+    main[0] = jokerGarde;
+
+    for (const joueurId of ordre) {
+      const espion = espions.find((e) => e.joueurId === joueurId) as Espion;
+      expect((await agir(espion, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+    }
+
+    for (const espion of espions) {
+      const gardes = espion.dernierEtat?.moi.jokersGardes ?? [];
+      const estDetenteur = espion.joueurId === detenteur;
+      expect(gardes.includes(jokerGarde.id)).toBe(estDetenteur);
+      expect(identifiantsDans(espion.recus).has(jokerGarde.id)).toBe(estDetenteur);
+    }
+    const chezLui = espions.find((e) => e.joueurId === detenteur)?.dernierEtat;
+    expect(chezLui?.moi.main.map((carte) => carte.id)).toContain(jokerGarde.id);
+    expect(chezLui?.moi.main).toHaveLength(14);
+  });
+
   it('ne laisse jamais fuir la main d un autre joueur ni le talon, sur toute une partie', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);

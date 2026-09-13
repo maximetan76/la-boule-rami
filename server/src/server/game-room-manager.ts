@@ -138,6 +138,11 @@ export interface Table {
    * `null` avant le démarrage, et pour une partie relue après un redémarrage.
    */
   tirageOuverture: ReturnType<typeof tirerSiegesEtDonneurInitial> | null;
+  /**
+   * Jokers que chaque joueur a gardés en main lors d'une friche généralisée,
+   * pour qu'il les reconnaisse à la reprise. Vidé à chaque nouvelle donne.
+   */
+  jokersGardes: Map<JoueurId, Carte['id'][]>;
 }
 
 export interface TableCreee {
@@ -235,6 +240,7 @@ export class GameRoomManager {
       cartesConserveesParJoueur: new Map(),
       resultatCoup: null,
       tirageOuverture: null,
+      jokersGardes: new Map(),
     };
     this.tables.set(tableId, table);
     this.parCode.set(codeInvitation, tableId);
@@ -419,6 +425,7 @@ export class GameRoomManager {
         cartesConserveesParJoueur: new Map(),
       resultatCoup: null,
       tirageOuverture: null,
+      jokersGardes: new Map(),
       };
 
       this.tables.set(table.id, table);
@@ -573,6 +580,7 @@ export const demarrerCoup = (table: Table): Coup => {
 
   table.coup = coup;
   table.tourEnCours = null;
+  table.jokersGardes = new Map();
   return coup;
 };
 
@@ -623,6 +631,9 @@ export const redistribuerCoup = (table: Table): Coup => {
     gagnantId: null,
   };
 
+  table.jokersGardes = new Map(
+    Object.entries(jokersConserves).map(([joueurId, jokers]) => [joueurId, jokers.map((joker) => joker.id)]),
+  );
   table.coup = rejoue;
   table.tourEnCours = null;
   return rejoue;

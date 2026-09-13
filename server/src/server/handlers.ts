@@ -281,6 +281,7 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         resultat: resultatFiltre(table),
         echangesDuTour: echanges,
         tirageOuverture: tirageFiltre(table),
+        jokersGardes: table.jokersGardes.get(joueurId) ?? [],
       }),
     );
   }

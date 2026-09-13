@@ -125,6 +125,11 @@ export interface EtatCoupFiltre {
      * `main` : ils se tiennent à part, comme la carte piochée.
      */
     readonly jokersRecuperes: Carte[];
+    /**
+     * Jokers gardés en main lors d'une friche généralisée, encore dans `main`.
+     * À lui seul : c'est sa main, les autres n'en savent rien.
+     */
+    readonly jokersGardes: string[];
   };
   readonly adversaires: MainAdversaire[];
   readonly coup: {
@@ -183,6 +188,7 @@ export const filtrerEtatPourJoueur = (
     readonly resultat?: ResultatCoupFiltre | null;
     readonly echangesDuTour?: VueEchanges | null;
     readonly tirageOuverture?: TirageOuvertureFiltre | null;
+    readonly jokersGardes?: readonly string[];
   } = {},
 ): EtatCoupFiltre => {
   const {
@@ -192,6 +198,7 @@ export const filtrerEtatPourJoueur = (
     resultat = null,
     echangesDuTour = null,
     tirageOuverture = null,
+    jokersGardes = [],
   } = options;
 
   const tousLesJoueurs = [...coup.ordreJoueurs, ...coup.joueursSurLeCote];
@@ -222,6 +229,7 @@ export const filtrerEtatPourJoueur = (
       carteEnAttente,
       sourceCarteEnAttente,
       jokersRecuperes: echanges ? [...echanges.jokers] : [],
+      jokersGardes: jokersGardes.filter((id) => (coup.mains[joueurId] ?? []).some((carte) => carte.id === id)),
     },
     adversaires,
     coup: {
