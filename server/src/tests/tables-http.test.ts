@@ -169,13 +169,13 @@ describe('API des tables', () => {
       expect((await appeler('POST', '/tables')).statut).toBe(401);
     });
 
-    it('refuse d ouvrir un second salon a un joueur deja engage', async () => {
+    it('laisse ouvrir un second salon a un joueur deja assis ailleurs', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
-      await appeler('POST', '/tables', { compte: ana });
+      const premier = await appeler('POST', '/tables', { compte: ana });
 
       const { statut, corps } = await appeler('POST', '/tables', { compte: ana });
-      expect(statut).toBe(400);
-      expect(corps['erreur']).toMatch(/deja engage/i);
+      expect(statut).toBe(201);
+      expect(corps['tableId']).not.toBe(premier.corps['tableId']);
     });
   });
 
@@ -273,7 +273,7 @@ describe('API des tables', () => {
       expect(corps['erreur']).toMatch(/deja/i);
     });
 
-    it('refuse un joueur engage sur une autre table', async () => {
+    it('laisse rejoindre un joueur deja assis a une autre table', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       const bo = await ouvrirCompte('001.bo', 'Bo');
       const { code } = await ouvrirSalon(ana);
@@ -283,8 +283,8 @@ describe('API des tables', () => {
         compte: bo,
         corps: { code },
       });
-      expect(statut).toBe(400);
-      expect(corps['erreur']).toMatch(/deja engage/i);
+      expect(statut).toBe(200);
+      expect(corps['joueurs']).toHaveLength(2);
     });
   });
 
@@ -574,12 +574,7 @@ describe('API des tables', () => {
 
       const premier = await ouvrirSalonA(ana);
       await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: premier.code } });
-      // Tant qu'il est assis, la contrainte « une seule table » s'applique.
       const second = await ouvrirSalonA(cy);
-      expect(
-        (await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: second.code } }))
-          .statut,
-      ).toBe(400);
 
       await appeler('POST', `/tables/${premier.tableId}/quitter`, { compte: bo });
 

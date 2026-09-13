@@ -191,16 +191,6 @@ export class GameRoomManager {
   }
 
   /** Refuse d'asseoir un joueur déjà engagé ailleurs. */
-  private async verifierLibre(joueurId: JoueurId): Promise<void> {
-    for (const table of this.tables.values()) {
-      if (table.statut !== 'terminee' && table.connexions.has(joueurId)) {
-        throw new Error(`${joueurId} est deja engage sur une autre table`);
-      }
-    }
-    const active = await this.depot?.partieActiveDuJoueur(joueurId);
-    if (active != null) throw new Error(`${joueurId} est deja engage sur une autre table`);
-  }
-
   async creerTable(
     createur: JoueurEnregistre | { id: JoueurId; pseudo: string },
     options: {
@@ -215,7 +205,6 @@ export class GameRoomManager {
         `Nombre de joueurs hors limites : ${String(capacite)} (attendu ${String(CAPACITE_MIN)} a ${String(CAPACITE_MAX)})`,
       );
     }
-    await this.verifierLibre(createur.id);
 
     const tableId = randomUUID();
     const codeInvitation = await this.codeUnique();
@@ -275,7 +264,6 @@ export class GameRoomManager {
     if (table.statut !== 'salon') throw new Error('La partie a deja commence');
     if (table.connexions.has(joueur.id)) throw new Error('Vous etes deja a cette table');
     if (table.joueurs.length >= table.capacite) throw new Error('La table est complete');
-    await this.verifierLibre(joueur.id);
 
     const position = table.joueurs.length;
     table.joueurs = [...table.joueurs, { id: joueur.id, nom: joueur.pseudo, croix: 0 }];
@@ -480,6 +468,18 @@ export class GameRoomManager {
       throw new Error(`${joueurId} n'a pas de place a cette table`);
     }
 
+    // Un joueur peut être assis à plusieurs tables, mais une connexion n'en
+    // suit qu'une : rattachée ailleurs, elle quitte la précédente, qui ne doit
+    // plus lui envoyer son état. Il y redevient absent jusqu'à ce qu'une
+    // connexion l'y rattache.
+    const precedente = this.sockets.get(socketId);
+    if (precedente !== undefined && precedente.tableId !== tableId) {
+      const quittee = this.tables.get(precedente.tableId);
+      if (quittee?.connexions.get(precedente.joueurId) === socketId) {
+        quittee.connexions.set(precedente.joueurId, null);
+      }
+    }
+
     // Une reconnexion remplace la socket précédente sans toucher au jeu, et
     // désamorce l'abandon automatique de son tour s'il était en sursis.
     if (table.joueurEnSursis === joueurId) {
@@ -504,6 +504,12 @@ export class GameRoomManager {
       table.connexions.set(place.joueurId, null);
     }
     return { table, joueurId: place.joueurId };
+  }
+
+  /** La table que suit cette connexion, s'il y en a une. */
+  tableDeLaSocket(socketId: string): Table | null {
+    const place = this.sockets.get(socketId);
+    return place === undefined ? null : (this.tables.get(place.tableId) ?? null);
   }
 
   placeDeLaSocket(socketId: string): { table: Table; joueurId: JoueurId } {

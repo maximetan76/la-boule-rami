@@ -4,6 +4,7 @@ import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
 import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
+import { publierTable } from '../server/handlers.js';
 import { ouvrirTablePleine } from './aide-table.js';
 import { c, coucou, recap } from './fixtures.js';
 import type { GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
@@ -182,6 +183,32 @@ describe('serveur socket.io', () => {
     await attendrePremiersEtats(espions);
     return { tableId };
   };
+
+  it('laisse un joueur a deux tables : sa connexion ne suit que la derniere rejointe', async () => {
+    const { tableId: premiere } = await ouvrirTable();
+    const { tableId: seconde } = await ouvrirTablePleine(serveur.manager, JOUEURS, { alea: aleaFixe() });
+    const [ana, bo] = espions as [Espion, Espion, Espion];
+
+    const jeton = await signerJetonSession(ana.joueurId, SESSION);
+    expect((await emettre(ana.socket, 'rejoindre-table', { jeton, tableId: seconde })).ok).toBe(true);
+    await patienter(30);
+
+    // Sa place a la premiere table est gardee, mais sans connexion.
+    const tablePremiere = serveur.manager.table(premiere);
+    expect(tablePremiere.connexions.has(ana.joueurId)).toBe(true);
+    expect(tablePremiere.connexions.get(ana.joueurId)).toBeNull();
+
+    // La premiere table ne lui envoie plus rien ; les autres la suivent toujours.
+    const recusAvant = ana.recus.length;
+    const etatsDeBo = bo.etatsRecus;
+    publierTable(serveur.io, serveur.manager, tablePremiere);
+    await patienter(30);
+    const venusDeLaPremiere = ana.recus
+      .slice(recusAvant)
+      .filter((message) => (message as { tableId?: string } | null)?.tableId === premiere);
+    expect(venusDeLaPremiere).toEqual([]);
+    expect(bo.etatsRecus).toBeGreaterThan(etatsDeBo);
+  });
 
   it('distribue un coup des que tous les joueurs ont rejoint la table', async () => {
     const { tableId } = await ouvrirTable();

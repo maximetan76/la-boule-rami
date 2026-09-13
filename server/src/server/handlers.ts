@@ -530,7 +530,11 @@ export const enregistrerHandlers = (
 
         // L'identité vient du jeton de session, jamais du client lui-même.
         const { joueurId } = await verifierJetonSession(payload.jeton, session);
+        const quittee = manager.tableDeLaSocket(socket.id);
         const table = manager.attacherSocket(payload.tableId, joueurId, socket.id);
+        // La table que cette connexion suivait vient de la perdre : ses
+        // joueurs doivent voir ce joueur absent, et son sursis s'armer.
+        if (quittee !== null && quittee !== table) publier(io, manager, quittee);
 
           // Le premier coup part dès que la partie a démarré et que tout le
         // monde est connecté.
