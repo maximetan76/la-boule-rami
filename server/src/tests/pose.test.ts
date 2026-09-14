@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DeclarationJokerRequiseError } from '../game-engine/combinaisons.js';
 import { peutPoser } from '../game-engine/pose.js';
-import { calculerValeurCombinaison } from '../game-engine/combinaisons.js';
+import { calculerValeurCombinaison, estTierceValidante } from '../game-engine/combinaisons.js';
 import type { Carte, Combinaison } from '../models/index.js';
 import { c, coucou, coucouPour, ensemble, joker, jokerPour, tierce } from './fixtures.js';
 
@@ -158,5 +158,31 @@ describe('peutPoser', () => {
 
   it('refuse une proposition vide', () => {
     expect(peutPoser(mainDe(c('coeur', 7)), [])).toBe(false);
+  });
+});
+
+describe('peutPoser — tierce de validation au coeur d une suite plus longue', () => {
+  it('accepte [coucou=10]-V-D-[joker=R]-A de trefle en seule premiere pose : la tierce [coucou=10]-V-D y est', () => {
+    const coucouDix = coucouPour('trefle', 10);
+    const jokerRoi = jokerPour('trefle', 'R');
+    const valet = c('trefle', 'V');
+    const dame = c('trefle', 'D');
+    const as = c('trefle', 'A');
+    const suite = tierce('trefle', [coucouDix, valet, dame, jokerRoi, as]);
+    const main = mainDe(coucouDix.carte, valet, dame, jokerRoi.carte, as, c('pique', 2));
+
+    // 10 + 10 + 10 + 10 + 11 = 51 points.
+    expect(estTierceValidante(suite)).toBe(true);
+    expect(peutPoser(main, [suite])).toBe(true);
+  });
+
+  it('refuse une suite ou aucun trio de cartes consecutives n echappe au joker normal', () => {
+    // 10-[joker=V]-D-[joker=R]-A : jamais trois rangs de suite sans joker normal.
+    const suite = tierce('trefle', [c('trefle', 10), jokerPour('trefle', 'V'), c('trefle', 'D'), jokerPour('trefle', 'R'), c('trefle', 'A')]);
+    expect(estTierceValidante(suite)).toBe(false);
+  });
+
+  it('accepte le trio franc en haut de la suite : [joker=10]-V-D-R de coeur', () => {
+    expect(estTierceValidante(tierce('coeur', [jokerPour('coeur', 10), c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R')]))).toBe(true);
   });
 });

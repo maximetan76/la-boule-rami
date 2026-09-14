@@ -1406,3 +1406,24 @@ describe('jouerTour — la carte prise en defausse sur un brelan, un carre ou un
     expect(apres.combinaisons).toHaveLength(2);
   });
 });
+
+describe('jouerTour — premiere pose d une suite dont la tierce franche est imbriquee', () => {
+  it('accepte [coucou=10]-V-D-[joker=R]-A de trefle, seule combinaison de la premiere pose du coup', () => {
+    const coucouDix = coucouPour('trefle', 10);
+    const jokerRoi = jokerPour('trefle', 'R');
+    const valet = c('trefle', 'V');
+    const dame = c('trefle', 'D');
+    const as = c('trefle', 'A');
+    const aJeter = c('pique', 2);
+    const depart = coupJouable([coucouDix.carte, valet, dame, jokerRoi.carte, as, aJeter]);
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: [tierce('trefle', [coucouDix, valet, dame, jokerRoi, as])],
+      carteDefausseeId: aJeter.id,
+    });
+
+    expect(apres.combinaisons).toHaveLength(1);
+    expect(apres.recapitulatifs['j1']?.toursAvecPose).toHaveLength(1);
+  });
+});

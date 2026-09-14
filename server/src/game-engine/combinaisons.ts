@@ -173,8 +173,45 @@ export const estTiercePure = (combinaison: Combinaison): boolean =>
  * remplacer une carte même dans la tierce servant à valider la condition de
  * pose, contrairement au joker normal.
  */
-export const estTierceValidante = (combinaison: Combinaison): boolean =>
-  estTierceValide(combinaison) && !contientJokerNormal(combinaison.cartes);
+export const estTierceValidante = (combinaison: Combinaison): boolean => {
+  if (!estTierceValide(combinaison)) return false;
+  if (!contientJokerNormal(combinaison.cartes)) return true;
+
+  // Un joker normal quelque part n'empêche rien s'il reste, ailleurs dans la
+  // suite, trois rangs consécutifs tenus sans lui : [coucou=10]-V-D-[joker=R]-A
+  // de trèfle contient la tierce [coucou=10]-V-D.
+  const asHaut = resoudreTierce(combinaison, { plafonnee: false });
+  const fenetre = fenetreTierce(combinaison);
+  if (asHaut === null || fenetre === null) return false;
+
+  const occupes = new Set<number>();
+  const francs = new Set<number>();
+  let nonDeclares = 0;
+  let coucousNonDeclares = 0;
+  for (const posee of combinaison.cartes) {
+    const resolue = resoudre(posee);
+    if (resolue === null) {
+      nonDeclares += 1;
+      if (posee.carte.type === 'coucou') coucousNonDeclares += 1;
+      continue;
+    }
+    const r = rang(resolue.valeur, asHaut);
+    occupes.add(r);
+    if (posee.carte.type !== 'joker') francs.add(r);
+  }
+  // Des rangs laissés à des coucous non déclarés restent francs ; avec un
+  // joker normal parmi eux, on ne sait plus lequel tient quoi.
+  if (nonDeclares > 0 && nonDeclares === coucousNonDeclares) {
+    for (let r = fenetre.debut; r <= fenetre.fin; r += 1) if (!occupes.has(r)) francs.add(r);
+  }
+
+  let suite = 0;
+  for (let r = fenetre.debut; r <= fenetre.fin; r += 1) {
+    suite = francs.has(r) ? suite + 1 : 0;
+    if (suite >= TIERCE_LONGUEUR_MIN) return true;
+  }
+  return false;
+};
 
 /**
  * Points de pose d'une combinaison.
