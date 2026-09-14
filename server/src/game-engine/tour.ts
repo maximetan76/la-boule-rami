@@ -6,6 +6,7 @@
  * Voir aussi § « Règle spéciale : piocher la carte de la défausse » et
  * § « Récupération d'un joker posé ».
  */
+import { estCarteCollante } from './defausse.js';
 import type {
   Carte,
   CarteId,
@@ -21,7 +22,6 @@ import {
   estCombinaisonValide,
   verifierDeclarationsJokers,
 } from './combinaisons.js';
-import { estCarteCollante } from './defausse.js';
 import { peutPoser, SEUIL_POSE, verifierFinDeCoupSpeciale } from './pose.js';
 import { melangerPaquet } from './distribution.js';
 
@@ -162,6 +162,34 @@ export const jouerTour = (
     for (const { carte } of ajout.cartes) engager(carte);
   }
 
+  // --- La carte prise en défausse sur la table -----------------------------
+  // Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la défausse ».
+  // Vérifié avant la validité des ajouts : la raison du refus est celle-ci, pas
+  // l'ajout invalide qui en découlerait. Deux usages sont interdits :
+  // - la poser sur un brelan ou un carré déjà posé, qu'un joker s'y trouve ou
+  //   non — reprendre ce joker avec elle est refusé en amont, par `echangerJoker` ;
+  // - la coller au bout d'une suite déjà posée (carte collante), la sienne
+  //   comprise.
+  // Une carte qui ne touche pas la suite reste permise : 6-7-8 posé, le 4
+  // ramassé et le 5 de la main complètent 4-5-6-7-8.
+  if (action.source === 'defausse') {
+    for (const ajout of ajouts) {
+      if (!ajout.cartes.some((cp) => cp.carte.id === cartePiochee.id)) continue;
+      const cible = coup.combinaisons.find((combinaison) => combinaison.id === ajout.combinaisonId);
+      if (cible === undefined) continue;
+      if (cible.type !== 'tierce') {
+        throw new Error(
+          'La carte prise dans la defausse ne se pose pas sur un brelan ou un carre deja pose : elle doit servir dans une nouvelle combinaison',
+        );
+      }
+      if (estCarteCollante(cartePiochee, cible)) {
+        throw new Error(
+          'Carte collante : prise dans la defausse, elle ne peut pas prolonger une suite deja posee, la votre comprise',
+        );
+      }
+    }
+  }
+
   // --- Combinaisons résultantes -------------------------------------------
   for (const ajout of ajouts) {
     if (!coup.combinaisons.some((combinaison) => combinaison.id === ajout.combinaisonId)) {
@@ -209,20 +237,6 @@ export const jouerTour = (
       throw new Error(
         'La carte prise dans la defausse doit etre utilisee immediatement dans une combinaison posee',
       );
-    }
-
-    // Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la
-    // défausse » : une carte collante — qui prolongerait par un bout une suite
-    // déjà posée — ne peut pas être prise dans la défausse pour prolonger cette
-    // suite-là, qu'elle soit au joueur ou à un autre. Elle peut servir ailleurs.
-    for (const ajout of ajouts) {
-      if (!ajout.cartes.some((cp) => cp.carte.id === cartePiochee.id)) continue;
-      const cible = coup.combinaisons.find((combinaison) => combinaison.id === ajout.combinaisonId);
-      if (cible !== undefined && estCarteCollante(cartePiochee, cible)) {
-        throw new Error(
-          'Carte collante : prise dans la defausse, elle ne peut pas prolonger une suite deja posee, la votre comprise',
-        );
-      }
     }
 
     // Rien de plus à vérifier ici pour une première pose : la carte prise doit

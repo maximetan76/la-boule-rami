@@ -1276,3 +1276,133 @@ describe('jouerTour — carte collante prise en defausse', () => {
     expect(apres.combinaisons).toHaveLength(2);
   });
 });
+
+describe('jouerTour — la carte prise en defausse sur un brelan, un carre ou une suite deja poses', () => {
+  // Scénario signalé : 3♣-3♠-[joker] est posé, un adversaire défausse le 3♥ ;
+  // le joueur suivant ne doit pas pouvoir le ramasser pour le poser sur ce
+  // brelan, que ce soit pour former un carré ou pour y reprendre le joker. Sur
+  // une suite, seule la carte collante est interdite : 6-7-8 posé, le 4
+  // ramassé avec le 5 de la main reste permis.
+  const dejaPose = {
+    j1: recap({ toursAvecPose: [1] }),
+    j2: recap({ toursAvecPose: [1] }),
+    j3: recap({ toursAvecPose: [] }),
+  };
+  const refusEnsemble = /ne se pose pas sur un brelan ou un carre deja pose/;
+
+  const scenario = (jokerDuBrelan: Parameters<typeof ensemble>[1][number], main: Carte[]) => {
+    const troisCoeur = c('coeur', 3);
+    const brelan = ensemble(3, [c('trefle', 3), c('pique', 3), jokerDuBrelan], 'j1');
+    const depart = coupJouable(main, {
+      combinaisons: [brelan],
+      recapitulatifs: dejaPose,
+      defausse: [c('carreau', 9), troisCoeur],
+    });
+    return { troisCoeur, brelan, depart };
+  };
+
+  it('refuse de poser le 3 de coeur ramasse sur 3-3-[joker], joker non declare (le carre)', () => {
+    const aJeter = c('pique', 2);
+    const { troisCoeur, brelan, depart } = scenario(joker(), [aJeter]);
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'defausse',
+        ajouts: [{ combinaisonId: brelan.id, cartes: [{ carte: troisCoeur, remplace: null }] }],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(refusEnsemble);
+  });
+
+  it('le refuse aussi, avec la meme raison, quand le joker declare justement le 3 de coeur', () => {
+    const aJeter = c('pique', 2);
+    const { troisCoeur, brelan, depart } = scenario(jokerPour('coeur', 3), [aJeter]);
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'defausse',
+        ajouts: [{ combinaisonId: brelan.id, cartes: [{ carte: troisCoeur, remplace: null }] }],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(refusEnsemble);
+  });
+
+  it('refuse toujours d y reprendre le joker avec cette carte', () => {
+    const jokerCoeur = jokerPour('coeur', 3);
+    const { troisCoeur, brelan, depart } = scenario(jokerCoeur, [c('pique', 2)]);
+
+    expect(() =>
+      echangerJoker(
+        depart, 'j1', troisCoeur,
+        { combinaisonId: brelan.id, carteJokerId: jokerCoeur.carte.id },
+        { carte: troisCoeur, source: 'defausse' },
+      ),
+    ).toThrow(/prise dans la defausse ne peut pas reprendre un joker/);
+  });
+
+  it('refuse le 6 ou le 10 ramasse, collant, sur une suite 7-8-9 d un autre joueur', () => {
+    for (const valeur of [6, 10] as const) {
+      const suite = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)], 'j2');
+      const collante = c('coeur', valeur);
+      const aJeter = c('pique', 2);
+      const depart = coupJouable([aJeter], {
+        combinaisons: [suite],
+        recapitulatifs: dejaPose,
+        defausse: [c('carreau', 9), collante],
+      });
+
+      expect(() =>
+        jouerTour(depart, 'j1', {
+          source: 'defausse',
+          ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: collante, remplace: null }] }],
+          carteDefausseeId: aJeter.id,
+        }),
+      ).toThrow(/collante/i);
+    }
+  });
+
+  it('accepte le 4 ramasse avec le 5 de la main au bout de 6-7-8 : 4-5-6-7-8', () => {
+    const suite = tierce('coeur', [c('coeur', 6), c('coeur', 7), c('coeur', 8)], 'j2');
+    const quatre = c('coeur', 4);
+    const cinq = c('coeur', 5);
+    const aJeter = c('pique', 2);
+    const depart = coupJouable([cinq, aJeter], {
+      combinaisons: [suite],
+      recapitulatifs: dejaPose,
+      defausse: [c('carreau', 9), quatre],
+    });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'defausse',
+      ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: cinq, remplace: null }, { carte: quatre, remplace: null }] }],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(apres.combinaisons.find((combinaison) => combinaison.id === suite.id)?.cartes).toHaveLength(5);
+  });
+
+  it('laisse la jumelle tenue en main former le carre, carte piochee au talon', () => {
+    const jumelle = c('coeur', 3);
+    const aJeter = c('pique', 2);
+    const { brelan, depart } = scenario(joker(), [jumelle, aJeter]);
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: brelan.id, cartes: [{ carte: jumelle, remplace: null }] }],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(apres.combinaisons.find((combinaison) => combinaison.id === brelan.id)?.type).toBe('carre');
+  });
+
+  it('laisse le 3 de coeur ramasse servir dans une nouvelle combinaison', () => {
+    const autres = [c('carreau', 3), c('trefle', 3)];
+    const aJeter = c('pique', 2);
+    const { troisCoeur, depart } = scenario(joker(), [...autres, aJeter]);
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'defausse',
+      poses: [ensemble(3, [troisCoeur, ...autres])],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(apres.combinaisons).toHaveLength(2);
+  });
+});
