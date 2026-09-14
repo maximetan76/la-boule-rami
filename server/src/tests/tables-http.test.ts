@@ -215,6 +215,34 @@ describe('API des tables', () => {
       }
     });
 
+    it('prend un nombre de coups choisi de 1 a 12, sinon celui des regles, et y borne les coups friches', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const auto = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2 } });
+      expect(auto.corps['nombreCoups']).toBeNull();
+
+      // 3 coups à 2 joueurs : la Boule démarre avec 3 coups au lieu de 8.
+      const courte = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2, nombreCoups: 3, coupsFrichesDepart: 3 } });
+      expect(courte.statut).toBe(201);
+      expect(courte.corps['nombreCoups']).toBe(3);
+      const table = await serveur.manager.rejoindreParCode(courte.corps['codeInvitation'] as string, { id: 'p-invite', pseudo: 'Invité' });
+      expect(table.boule?.nombreCoupsTotal).toBe(3);
+      expect(table.boule?.nombreCoupsFriches).toBe(3);
+
+      // 12 coups à 4 joueurs : 10 frichés au départ deviennent possibles.
+      const longue = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 4, nombreCoups: 12, coupsFrichesDepart: 10 } });
+      expect(longue.statut).toBe(201);
+
+      for (const corps of [
+        { nombreJoueurs: 4, nombreCoups: 0 },
+        { nombreJoueurs: 4, nombreCoups: 13 },
+        { nombreJoueurs: 4, nombreCoups: 2.5 },
+        // Plus de coups frichés que de coups choisis.
+        { nombreJoueurs: 4, nombreCoups: 5, coupsFrichesDepart: 6 },
+      ]) {
+        expect((await appeler('POST', '/tables', { compte: ana, corps })).statut).toBe(400);
+      }
+    });
+
     it('garde une valeur de point facultative, normalisee, et la rend avec l historique', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       const sansValeur = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 4 } });

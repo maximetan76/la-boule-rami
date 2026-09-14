@@ -87,6 +87,8 @@ export interface PartieEnregistree {
   readonly coupsFrichesDepart: number;
   /** Valeur d'un point, décimal normalisé ; `null` : aucune. */
   readonly valeurPoint: string | null;
+  /** Nombre de coups choisi à la création ; `null` : celui des règles. */
+  readonly nombreCoups: number | null;
   readonly joueursIds: JoueurId[];
   readonly creeeLe: Date;
   readonly termineeLe: Date | null;
@@ -104,6 +106,7 @@ export interface NouvellePartie {
   readonly delais: DelaisDeJeu;
   readonly coupsFrichesDepart: number;
   readonly valeurPoint: string | null;
+  readonly nombreCoups: number | null;
 }
 
 /** Une partie en cours, avec l'état de sa Boule, tel qu'il revient de la base. */

@@ -36,12 +36,15 @@ const modulo = (valeur: number, base: number): number => ((valeur % base) + base
  *
  * @param joueurs joueurs dans l'ordre de la table.
  * @param nombreCoupsFriches coups frichés d'office, choisis en début de Boule.
+ * @param nombreCoupsChoisi nombre de coups choisi à la création de la table ;
+ * sans lui, celui des règles pour ce nombre de joueurs.
  */
 export const initialiserBoule = (
   joueurs: readonly Joueur[],
   nombreCoupsFriches: number = COUPS_FRICHES_PAR_DEFAUT,
+  nombreCoupsChoisi?: number,
 ): Boule => {
-  const nombreCoupsTotal = COUPS_PAR_NOMBRE_DE_JOUEURS[joueurs.length];
+  const nombreCoupsTotal = nombreCoupsChoisi ?? COUPS_PAR_NOMBRE_DE_JOUEURS[joueurs.length];
   if (nombreCoupsTotal === undefined) {
     // Les règles ne donnent un nombre de coups que de 3 à 6 joueurs.
     throw new Error(`Aucun nombre de coups defini pour ${String(joueurs.length)} joueurs`);

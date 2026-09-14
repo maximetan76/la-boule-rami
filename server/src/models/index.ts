@@ -25,6 +25,6 @@ export type {
   ArchiveCoup,
   TypeVictoire,
 } from './boule.js';
-export { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS } from './boule.js';
+export { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS, NOMBRE_COUPS_MAX, NOMBRE_COUPS_MIN } from './boule.js';
 
 export type { Partie, PartieId, StatutPartie } from './partie.js';

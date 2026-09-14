@@ -444,7 +444,7 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
   const coupsFrichesDepart = coupsFrichesPourLaSuivante(
     bouleEnCours(table),
     table.coupsFrichesDepart,
-    COUPS_PAR_NOMBRE_DE_JOUEURS[table.capacite] ?? 0,
+    table.nombreCoups ?? COUPS_PAR_NOMBRE_DE_JOUEURS[table.capacite] ?? 0,
   );
   const creee = await manager.creerTable(
     { id: createur.id, pseudo: createur.nom },
@@ -453,6 +453,7 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
       gestionDeconnexion: table.gestionDeconnexion,
       delais: table.delais,
       coupsFrichesDepart,
+      nombreCoups: table.nombreCoups,
       valeurPoint: table.valeurPoint,
       alea: table.alea,
     },

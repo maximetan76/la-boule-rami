@@ -18,6 +18,10 @@ export const COUPS_PAR_NOMBRE_DE_JOUEURS: Readonly<Record<number, number>> = {
   6: 12,
 };
 
+/** Bornes d'un nombre de coups choisi à la création d'une table. */
+export const NOMBRE_COUPS_MIN = 1;
+export const NOMBRE_COUPS_MAX = 12;
+
 /** Nombre de coups frichés d'office par défaut, choisi en début de Boule. */
 export const COUPS_FRICHES_PAR_DEFAUT = 2;
 

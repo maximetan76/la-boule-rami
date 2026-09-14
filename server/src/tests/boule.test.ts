@@ -425,3 +425,13 @@ describe('surplus de coups friches quand tous les coups deviennent friches', () 
   });
 });
 
+describe('nombre de coups choisi a la creation', () => {
+  it('remplace celui des regles, et borne toujours les coups friches', () => {
+    const quatre = ['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id));
+    expect(initialiserLaBoule(quatre, 2).nombreCoupsTotal).toBe(8);
+    expect(initialiserLaBoule(quatre, 2, 5).nombreCoupsTotal).toBe(5);
+    expect(initialiserLaBoule(quatre, 12, 12).nombreCoupsFriches).toBe(12);
+    expect(() => initialiserLaBoule(quatre, 6, 5)).toThrow(/coups friches hors limites/);
+  });
+});
+

@@ -15,6 +15,7 @@ export const ouvrirTablePleine = async (
     readonly delais?: DelaisDeJeu;
     readonly coupsFrichesDepart?: number;
     readonly valeurPoint?: string | null;
+    readonly nombreCoups?: number | null;
     readonly alea?: () => number;
   } = {},
 ): Promise<{ tableId: TableId; codeInvitation: string }> => {

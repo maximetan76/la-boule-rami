@@ -13,7 +13,12 @@
  * qui désigne le joueur, et non un jeton propre à la table. C'est ce qui permet
  * de retrouver sa place après un redémarrage du serveur.
  */
-import { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
+import {
+  COUPS_FRICHES_PAR_DEFAUT,
+  COUPS_PAR_NOMBRE_DE_JOUEURS,
+  NOMBRE_COUPS_MAX,
+  NOMBRE_COUPS_MIN,
+} from '../models/index.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type {
   Boule,
@@ -176,6 +181,11 @@ export interface Table {
    */
   readonly coupsFrichesDepart: number;
   /**
+   * Nombre de coups de la Boule choisi à la création, de 1 à 12 ; `null` :
+   * celui des règles pour ce nombre de joueurs.
+   */
+  readonly nombreCoups: number | null;
+  /**
    * Valeur monétaire d'un point, en décimal (« 0.20 ») ; `null` : aucune.
    * Sert à convertir les écarts de fin de Boule, rien d'autre.
    */
@@ -220,6 +230,7 @@ export const decrireTablePublique = (table: Table) => ({
   joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
   delais: table.delais,
   coupsFrichesDepart: table.coupsFrichesDepart,
+  nombreCoups: table.nombreCoups,
   valeurPoint: table.valeurPoint,
 });
 
@@ -305,6 +316,8 @@ export class GameRoomManager {
       readonly delais?: DelaisDeJeu;
       /** Coups frichés de départ ; 2 sans précision. */
       readonly coupsFrichesDepart?: number;
+      /** Nombre de coups de la Boule ; celui des règles sans précision. */
+      readonly nombreCoups?: number | null;
       /** Valeur d'un point, décimal normalisé ; aucune sans précision. */
       readonly valeurPoint?: string | null;
       readonly alea?: () => number;
@@ -316,8 +329,19 @@ export class GameRoomManager {
         `Nombre de joueurs hors limites : ${String(capacite)} (attendu ${String(CAPACITE_MIN)} a ${String(CAPACITE_MAX)})`,
       );
     }
+    const nombreCoups = options.nombreCoups ?? null;
+    if (
+      nombreCoups !== null &&
+      (!Number.isInteger(nombreCoups) || nombreCoups < NOMBRE_COUPS_MIN || nombreCoups > NOMBRE_COUPS_MAX)
+    ) {
+      throw new Error(
+        `Nombre de coups hors limites : ${String(nombreCoups)} (attendu ${String(NOMBRE_COUPS_MIN)} a ${String(NOMBRE_COUPS_MAX)})`,
+      );
+    }
     const coupsFrichesDepart = options.coupsFrichesDepart ?? COUPS_FRICHES_PAR_DEFAUT;
-    const coupsDeLaBoule = COUPS_PAR_NOMBRE_DE_JOUEURS[capacite] ?? 0;
+    // Les coups frichés se bornent au nombre de coups de CETTE Boule : choisi,
+    // ou celui des règles.
+    const coupsDeLaBoule = nombreCoups ?? COUPS_PAR_NOMBRE_DE_JOUEURS[capacite] ?? 0;
     if (!Number.isInteger(coupsFrichesDepart) || coupsFrichesDepart < 0 || coupsFrichesDepart > coupsDeLaBoule) {
       throw new Error(
         `Nombre de coups friches hors limites : ${String(coupsFrichesDepart)} (attendu 0 a ${String(coupsDeLaBoule)})`,
@@ -347,6 +371,7 @@ export class GameRoomManager {
       gestionDeconnexion,
       delais,
       coupsFrichesDepart,
+      nombreCoups,
       valeurPoint: options.valeurPoint ?? null,
       attenteDeJeu: null,
       annulerMinuteur: null,
@@ -368,6 +393,7 @@ export class GameRoomManager {
       gestionDeconnexion,
       delais,
       coupsFrichesDepart,
+      nombreCoups,
       valeurPoint: options.valeurPoint ?? null,
     });
     await this.depot?.asseoirJoueur(tableId, createur.id, 0);
@@ -409,7 +435,7 @@ export class GameRoomManager {
     table.joueurs = tirage.ordreTable.map(
       (joueurId) => table.joueurs.find((joueur) => joueur.id === joueurId) as Joueur,
     );
-    table.boule = initialiserBoule(table.joueurs, table.coupsFrichesDepart);
+    table.boule = initialiserBoule(table.joueurs, table.coupsFrichesDepart, table.nombreCoups ?? undefined);
     table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
     table.tirageOuverture = tirage;
     table.statut = 'en-cours';
@@ -534,7 +560,7 @@ export class GameRoomManager {
         boule:
           etatBoule === null
             ? partie.demarree
-              ? initialiserBoule(assis, partie.coupsFrichesDepart)
+              ? initialiserBoule(assis, partie.coupsFrichesDepart, partie.nombreCoups ?? undefined)
               : null
             : deserialiserBoule(etatBoule),
         coup: null,
@@ -546,6 +572,7 @@ export class GameRoomManager {
         gestionDeconnexion: partie.gestionDeconnexion,
         delais: partie.delais,
         coupsFrichesDepart: partie.coupsFrichesDepart,
+        nombreCoups: partie.nombreCoups,
         valeurPoint: partie.valeurPoint,
         attenteDeJeu: null,
         annulerMinuteur: null,

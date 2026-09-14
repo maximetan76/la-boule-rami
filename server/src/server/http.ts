@@ -6,7 +6,7 @@
  * abandonner une partie, changer de pseudo.
  */
 import { decrireTablePublique } from './game-room-manager.js';
-import { COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
+import { COUPS_PAR_NOMBRE_DE_JOUEURS, NOMBRE_COUPS_MAX, NOMBRE_COUPS_MIN } from '../models/index.js';
 import { calculerFinDeBoule, estBouleTerminee, surplusDeCoupsFriches } from '../game-engine/index.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifierJetonApple, type ConfigApple } from '../auth/apple.js';
@@ -197,12 +197,24 @@ const lireDelais = (valeur: unknown): DelaisDeJeu => {
 };
 
 /**
+ * Le nombre de coups de la Boule demandé : absent ou nul, celui des règles ;
+ * sinon un entier de 1 à 12.
+ */
+const lireNombreCoups = (valeur: unknown): number | null => {
+  if (valeur === undefined || valeur === null) return null;
+  if (typeof valeur !== 'number' || !Number.isInteger(valeur) || valeur < NOMBRE_COUPS_MIN || valeur > NOMBRE_COUPS_MAX) {
+    throw new ErreurHttp(400, `Nombre de coups invalide (${String(NOMBRE_COUPS_MIN)} a ${String(NOMBRE_COUPS_MAX)})`);
+  }
+  return valeur;
+};
+
+/**
  * Les coups frichés de départ demandés : absents, 2 ; sinon un entier de 0 au
  * nombre de coups de la Boule pour cette table.
  */
-const lireCoupsFriches = (valeur: unknown, capacite: number): number | undefined => {
+const lireCoupsFriches = (valeur: unknown, capacite: number, nombreCoups: number | null): number | undefined => {
   if (valeur === undefined || valeur === null) return undefined;
-  const plafond = COUPS_PAR_NOMBRE_DE_JOUEURS[capacite] ?? 0;
+  const plafond = nombreCoups ?? COUPS_PAR_NOMBRE_DE_JOUEURS[capacite] ?? 0;
   if (typeof valeur !== 'number' || !Number.isInteger(valeur) || valeur < 0 || valeur > plafond) {
     throw new ErreurHttp(400, `Nombre de coups friches invalide (0 a ${String(plafond)})`);
   }
@@ -236,9 +248,11 @@ const creerTable = async (
     throw new ErreurHttp(400, 'Nombre de joueurs invalide');
   }
 
-  const coupsFrichesDepart = lireCoupsFriches(corps['coupsFrichesDepart'], capacite ?? 4);
+  const nombreCoups = lireNombreCoups(corps['nombreCoups']);
+  const coupsFrichesDepart = lireCoupsFriches(corps['coupsFrichesDepart'], capacite ?? 4, nombreCoups);
   const creee = await deps.manager.creerTable(joueur, {
     ...(capacite === undefined ? {} : { capacite }),
+    nombreCoups,
     ...(coupsFrichesDepart === undefined ? {} : { coupsFrichesDepart }),
     valeurPoint: lireValeurPoint(corps['valeurPoint']),
     delais: lireDelais(corps['delais']),
