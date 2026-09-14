@@ -1,3 +1,4 @@
+import { DELAIS_PAR_DEFAUT } from '../persistence/depot.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
@@ -240,6 +241,22 @@ describe('serveur socket.io', () => {
     await patienter(20);
     // Le suivant a son propre délai.
     expect(minuteursActifs()).toEqual([30000]);
+  });
+
+  it('n arme aucun minuteur a une table aux delais par defaut : ni friche ni defausse d office', async () => {
+    const { table, ordre, espion } = await ouvrirTableMinutee(DELAIS_PAR_DEFAUT);
+    expect(minuteursActifs()).toEqual([]);
+    for (const autre of espions) expect(autre.dernierEtat?.echeance).toBeNull();
+
+    // Annonces puis jeu : rien ne s'arme, le joueur peut prendre son temps.
+    const premier = espion(ordre[0]);
+    await agir(premier, 'annoncer', { annonce: 'je-joue' });
+    await agir(premier, 'piocher', { source: 'pioche' });
+    expect(minuteursActifs()).toEqual([]);
+    horloge.declencher();
+    expect(table.coup?.joueurActifId).toBe(ordre[0]);
+    expect(table.tourEnCours?.joueurId).toBe(ordre[0]);
+    expect(table.coup?.defausse).toHaveLength(0);
   });
 
   it('n envoie aucune echeance a une table sans delai', async () => {

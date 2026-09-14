@@ -168,7 +168,8 @@ const lireGestionDeconnexion = (valeur: unknown): GestionDeconnexion | undefined
 /**
  * Lit les délais de jeu envoyés à la création d'une table.
  *
- * Un délai absent prend sa valeur par défaut, `null` le rend illimité. La
+ * Un délai absent prend sa valeur par défaut — illimité —, `null` le rend
+ * illimité explicitement. La
  * prolongation peut valoir 0 : aucune.
  */
 const lireDelais = (valeur: unknown): DelaisDeJeu => {

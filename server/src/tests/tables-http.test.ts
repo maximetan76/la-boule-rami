@@ -169,10 +169,21 @@ describe('API des tables', () => {
       expect((await appeler('POST', '/tables')).statut).toBe(401);
     });
 
-    it('arme les delais par defaut, et accepte des delais choisis ou illimites', async () => {
+    it('laisse les delais illimites par defaut, et accepte des delais choisis ou illimites', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
+      const illimites = { annonceMs: null, jeuMs: null, prolongationMs: null };
+
+      // Sans délais, ou avec un objet vide : tout est illimité.
       const parDefaut = await appeler('POST', '/tables', { compte: ana });
-      expect(parDefaut.corps['delais']).toEqual({ annonceMs: 60000, jeuMs: 120000, prolongationMs: 60000 });
+      expect(parDefaut.corps['delais']).toEqual(illimites);
+      expect(serveur.manager.table(parDefaut.corps['tableId'] as string).delais).toEqual(illimites);
+      const vide = await appeler('POST', '/tables', { compte: ana, corps: { delais: {} } });
+      expect(vide.corps['delais']).toEqual(illimites);
+
+      // « Illimité » envoyé explicitement, comme le fait l'app.
+      const explicites = await appeler('POST', '/tables', { compte: ana, corps: { delais: illimites } });
+      expect(explicites.statut).toBe(201);
+      expect(serveur.manager.table(explicites.corps['tableId'] as string).delais).toEqual(illimites);
 
       const choisis = await appeler('POST', '/tables', {
         compte: ana,

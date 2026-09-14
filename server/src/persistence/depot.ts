@@ -33,8 +33,12 @@ export interface DelaisDeJeu {
 /** Aucun délai : une table créée sans en préciser, hors API. */
 export const DELAIS_ILLIMITES: DelaisDeJeu = { annonceMs: null, jeuMs: null, prolongationMs: null };
 
-/** Les délais d'une table créée par l'API sans en préciser. */
-export const DELAIS_PAR_DEFAUT: DelaisDeJeu = { annonceMs: 60_000, jeuMs: 120_000, prolongationMs: 60_000 };
+/**
+ * Les délais d'une table créée par l'API sans en préciser : illimités. Rien ne
+ * presse personne — ni friche ni défausse d'office — tant que le créateur n'a
+ * pas choisi de délai.
+ */
+export const DELAIS_PAR_DEFAUT: DelaisDeJeu = DELAIS_ILLIMITES;
 
 export interface JoueurEnregistre {
   readonly id: JoueurId;
