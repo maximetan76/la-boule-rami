@@ -134,6 +134,11 @@ export const jouerTour = (
     }
     cartePiochee = pioche.shift() as Carte;
   } else {
+    // Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la
+    // défausse » : qui a déjà posé et ne tient plus qu'une carte pioche au talon.
+    if (aDejaPose(coup, joueurActifId) && (coup.mains[joueurActifId] ?? []).length === 1) {
+      throw new Error('Une seule carte en main apres avoir pose : la defausse ne se prend pas, piochez au talon');
+    }
     if (defausse.length === 0) {
       throw new Error('Defausse vide : le premier joueur du coup doit piocher au talon');
     }

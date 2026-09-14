@@ -532,7 +532,7 @@ describe('jouerTour — pioche en défausse', () => {
   const quinteMoinsUne = () => [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R')];
 
   it('refuse la carte de la defausse si elle n est pas utilisee immediatement', () => {
-    const main = [c('pique', 2)];
+    const main = [c('pique', 2), c('carreau', 8)];
     const depart = coupJouable(main, {
       defausse: [c('trefle', 5)],
       recapitulatifs: { j1: recap({ toursAvecPose: [1] }) },
@@ -1222,7 +1222,7 @@ describe('jouerTour — carte collante prise en defausse', () => {
     const suite = suite789('j1');
     const dix = c('coeur', 10);
     const aJeter = c('pique', 2);
-    const depart = coupJouable([aJeter], {
+    const depart = coupJouable([aJeter, c('carreau', 8)], {
       combinaisons: [suite],
       recapitulatifs: dejaPose,
       defausse: [c('carreau', 3), dix],
@@ -1241,7 +1241,7 @@ describe('jouerTour — carte collante prise en defausse', () => {
     const suite = suite789('j2');
     const dix = c('coeur', 10);
     const aJeter = c('pique', 2);
-    const depart = coupJouable([aJeter], {
+    const depart = coupJouable([aJeter, c('carreau', 8)], {
       combinaisons: [suite],
       recapitulatifs: dejaPose,
       defausse: [c('carreau', 3), dix],
@@ -1303,7 +1303,7 @@ describe('jouerTour — la carte prise en defausse sur un brelan, un carre ou un
 
   it('refuse de poser le 3 de coeur ramasse sur 3-3-[joker], joker non declare (le carre)', () => {
     const aJeter = c('pique', 2);
-    const { troisCoeur, brelan, depart } = scenario(joker(), [aJeter]);
+    const { troisCoeur, brelan, depart } = scenario(joker(), [aJeter, c('carreau', 8)]);
 
     expect(() =>
       jouerTour(depart, 'j1', {
@@ -1316,7 +1316,7 @@ describe('jouerTour — la carte prise en defausse sur un brelan, un carre ou un
 
   it('le refuse aussi, avec la meme raison, quand le joker declare justement le 3 de coeur', () => {
     const aJeter = c('pique', 2);
-    const { troisCoeur, brelan, depart } = scenario(jokerPour('coeur', 3), [aJeter]);
+    const { troisCoeur, brelan, depart } = scenario(jokerPour('coeur', 3), [aJeter, c('carreau', 8)]);
 
     expect(() =>
       jouerTour(depart, 'j1', {
@@ -1345,7 +1345,7 @@ describe('jouerTour — la carte prise en defausse sur un brelan, un carre ou un
       const suite = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)], 'j2');
       const collante = c('coeur', valeur);
       const aJeter = c('pique', 2);
-      const depart = coupJouable([aJeter], {
+      const depart = coupJouable([aJeter, c('carreau', 8)], {
         combinaisons: [suite],
         recapitulatifs: dejaPose,
         defausse: [c('carreau', 9), collante],
@@ -1427,3 +1427,31 @@ describe('jouerTour — premiere pose d une suite dont la tierce franche est imb
     expect(apres.recapitulatifs['j1']?.toursAvecPose).toHaveLength(1);
   });
 });
+
+describe('jouerTour — plus qu une carte en main apres avoir pose', () => {
+  const dejaPose = {
+    j1: recap({ toursAvecPose: [1] }),
+    j2: recap({ toursAvecPose: [] }),
+    j3: recap({ toursAvecPose: [] }),
+  };
+
+  it('refuse la defausse : il faut piocher au talon', () => {
+    const derniere = c('coeur', 10);
+    const depart = coupJouable([derniere], { defausse: [c('pique', 5)], recapitulatifs: dejaPose });
+    expect(() =>
+      jouerTour(depart, 'j1', { source: 'defausse', poses: [], carteDefausseeId: derniere.id }),
+    ).toThrow(/Une seule carte en main apres avoir pose/);
+  });
+
+  it('laisse la defausse a qui tient encore deux cartes, ou n a pas encore pose', () => {
+    const deux = coupJouable([c('coeur', 10), c('coeur', 2)], { defausse: [c('pique', 5)], recapitulatifs: dejaPose });
+    expect(() =>
+      jouerTour(deux, 'j1', { source: 'defausse', poses: [], carteDefausseeId: c('coeur', 2).id }),
+    ).not.toThrow(/Une seule carte en main/);
+    const sansPose = coupJouable([c('coeur', 10)], { defausse: [c('pique', 5)] });
+    expect(() =>
+      jouerTour(sansPose, 'j1', { source: 'defausse', poses: [], carteDefausseeId: c('coeur', 10).id }),
+    ).not.toThrow(/Une seule carte en main/);
+  });
+});
+

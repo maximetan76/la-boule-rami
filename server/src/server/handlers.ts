@@ -737,6 +737,12 @@ export const enregistrerHandlers = (
         if (coup.phase !== 'jeu') throw new Error("Le coup n'est pas en phase de jeu");
         if (coup.joueurActifId !== joueurId) throw new Error(`Ce n'est pas au tour de ${joueurId}`);
         if (table.tourEnCours !== null) throw new Error('Vous avez deja pioche ce tour-ci');
+        // Réf. docs/REGLES.md § « Règle spéciale : piocher la carte de la
+        // défausse » : qui a déjà posé et ne tient plus qu'une carte pioche au talon.
+        const aDejaPose = (coup.recapitulatifs[joueurId]?.toursAvecPose.length ?? 0) > 0;
+        if (payload?.source === 'defausse' && aDejaPose && (coup.mains[joueurId] ?? []).length === 1) {
+          throw new Error('Une seule carte en main apres avoir pose : la defausse ne se prend pas, piochez au talon');
+        }
         if (payload?.source !== 'pioche' && payload?.source !== 'defausse') {
           throw new Error('Source invalide : « pioche » ou « defausse » attendus');
         }

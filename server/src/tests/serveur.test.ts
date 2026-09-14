@@ -886,6 +886,24 @@ describe('serveur socket.io', () => {
     expect(espions.map(annonceDeNouvelleTable).every((annonce) => annonce === undefined)).toBe(true);
   });
 
+  it('refuse la defausse a qui a deja pose et ne tient plus qu une carte, pas le talon', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const joueur = espions.find((espion) => espion.joueurId === premier) as Espion;
+    table.coup.mains[premier] = [c('coeur', 10)];
+    table.coup.defausse = [c('pique', 5)];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    const refus = await emettre(joueur.socket, 'piocher', { source: 'defausse' });
+    expect(refus.ok).toBe(false);
+    expect(refus.erreur).toMatch(/Une seule carte en main apres avoir pose/);
+    expect(table.tourEnCours).toBeNull();
+    expect((await agir(joueur, 'piocher', { source: 'pioche' })).ok).toBe(true);
+  });
+
   it('traite un double appui sur « Continuer » sans rien casser, avant comme apres la donne suivante', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);
