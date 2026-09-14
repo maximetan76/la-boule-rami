@@ -197,6 +197,24 @@ describe('API des tables', () => {
       });
     });
 
+    it('fixe les coups friches de depart : 2 par defaut, borne au nombre de coups de la Boule', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const parDefaut = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 4 } });
+      expect(parDefaut.corps['coupsFrichesDepart']).toBe(2);
+
+      const choisis = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 3, coupsFrichesDepart: 9 } });
+      expect(choisis.statut).toBe(201);
+      expect(serveur.manager.table(choisis.corps['tableId'] as string).coupsFrichesDepart).toBe(9);
+      const aucun = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2, coupsFrichesDepart: 0 } });
+      expect(aucun.corps['coupsFrichesDepart']).toBe(0);
+
+      // 8 coups à 4 joueurs : 9 est hors bornes, comme un nombre négatif ou décimal.
+      for (const invalide of [9, -1, 1.5, 'deux']) {
+        const refus = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 4, coupsFrichesDepart: invalide } });
+        expect(refus.statut).toBe(400);
+      }
+    });
+
     it('refuse un delai trop court ou mal forme', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       const tropCourt = await appeler('POST', '/tables', { compte: ana, corps: { delais: { jeuMs: 100 } } });

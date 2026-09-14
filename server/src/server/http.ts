@@ -5,6 +5,7 @@
  * fait hors table — s'authentifier, ouvrir un salon, le rejoindre par code,
  * abandonner une partie, changer de pseudo.
  */
+import { COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
 import { calculerFinDeBoule, estBouleTerminee } from '../game-engine/index.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifierJetonApple, type ConfigApple } from '../auth/apple.js';
@@ -194,6 +195,19 @@ const lireDelais = (valeur: unknown): DelaisDeJeu => {
   };
 };
 
+/**
+ * Les coups frichés de départ demandés : absents, 2 ; sinon un entier de 0 au
+ * nombre de coups de la Boule pour cette table.
+ */
+const lireCoupsFriches = (valeur: unknown, capacite: number): number | undefined => {
+  if (valeur === undefined || valeur === null) return undefined;
+  const plafond = COUPS_PAR_NOMBRE_DE_JOUEURS[capacite] ?? 0;
+  if (typeof valeur !== 'number' || !Number.isInteger(valeur) || valeur < 0 || valeur > plafond) {
+    throw new ErreurHttp(400, `Nombre de coups friches invalide (0 a ${String(plafond)})`);
+  }
+  return valeur;
+};
+
 const decrireTable = (table: Table) => ({
   tableId: table.id,
   codeInvitation: table.codeInvitation,
@@ -202,6 +216,7 @@ const decrireTable = (table: Table) => ({
   createurId: table.createurId,
   joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
   delais: table.delais,
+  coupsFrichesDepart: table.coupsFrichesDepart,
 });
 
 const creerTable = async (
@@ -214,8 +229,10 @@ const creerTable = async (
     throw new ErreurHttp(400, 'Nombre de joueurs invalide');
   }
 
+  const coupsFrichesDepart = lireCoupsFriches(corps['coupsFrichesDepart'], capacite ?? 4);
   const creee = await deps.manager.creerTable(joueur, {
     ...(capacite === undefined ? {} : { capacite }),
+    ...(coupsFrichesDepart === undefined ? {} : { coupsFrichesDepart }),
     delais: lireDelais(corps['delais']),
     ...(() => {
       const gestion = lireGestionDeconnexion(corps['gestionDeconnexion']);

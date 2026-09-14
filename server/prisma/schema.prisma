@@ -46,6 +46,10 @@ model Partie {
   delaiJeuMs          Int?
   delaiProlongationMs Int?
 
+  /// Coups frichés de départ, choisis à la création (0 au nombre de coups de
+  /// la Boule). Voir Table.coupsFrichesDepart côté serveur.
+  coupsFrichesDepart Int @default(2)
+
   /// Qui a abandonné la partie, et ce qu'était le coup interrompu à cet
   /// instant, mains de tous les joueurs comprises. Voir AbandonEnregistre.
   abandonneParId String?

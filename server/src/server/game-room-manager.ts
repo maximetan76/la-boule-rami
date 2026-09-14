@@ -13,6 +13,7 @@
  * qui désigne le joueur, et non un jeton propre à la table. C'est ce qui permet
  * de retrouver sa place après un redémarrage du serveur.
  */
+import { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type {
   Boule,
@@ -165,6 +166,11 @@ export interface Table {
   readonly gestionDeconnexion: GestionDeconnexion;
   /** Délais de jeu : ils valent pour tous, présents ou non. */
   readonly delais: DelaisDeJeu;
+  /**
+   * Coups frichés choisis à la création, avant toute friche généralisée.
+   * Réf. docs/REGLES.md § « Structure d'une Boule ».
+   */
+  readonly coupsFrichesDepart: number;
   /** Le délai qui court pour le joueur attendu, s'il y en a un. */
   attenteDeJeu: AttenteDeJeu | null;
   /** Annulation du minuteur d'abandon de tour en cours, s'il y en a un. */
@@ -275,6 +281,8 @@ export class GameRoomManager {
       readonly gestionDeconnexion?: GestionDeconnexion;
       /** Sans précision, aucun délai : les valeurs par défaut sont celles de l'API. */
       readonly delais?: DelaisDeJeu;
+      /** Coups frichés de départ ; 2 sans précision. */
+      readonly coupsFrichesDepart?: number;
       readonly alea?: () => number;
     } = {},
   ): Promise<TableCreee> {
@@ -282,6 +290,13 @@ export class GameRoomManager {
     if (!Number.isInteger(capacite) || capacite < CAPACITE_MIN || capacite > CAPACITE_MAX) {
       throw new Error(
         `Nombre de joueurs hors limites : ${String(capacite)} (attendu ${String(CAPACITE_MIN)} a ${String(CAPACITE_MAX)})`,
+      );
+    }
+    const coupsFrichesDepart = options.coupsFrichesDepart ?? COUPS_FRICHES_PAR_DEFAUT;
+    const coupsDeLaBoule = COUPS_PAR_NOMBRE_DE_JOUEURS[capacite] ?? 0;
+    if (!Number.isInteger(coupsFrichesDepart) || coupsFrichesDepart < 0 || coupsFrichesDepart > coupsDeLaBoule) {
+      throw new Error(
+        `Nombre de coups friches hors limites : ${String(coupsFrichesDepart)} (attendu 0 a ${String(coupsDeLaBoule)})`,
       );
     }
 
@@ -307,6 +322,7 @@ export class GameRoomManager {
       alea: options.alea ?? Math.random,
       gestionDeconnexion,
       delais,
+      coupsFrichesDepart,
       attenteDeJeu: null,
       annulerMinuteur: null,
       joueurEnSursis: null,
@@ -326,6 +342,7 @@ export class GameRoomManager {
       capacite,
       gestionDeconnexion,
       delais,
+      coupsFrichesDepart,
     });
     await this.depot?.asseoirJoueur(tableId, createur.id, 0);
 
@@ -366,7 +383,7 @@ export class GameRoomManager {
     table.joueurs = tirage.ordreTable.map(
       (joueurId) => table.joueurs.find((joueur) => joueur.id === joueurId) as Joueur,
     );
-    table.boule = initialiserBoule(table.joueurs);
+    table.boule = initialiserBoule(table.joueurs, table.coupsFrichesDepart);
     table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
     table.tirageOuverture = tirage;
     table.statut = 'en-cours';
@@ -491,7 +508,7 @@ export class GameRoomManager {
         boule:
           etatBoule === null
             ? partie.demarree
-              ? initialiserBoule(assis)
+              ? initialiserBoule(assis, partie.coupsFrichesDepart)
               : null
             : deserialiserBoule(etatBoule),
         coup: null,
@@ -502,6 +519,7 @@ export class GameRoomManager {
         // ne repart pas sur la valeur par défaut après un redémarrage.
         gestionDeconnexion: partie.gestionDeconnexion,
         delais: partie.delais,
+        coupsFrichesDepart: partie.coupsFrichesDepart,
         attenteDeJeu: null,
         annulerMinuteur: null,
         joueurEnSursis: null,

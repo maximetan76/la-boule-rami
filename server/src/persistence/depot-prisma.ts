@@ -34,6 +34,7 @@ interface LignePartie {
   delaiAnnonceMs: number | null;
   delaiJeuMs: number | null;
   delaiProlongationMs: number | null;
+  coupsFrichesDepart: number;
   abandonneParId: string | null;
   interruption: unknown;
   joueurs?: { joueurId: string; position: number }[];
@@ -67,6 +68,7 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
     jeuMs: ligne.delaiJeuMs,
     prolongationMs: ligne.delaiProlongationMs,
   },
+  coupsFrichesDepart: ligne.coupsFrichesDepart,
   abandon: relireAbandon(ligne.abandonneParId, ligne.interruption),
   // Les places ne sont là que si l'appel a demandé l'inclusion ; une partie
   // tout juste créée n'en a de toute façon aucune.
@@ -114,6 +116,7 @@ export class DepotPrisma implements Depot {
         delaiAnnonceMs: partie.delais.annonceMs,
         delaiJeuMs: partie.delais.jeuMs,
         delaiProlongationMs: partie.delais.prolongationMs,
+        coupsFrichesDepart: partie.coupsFrichesDepart,
       },
       include: PLACES,
     });

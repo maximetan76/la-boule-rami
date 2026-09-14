@@ -83,6 +83,8 @@ export interface PartieEnregistree {
   readonly demarree: boolean;
   readonly gestionDeconnexion: GestionDeconnexion;
   readonly delais: DelaisDeJeu;
+  /** Coups frichés choisis à la création. */
+  readonly coupsFrichesDepart: number;
   readonly joueursIds: JoueurId[];
   readonly creeeLe: Date;
   readonly termineeLe: Date | null;
@@ -98,6 +100,7 @@ export interface NouvellePartie {
   readonly capacite: number;
   readonly gestionDeconnexion: GestionDeconnexion;
   readonly delais: DelaisDeJeu;
+  readonly coupsFrichesDepart: number;
 }
 
 /** Une partie en cours, avec l'état de sa Boule, tel qu'il revient de la base. */

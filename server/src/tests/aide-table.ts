@@ -13,6 +13,7 @@ export const ouvrirTablePleine = async (
   options: {
     readonly gestionDeconnexion?: GestionDeconnexion;
     readonly delais?: DelaisDeJeu;
+    readonly coupsFrichesDepart?: number;
     readonly alea?: () => number;
   } = {},
 ): Promise<{ tableId: TableId; codeInvitation: string }> => {
