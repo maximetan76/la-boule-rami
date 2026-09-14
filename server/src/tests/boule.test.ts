@@ -7,6 +7,7 @@ import {
   initialiserBoule,
   numeroCoupCourant,
 } from '../game-engine/boule.js';
+import { enregistrerResultatCoup as enregistrerFricheGeneralisee } from '../game-engine/boule.js';
 import {
   coupsFrichesPourLaSuivante,
   initialiserBoule as initialiserLaBoule,
@@ -402,6 +403,25 @@ describe('report des coups friches sur la Boule rejouee', () => {
   it('ne depasse jamais le nombre de coups de la nouvelle Boule', () => {
     const toutFriche = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 0), nombreCoupsFriches: 8 };
     expect(coupsFrichesPourLaSuivante(toutFriche, 0, 8)).toBe(8);
+  });
+});
+
+describe('surplus de coups friches quand tous les coups deviennent friches', () => {
+  it('Boule a 4 joueurs, 8 coups, 2 au depart, 8 a la fin : 6 en plus, et la suivante plafonnee a 8', () => {
+    let finie = initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 2);
+    expect(finie.nombreCoupsTotal).toBe(8);
+    // Six friches generalisees, toutes au premier coup rejoue.
+    for (let friche = 0; friche < 6; friche += 1) {
+      finie = enregistrerFricheGeneralisee(finie, 1, { toutLeMondeAFriche: true });
+    }
+    expect(finie.nombreCoupsFriches).toBe(8);
+    expect(surplusDeCoupsFriches(finie, 2)).toBe(6);
+    expect(coupsFrichesPourLaSuivante(finie, 2, 8)).toBe(8);
+
+    // Une septieme ne depasse pas le nombre de coups : le surplus reste 6.
+    finie = enregistrerFricheGeneralisee(finie, 1, { toutLeMondeAFriche: true });
+    expect(finie.nombreCoupsFriches).toBe(8);
+    expect(surplusDeCoupsFriches(finie, 2)).toBe(6);
   });
 });
 
