@@ -212,6 +212,8 @@ export interface Table {
    * pour qu'il les reconnaisse à la reprise. Vidé à chaque nouvelle donne.
    */
   jokersGardes: Map<JoueurId, Carte[]>;
+  /** La table de la Boule rejouée avec ce groupe, une fois qu'elle existe. */
+  relanceeVers?: TableId;
 }
 
 export interface TableCreee {

@@ -870,21 +870,27 @@ describe('serveur socket.io', () => {
     expect(nouvelle.boule?.nombreCoupsFriches).toBe(5);
   });
 
-  it('renonce a rejouer pour tous des qu un joueur choisit de terminer la Boule', async () => {
+  it('laisse un joueur terminer seul : la Boule se clot aussitot, nul ne la rejoue, les autres gardent le decompte', async () => {
     const { table, numero } = await finirLaBoule();
     const [ana, bo, cy] = espions as [Espion, Espion, Espion];
 
     expect((await agir(ana, 'rejouer', { numero })).ok).toBe(true);
+    // Bo termine : sans attendre ni Ana ni Cy.
     expect((await agir(bo, 'pret-pour-suivant', { numero })).ok).toBe(true);
-    expect(cy.dernierEtat?.resultat?.rejouerAnnulePar).toBe('p-bo');
+    expect(table.statut).toBe('terminee');
+    expect(table.resultatCoup).toBeNull();
 
+    // Cy, qui n'a rien confirmé, voit encore le décompte de la Boule, et plus
+    // de résultat où rejouer.
+    expect(cy.dernierEtat?.finDeBoule).not.toBeNull();
+    expect(cy.dernierEtat?.resultat).toBeNull();
     const refus = await emettre(cy.socket, 'rejouer', { numero });
     expect(refus.ok).toBe(false);
-    expect(refus.erreur).toMatch(/Bo a choisi de terminer/);
-
-    expect((await agir(cy, 'pret-pour-suivant', { numero })).ok).toBe(true);
-    expect(table.statut).toBe('terminee');
+    expect(refus.erreur).toMatch(/la Boule est close/);
     expect(espions.map(annonceDeNouvelleTable).every((annonce) => annonce === undefined)).toBe(true);
+
+    // Son propre « Terminer », arrivé après, est sans effet.
+    expect((await emettre(cy.socket, 'pret-pour-suivant', { numero })).ok).toBe(true);
   });
 
   it('refuse la defausse a qui a deja pose et ne tient plus qu une carte, pas le talon', async () => {

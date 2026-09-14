@@ -464,6 +464,7 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
     await manager.rejoindreParCode(creee.codeInvitation, { id: joueur.id, pseudo: joueur.nom });
   }
 
+  table.relanceeVers = creee.tableId;
   const description = decrireTablePublique(manager.table(creee.tableId));
   const annoncer = (): void => {
     for (const joueur of table.joueurs) {
@@ -1100,15 +1101,19 @@ export const enregistrerHandlers = (
         }
         // Une confirmation pour un coup déjà passé ne vaut rien pour celui-ci.
         if (numero !== null && numero !== resultat.numero) return;
-        // Au dernier coup, confirmer, c'est « Terminer la Boule » : renoncer à
-        // la rejouer, pour tous — même après avoir voulu rejouer.
-        const renonce = resultat.derniereCoup && resultat.rejouerAnnulePar === null;
-        if (renonce) resultat.rejouerAnnulePar = joueurId;
-        // Déjà prêt : la seconde confirmation est simplement acquittée.
-        if (resultat.prets.includes(joueurId)) {
-          if (renonce) publier(io, manager, table);
+        // Au dernier coup, c'est « Terminer la Boule » : un geste personnel,
+        // qui n'attend personne. Le décompte est déjà fait ; la Boule se clôt
+        // aussitôt, et le groupe n'étant plus au complet, nul ne la rejoue —
+        // même après l'avoir voulu. Les autres gardent leur écran de fin.
+        if (resultat.derniereCoup) {
+          if (resultat.rejouerAnnulePar === null) resultat.rejouerAnnulePar = joueurId;
+          if (!resultat.prets.includes(joueurId)) resultat.prets = [...resultat.prets, joueurId];
+          await enchainer(io, manager, table);
+          publier(io, manager, table);
           return;
         }
+        // Déjà prêt : la seconde confirmation est simplement acquittée.
+        if (resultat.prets.includes(joueurId)) return;
         resultat.prets = [...resultat.prets, joueurId];
 
         const attendus = table.joueurs.map((joueur) => joueur.id);
@@ -1136,7 +1141,9 @@ export const enregistrerHandlers = (
 
         if (resultat === null) {
           // Un doublon arrivé après la relance : sans objet, pas en faute.
-          if (numero !== null && (table.boule?.historique.length ?? 0) >= numero) return;
+          if (table.relanceeVers !== undefined) return;
+          // Close sans relance : quelqu'un a terminé la Boule.
+          if (table.statut === 'terminee') throw new Error('Pas de nouvelle partie : la Boule est close');
           throw new Error('Aucune Boule terminee a rejouer');
         }
         if (numero !== null && numero !== resultat.numero) return;
