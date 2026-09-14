@@ -66,6 +66,7 @@ export const initialiserBoule = (
     ordreTable: joueurs.map((joueur) => joueur.id),
     nombreCoupsTotal,
     nombreCoupsFriches,
+    frichesGeneralisees: 0,
     coupEnCours: null,
     historique: [],
     scoresCumules,
@@ -170,6 +171,8 @@ export const enregistrerResultatCoup = (
     return {
       ...boule,
       nombreCoupsFriches: Math.min(boule.nombreCoupsFriches + 1, boule.nombreCoupsTotal),
+      // Comptée sans plafond : c'est ce nombre que la Boule suivante reprend.
+      frichesGeneralisees: (boule.frichesGeneralisees ?? 0) + 1,
     };
   }
 
@@ -225,10 +228,14 @@ export const estBouleTerminee = (boule: Boule): boolean =>
 
 /**
  * Coups frichés ajoutés pendant la Boule par les friches généralisées, au-delà
- * de ce qui avait été choisi au départ.
+ * de ce qui avait été choisi au départ : une par friche généralisée, même
+ * quand le compteur de coups frichés a atteint le nombre de coups.
+ *
+ * Une Boule enregistrée avant ce décompte se lit encore par différence avec
+ * le départ — ce qui ne voit pas les friches perdues au plafond.
  */
 export const surplusDeCoupsFriches = (boule: Boule, coupsFrichesDepart: number): number =>
-  Math.max(0, boule.nombreCoupsFriches - coupsFrichesDepart);
+  boule.frichesGeneralisees ?? Math.max(0, boule.nombreCoupsFriches - coupsFrichesDepart);
 
 /**
  * Coups frichés de départ d'une Boule rejouée avec le même groupe : les 2 par

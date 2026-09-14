@@ -124,6 +124,13 @@ export interface Boule {
    * de coups concernés.
    */
   nombreCoupsFriches: number;
+  /**
+   * Friches généralisées survenues pendant la Boule, sans plafond. Le compteur
+   * de coups frichés, lui, s'arrête au nombre de coups : sur une Boule courte,
+   * ou qui démarre déjà très frichée, il perdait les friches en trop, et le
+   * surplus reporté tombait à 0. Absent d'une Boule enregistrée avant.
+   */
+  frichesGeneralisees?: number;
   coupEnCours: Coup | null;
   historique: ResultatCoup[];
   /** Somme des scores de chaque joueur sur les coups déjà joués. */

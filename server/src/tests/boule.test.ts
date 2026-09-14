@@ -387,7 +387,7 @@ describe('articulation avec calculerFinDeBoule', () => {
 
 describe('report des coups friches sur la Boule rejouee', () => {
   it('ajoute aux 2 par defaut le surplus des friches generalisees : 2 au depart, 5 a la fin, la suivante a 5', () => {
-    const finie = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id))), nombreCoupsFriches: 5 };
+    const finie = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id))), nombreCoupsFriches: 5, frichesGeneralisees: 3 };
     expect(surplusDeCoupsFriches(finie, 2)).toBe(3);
     expect(coupsFrichesPourLaSuivante(finie, 2, 8)).toBe(5);
   });
@@ -401,7 +401,7 @@ describe('report des coups friches sur la Boule rejouee', () => {
   });
 
   it('ne depasse jamais le nombre de coups de la nouvelle Boule', () => {
-    const toutFriche = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 0), nombreCoupsFriches: 8 };
+    const toutFriche = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 0), nombreCoupsFriches: 8, frichesGeneralisees: 8 };
     expect(coupsFrichesPourLaSuivante(toutFriche, 0, 8)).toBe(8);
   });
 });
@@ -418,10 +418,11 @@ describe('surplus de coups friches quand tous les coups deviennent friches', () 
     expect(surplusDeCoupsFriches(finie, 2)).toBe(6);
     expect(coupsFrichesPourLaSuivante(finie, 2, 8)).toBe(8);
 
-    // Une septieme ne depasse pas le nombre de coups : le surplus reste 6.
+    // Une septieme ne depasse pas le nombre de coups, mais elle compte : le
+    // surplus passe a 7.
     finie = enregistrerFricheGeneralisee(finie, 1, { toutLeMondeAFriche: true });
     expect(finie.nombreCoupsFriches).toBe(8);
-    expect(surplusDeCoupsFriches(finie, 2)).toBe(6);
+    expect(surplusDeCoupsFriches(finie, 2)).toBe(7);
   });
 });
 
@@ -432,6 +433,29 @@ describe('nombre de coups choisi a la creation', () => {
     expect(initialiserLaBoule(quatre, 2, 5).nombreCoupsTotal).toBe(5);
     expect(initialiserLaBoule(quatre, 12, 12).nombreCoupsFriches).toBe(12);
     expect(() => initialiserLaBoule(quatre, 6, 5)).toThrow(/coups friches hors limites/);
+  });
+});
+
+describe('surplus de coups friches au-dela du plafond', () => {
+  it('Boule de 2 coups, 2 friches au depart, 5 friches generalisees : 5 en plus, pas 0', () => {
+    let boule = initialiserLaBoule(['j1', 'j2'].map((id) => joueur(id)), 2, 2);
+    for (let friche = 0; friche < 5; friche += 1) {
+      boule = enregistrerFricheGeneralisee(boule, 1, { toutLeMondeAFriche: true });
+    }
+    // Le compteur de coups friches reste au nombre de coups...
+    expect(boule.nombreCoupsFriches).toBe(2);
+    // ... mais les cinq friches generalisees comptent toutes.
+    expect(boule.frichesGeneralisees).toBe(5);
+    expect(surplusDeCoupsFriches(boule, 2)).toBe(5);
+    expect(coupsFrichesPourLaSuivante(boule, 2, 8)).toBe(7);
+  });
+
+  it('lit encore une Boule enregistree avant le decompte, par difference avec le depart', () => {
+    const { frichesGeneralisees: _oublie, ...ancienne } = {
+      ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 2),
+      nombreCoupsFriches: 5,
+    };
+    expect(surplusDeCoupsFriches(ancienne, 2)).toBe(3);
   });
 });
 

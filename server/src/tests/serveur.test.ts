@@ -815,6 +815,7 @@ describe('serveur socket.io', () => {
       ...table.boule,
       nombreCoupsTotal: 1,
       nombreCoupsFriches: table.coupsFrichesDepart + (options.frichesAjoutees ?? 0),
+      frichesGeneralisees: options.frichesAjoutees ?? 0,
     };
     const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId, JoueurId];
     const suite = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)], second);

@@ -49,6 +49,15 @@ describe('historique de la Boule', () => {
     expect(apres.historique.at(-1)).not.toHaveProperty('mainsRevelees');
   });
 
+  it('garde le compte des friches generalisees a travers un redemarrage', () => {
+    const avecFriches = enregistrerResultatCoup(boule({ frichesGeneralisees: 0 }), 1, { toutLeMondeAFriche: true });
+    const relue = deserialiserBoule(JSON.parse(JSON.stringify(serialiserBoule(avecFriches))));
+    expect(relue.frichesGeneralisees).toBe(1);
+    // Un etat ecrit avant le decompte se relit sans lui.
+    const ancien = deserialiserBoule(JSON.parse(JSON.stringify(serialiserBoule(boule()))));
+    expect(ancien.frichesGeneralisees).toBeUndefined();
+  });
+
   it('survit a un redemarrage du serveur', () => {
     const depart = boule();
     const avecArchive = enregistrerResultatCoup(depart, depart.historique.length + 1, score, archive());
