@@ -453,6 +453,7 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
       gestionDeconnexion: table.gestionDeconnexion,
       delais: table.delais,
       coupsFrichesDepart,
+      valeurPoint: table.valeurPoint,
       alea: table.alea,
     },
   );

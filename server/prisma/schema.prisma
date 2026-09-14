@@ -50,6 +50,10 @@ model Partie {
   /// la Boule). Voir Table.coupsFrichesDepart côté serveur.
   coupsFrichesDepart Int @default(2)
 
+  /// Valeur monétaire d'un point, décimal normalisé (« 0.20 ») ; absente :
+  /// aucune. Texte plutôt que flottant : un montant ne s'arrondit pas en base.
+  valeurPoint String?
+
   /// Qui a abandonné la partie, et ce qu'était le coup interrompu à cet
   /// instant, mains de tous les joueurs comprises. Voir AbandonEnregistre.
   abandonneParId String?

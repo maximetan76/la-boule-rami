@@ -81,6 +81,7 @@ describe.skipIf(URL_TEST === undefined || URL_TEST.length === 0)('PostgreSQL', (
       gestionDeconnexion: { type: 'delai', dureeMs: 45_000 },
       delais: { annonceMs: 30_000, jeuMs: null, prolongationMs: 60_000 },
       coupsFrichesDepart: 4,
+      valeurPoint: null,
     });
     for (const [position, id] of ids.entries()) {
       await depot.asseoirJoueur('partie-pg', id, position);

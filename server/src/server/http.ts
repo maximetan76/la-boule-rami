@@ -7,7 +7,7 @@
  */
 import { decrireTablePublique } from './game-room-manager.js';
 import { COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
-import { calculerFinDeBoule, estBouleTerminee } from '../game-engine/index.js';
+import { calculerFinDeBoule, estBouleTerminee, surplusDeCoupsFriches } from '../game-engine/index.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifierJetonApple, type ConfigApple } from '../auth/apple.js';
 import {
@@ -209,6 +209,21 @@ const lireCoupsFriches = (valeur: unknown, capacite: number): number | undefined
   return valeur;
 };
 
+/**
+ * La valeur d'un point demandée : absente, vide ou nulle, aucune ; sinon un
+ * décimal positif, virgule ou point, au plus 4 décimales (« 0,20 », 2.1).
+ * Rendue normalisée, avec un point : « 0.20 ».
+ */
+const lireValeurPoint = (valeur: unknown): string | null => {
+  if (valeur === undefined || valeur === null || valeur === '') return null;
+  const texte = typeof valeur === 'number' ? String(valeur) : typeof valeur === 'string' ? valeur.trim() : null;
+  const normalise = texte?.replace(',', '.') ?? '';
+  if (!/^\d{1,6}(\.\d{1,4})?$/.test(normalise) || Number(normalise) <= 0) {
+    throw new ErreurHttp(400, "Valeur d'un point invalide (un montant positif, 4 decimales au plus)");
+  }
+  return normalise;
+};
+
 const decrireTable = decrireTablePublique;
 
 const creerTable = async (
@@ -225,6 +240,7 @@ const creerTable = async (
   const creee = await deps.manager.creerTable(joueur, {
     ...(capacite === undefined ? {} : { capacite }),
     ...(coupsFrichesDepart === undefined ? {} : { coupsFrichesDepart }),
+    valeurPoint: lireValeurPoint(corps['valeurPoint']),
     delais: lireDelais(corps['delais']),
     ...(() => {
       const gestion = lireGestionDeconnexion(corps['gestionDeconnexion']);
@@ -291,6 +307,23 @@ const abandonner = async (
 const finDe = (boule: Parameters<typeof estBouleTerminee>[0] | null) =>
   boule !== null && estBouleTerminee(boule) ? calculerFinDeBoule(boule) : null;
 
+/**
+ * Ce que le tableau de scores lit en plus des coups : l'ordre des joueurs à la
+ * table, la valeur d'un point, et les coups frichés ajoutés en route par les
+ * friches généralisées — ceux que la Boule suivante reprendrait.
+ */
+const configurationDuTableau = (
+  ordreJoueurs: readonly string[],
+  coupsFrichesDepart: number,
+  valeurPoint: string | null,
+  boule: Parameters<typeof estBouleTerminee>[0] | null,
+) => ({
+  ordreJoueurs: [...ordreJoueurs],
+  coupsFrichesDepart,
+  coupsFrichesEnPlus: boule === null ? null : surplusDeCoupsFriches(boule, coupsFrichesDepart),
+  valeurPoint,
+});
+
 /** Les coups archivés, tels que l'historique les montre. */
 const decrireCoups = (historique: readonly ResultatCoup[]) =>
   historique.map((coup) => ({
@@ -330,6 +363,12 @@ const historiqueDeLaBoule = async (
       statut: vivante.statut,
       coups: decrireCoups(vivante.boule?.historique ?? []),
       finDeBoule: finDe(vivante.boule),
+      ...configurationDuTableau(
+        vivante.joueurs.map((joueur) => joueur.id),
+        vivante.coupsFrichesDepart,
+        vivante.valeurPoint,
+        vivante.boule,
+      ),
       abandon: null,
     };
   }
@@ -354,6 +393,7 @@ const historiqueDeLaBoule = async (
           : 'terminee',
     coups: decrireCoups(bouleArchivee?.historique ?? []),
     finDeBoule: finDe(bouleArchivee),
+    ...configurationDuTableau(partie.joueursIds, partie.coupsFrichesDepart, partie.valeurPoint, bouleArchivee),
     abandon:
       partie.abandon === null
         ? null

@@ -175,6 +175,11 @@ export interface Table {
    * Réf. docs/REGLES.md § « Structure d'une Boule ».
    */
   readonly coupsFrichesDepart: number;
+  /**
+   * Valeur monétaire d'un point, en décimal (« 0.20 ») ; `null` : aucune.
+   * Sert à convertir les écarts de fin de Boule, rien d'autre.
+   */
+  readonly valeurPoint: string | null;
   /** Le délai qui court pour le joueur attendu, s'il y en a un. */
   attenteDeJeu: AttenteDeJeu | null;
   /** Annulation du minuteur d'abandon de tour en cours, s'il y en a un. */
@@ -215,6 +220,7 @@ export const decrireTablePublique = (table: Table) => ({
   joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
   delais: table.delais,
   coupsFrichesDepart: table.coupsFrichesDepart,
+  valeurPoint: table.valeurPoint,
 });
 
 /** La Boule d'une table dont la partie a démarré. */
@@ -299,6 +305,8 @@ export class GameRoomManager {
       readonly delais?: DelaisDeJeu;
       /** Coups frichés de départ ; 2 sans précision. */
       readonly coupsFrichesDepart?: number;
+      /** Valeur d'un point, décimal normalisé ; aucune sans précision. */
+      readonly valeurPoint?: string | null;
       readonly alea?: () => number;
     } = {},
   ): Promise<TableCreee> {
@@ -339,6 +347,7 @@ export class GameRoomManager {
       gestionDeconnexion,
       delais,
       coupsFrichesDepart,
+      valeurPoint: options.valeurPoint ?? null,
       attenteDeJeu: null,
       annulerMinuteur: null,
       joueurEnSursis: null,
@@ -359,6 +368,7 @@ export class GameRoomManager {
       gestionDeconnexion,
       delais,
       coupsFrichesDepart,
+      valeurPoint: options.valeurPoint ?? null,
     });
     await this.depot?.asseoirJoueur(tableId, createur.id, 0);
 
@@ -536,6 +546,7 @@ export class GameRoomManager {
         gestionDeconnexion: partie.gestionDeconnexion,
         delais: partie.delais,
         coupsFrichesDepart: partie.coupsFrichesDepart,
+        valeurPoint: partie.valeurPoint,
         attenteDeJeu: null,
         annulerMinuteur: null,
         joueurEnSursis: null,

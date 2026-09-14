@@ -289,6 +289,7 @@ describe('DepotPrisma', () => {
       gestionDeconnexion: { type: 'delai', dureeMs: 90000 },
       delais: { annonceMs: 60000, jeuMs: null, prolongationMs: 0 },
       coupsFrichesDepart: 3,
+      valeurPoint: '0.45',
     });
 
     expect(appels[0]?.args).toMatchObject({
@@ -304,6 +305,7 @@ describe('DepotPrisma', () => {
         delaiJeuMs: null,
         delaiProlongationMs: 0,
         coupsFrichesDepart: 3,
+        valeurPoint: '0.45',
       },
     });
   });

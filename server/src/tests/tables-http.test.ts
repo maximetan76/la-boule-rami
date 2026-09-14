@@ -215,6 +215,35 @@ describe('API des tables', () => {
       }
     });
 
+    it('garde une valeur de point facultative, normalisee, et la rend avec l historique', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const sansValeur = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 4 } });
+      expect(sansValeur.corps['valeurPoint']).toBeNull();
+
+      for (const [demandee, gardee] of [['0,20', '0.20'], [2.1, '2.1'], ['0.45', '0.45']] as const) {
+        const avec = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 4, valeurPoint: demandee } });
+        expect(avec.statut).toBe(201);
+        expect(avec.corps['valeurPoint']).toBe(gardee);
+      }
+      for (const invalide of ['-1', '0', 'deux', '1.23456', {}]) {
+        const refus = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 4, valeurPoint: invalide } });
+        expect(refus.statut).toBe(400);
+      }
+
+      // L'historique porte ce que le tableau de scores lit en plus des coups.
+      const table = await appeler('POST', '/tables', {
+        compte: ana,
+        corps: { nombreJoueurs: 2, valeurPoint: '0,20', coupsFrichesDepart: 3 },
+      });
+      const historique = await appeler('GET', `/tables/${table.corps['tableId'] as string}/historique`, { compte: ana });
+      expect(historique.corps).toMatchObject({
+        ordreJoueurs: [ana.id],
+        coupsFrichesDepart: 3,
+        coupsFrichesEnPlus: null,
+        valeurPoint: '0.20',
+      });
+    });
+
     it('refuse un delai trop court ou mal forme', async () => {
       const ana = await ouvrirCompte('001.ana', 'Ana');
       const tropCourt = await appeler('POST', '/tables', { compte: ana, corps: { delais: { jeuMs: 100 } } });
