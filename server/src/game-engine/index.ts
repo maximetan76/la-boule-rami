@@ -11,7 +11,7 @@ export {
   cartesDe,
   estCombinaisonValide,
   estEnsembleValide,
-  estTiercePure,
+  estTierceFranche,
   estTierceValidante,
   estTierceValide,
   DeclarationJokerRequiseError,

@@ -115,7 +115,7 @@ describe('jouerTour — piocher et défausser', () => {
 });
 
 describe('jouerTour — première pose', () => {
-  it('accepte une premiere pose a 54 points avec tierce pure', () => {
+  it('accepte une premiere pose a 54 points avec tierce franche', () => {
     const valets = troisValets();
     const suite = suiteCoeur();
     const main = [...valets, ...suite, c('pique', 2)];
@@ -354,7 +354,7 @@ describe('jouerTour — poser et ajouter dans le même tour', () => {
 
     const { coup: apres } = jouerTour(depart, 'j1', {
       source: 'pioche',
-      // 30 + 24 = 54 points avec une tierce pure : la premiere pose est valide.
+      // 30 + 24 = 54 points avec une tierce franche : la premiere pose est valide.
       poses: [ensemble('V', valets), tierce('coeur', suite)],
       ajouts: [{ combinaisonId: visible.id, cartes: [{ carte: septPique, remplace: null }] }],
       carteDefausseeId: main[7]!.id,
@@ -449,7 +449,7 @@ describe('jouerTour — double et triple', () => {
 
   it('retombe a double si un joker normal figure dans ses combinaisons', () => {
     // Le joker est dans le brelan, pas dans la tierce : la premiere pose reste
-    // valide (24 + 30 = 54 avec une tierce pure), mais le triple est perdu.
+    // valide (24 + 30 = 54 avec une tierce franche), mais le triple est perdu.
     const jokerValet = joker();
     const valets = [c('pique', 'V'), c('trefle', 'V'), jokerValet];
     const suite = suiteCoeur();
@@ -560,18 +560,18 @@ describe('jouerTour — pioche en défausse', () => {
   it('accepte la defausse en premiere pose quand le TOTAL des poses atteint 51', () => {
     // La carte de la defausse n'a pas a porter les 51 points a elle seule :
     // c'est la somme de ce qui est pose ensemble qui compte, comme pour toute
-    // premiere pose. Ici la tierce pure coeur 10-V-D vaut 30, et le brelan de
+    // premiere pose. Ici la tierce franche coeur 10-V-D vaut 30, et le brelan de
     // rois — forme avec le roi pris a la defausse — en vaut 33 : 63 au total.
     const roiDefausse = c('trefle', 'R');
-    const tiercePure = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D')];
+    const tierceFranche = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D')];
     const deuxRois = [c('pique', 'R'), c('coeur', 'R')];
-    const main = [...tiercePure, ...deuxRois, c('pique', 2)];
+    const main = [...tierceFranche, ...deuxRois, c('pique', 2)];
     const depart = coupJouable(main, { defausse: [roiDefausse] });
 
     const { coup: apres } = jouerTour(depart, 'j1', {
       source: 'defausse',
       poses: [
-        tierce('coeur', tiercePure),
+        tierce('coeur', tierceFranche),
         ensemble('R', [...deuxRois, roiDefausse]),
       ],
       carteDefausseeId: main[5]!.id,
@@ -582,18 +582,18 @@ describe('jouerTour — pioche en défausse', () => {
   });
 
   it('refuse quand le total des poses n atteint pas 51, meme carte de defausse utilisee', () => {
-    // Tierce pure coeur 3-4-5 (12) + brelan de 2 forme avec la carte prise
+    // Tierce franche coeur 3-4-5 (12) + brelan de 2 forme avec la carte prise
     // (6) : 18 points, loin des 51.
     const deuxDefausse = c('trefle', 2);
-    const tiercePure = [c('coeur', 3), c('coeur', 4), c('coeur', 5)];
+    const tierceFranche = [c('coeur', 3), c('coeur', 4), c('coeur', 5)];
     const deuxDeux = [c('pique', 2), c('coeur', 2)];
-    const main = [...tiercePure, ...deuxDeux, c('pique', 9)];
+    const main = [...tierceFranche, ...deuxDeux, c('pique', 9)];
     const depart = coupJouable(main, { defausse: [deuxDefausse] });
 
     expect(() =>
       jouerTour(depart, 'j1', {
         source: 'defausse',
-        poses: [tierce('coeur', tiercePure), ensemble(2, [...deuxDeux, deuxDefausse])],
+        poses: [tierce('coeur', tierceFranche), ensemble(2, [...deuxDeux, deuxDefausse])],
         carteDefausseeId: main[5]!.id,
       }),
     ).toThrow(/51/);
@@ -682,7 +682,7 @@ describe('jouerTour — fin de coup', () => {
 });
 
 describe('jouerTour — fin de coup automatique sans les conditions normales', () => {
-  it('accepte de poser les 14 cartes d un coup sans 51 points ni tierce pure', () => {
+  it('accepte de poser les 14 cartes d un coup sans 51 points ni tierce franche', () => {
     // 4 brelans (42 points, aucune tierce) + 2 cartes ajoutees a une suite
     // deja visible = 14 cartes posees. La pose ordinaire serait refusee.
     const brelans = [
@@ -772,7 +772,7 @@ describe('verifierFinDeCoupSpeciale', () => {
     tierce('pique', main.slice(9, 12)),
   ];
 
-  it('accepte 14 cartes posees d un coup, meme sans 51 points ni tierce pure requise', () => {
+  it('accepte 14 cartes posees d un coup, meme sans 51 points ni tierce franche requise', () => {
     const main = quatorzeCartes();
     const quinzieme = c('trefle', 8);
     const poses = posesCompletes(main);

@@ -503,7 +503,7 @@ describe('serveur socket.io', () => {
 
   /**
    * Réf. docs/REGLES.md § « Conditions pour poser » : la première pose exige 51
-   * points et une tierce pure. Le moteur ne le vérifie qu'à la défausse, quand
+   * points et une tierce franche. Le moteur ne le vérifie qu'à la défausse, quand
    * le tour est complet ; sans « annuler-pose », une pose refusee resterait
    * dans le tour et aucune defausse ne pourrait plus le clore.
    */
@@ -517,7 +517,7 @@ describe('serveur socket.io', () => {
     const joueur = espions.find((e) => e.joueurId === premier) as Espion;
 
     // Main installee pour le scenario : la tierce coeur 10-V-D-R-A vaut
-    // exactement 51 points et elle est pure, le reste ne forme rien.
+    // exactement 51 points et elle est franche, le reste ne forme rien.
     const tierce = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
     const autres = [
       c('pique', 2), c('trefle', 4), c('carreau', 6), c('pique', 8), c('trefle', 9),

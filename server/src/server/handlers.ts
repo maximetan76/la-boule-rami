@@ -808,7 +808,7 @@ export const enregistrerHandlers = (
           });
 
           // Le tour n'est qu'un brouillon : la validation complete (51 points,
-          // tierce pure, carte collante...) revient a `jouerTour`, au moment de
+          // tierce franche, carte collante...) revient a `jouerTour`, au moment de
           // defausser, quand l'action est complete et donc verifiable.
           tour.poses = [...tour.poses, ...poses];
           tour.ajouts = [...tour.ajouts, ...ajouts];

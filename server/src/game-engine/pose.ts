@@ -2,7 +2,7 @@
  * Validation de la première pose d'un joueur.
  *
  * Réf. `docs/REGLES.md` § « Conditions pour poser » : il faut réunir DEUX
- * conditions — au moins 51 points ET au moins une tierce pure. Le joker peut
+ * conditions — au moins 51 points ET au moins une tierce franche. Le joker peut
  * figurer dans les autres combinaisons posées en même temps, mais pas dans la
  * tierce qui valide la pose ; le coucou, lui, y est admis.
  */
@@ -62,7 +62,7 @@ export const peutPoser = (
  * Fin de coup automatique sans les conditions normales.
  *
  * § « Fin de coup automatique sans les conditions normales » : un joueur qui
- * n'a ni tierce pure ni 51 points gagne quand même le coup s'il pose la
+ * n'a ni tierce franche ni 51 points gagne quand même le coup s'il pose la
  * TOTALITÉ de ses 14 cartes d'un seul coup — seul, ou en s'aidant des
  * combinaisons déjà visibles — puis défausse la 15e carte qu'il vient de
  * piocher.

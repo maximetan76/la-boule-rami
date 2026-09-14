@@ -4,7 +4,7 @@
  * Réf. `docs/REGLES.md` § « Conditions pour poser » :
  * - une tierce est une suite de 3 à 5 cartes consécutives de la même couleur ;
  * - un brelan / carré réunit la même valeur en couleurs toutes différentes ;
- * - une tierce pure ne contient aucun joker ; le coucou est la seule exception
+ * - une tierce franche ne contient aucun joker ; le coucou est la seule exception
  *   admise dans la tierce qui valide une pose.
  */
 import type { Carte, Combinaison, CartePosee, Couleur, Tierce, Valeur } from '../models/index.js';
@@ -160,16 +160,16 @@ export const estCombinaisonProlongeeValide = (combinaison: Combinaison): boolean
     : estEnsembleValide(combinaison);
 
 /**
- * Tierce « pure » au sens littéral des règles : une tierce valide sans aucun
+ * Tierce « franche » au sens littéral des règles : une tierce valide sans aucun
  * joker dedans — le coucou compris.
  */
-export const estTiercePure = (combinaison: Combinaison): boolean =>
+export const estTierceFranche = (combinaison: Combinaison): boolean =>
   estTierceValide(combinaison) && !contientUnJoker(combinaison.cartes);
 
 /**
  * Tierce acceptable pour valider une première pose.
  *
- * C'est la tierce pure, plus la seule exception des règles : le coucou peut
+ * C'est la tierce franche, plus la seule exception des règles : le coucou peut
  * remplacer une carte même dans la tierce servant à valider la condition de
  * pose, contrairement au joker normal.
  */

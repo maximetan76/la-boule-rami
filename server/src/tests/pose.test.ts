@@ -7,7 +7,7 @@ import { c, coucou, coucouPour, ensemble, joker, jokerPour, tierce } from './fix
 
 /**
  * Réf. docs/REGLES.md § « Conditions pour poser » : il faut réunir DEUX
- * conditions cumulatives — au moins 51 points ET au moins une tierce pure.
+ * conditions cumulatives — au moins 51 points ET au moins une tierce franche.
  */
 
 const mainDe = (...cartes: Carte[]): Carte[] => cartes;
@@ -26,7 +26,7 @@ describe('peutPoser', () => {
     expect(peutPoser(mainDe(...quinte), [tierce('coeur', quinte)])).toBe(true);
   });
 
-  it('refuse en dessous de 51 points meme avec une tierce pure (30 + 18 = 48)', () => {
+  it('refuse en dessous de 51 points meme avec une tierce franche (30 + 18 = 48)', () => {
     const valets = [c('pique', 'V'), c('coeur', 'V'), c('trefle', 'V')];
     const suite = [c('coeur', 5), c('coeur', 6), c('coeur', 7)];
     const main = mainDe(...valets, ...suite);
@@ -71,11 +71,11 @@ describe('peutPoser', () => {
     expect(peutPoser(main, [tierce('coeur', quinte), ensemble('A', as)])).toBe(true);
   });
 
-  it('accepte une tierce pure accompagnee d une autre combinaison contenant un joker', () => {
-    // Explicitement autorise : « si le joueur a une tierce pure ET un joker dans
+  it('accepte une tierce franche accompagnee d une autre combinaison contenant un joker', () => {
+    // Explicitement autorise : « si le joueur a une tierce franche ET un joker dans
     // une autre combinaison posee en meme temps, c est autorise ».
-    // Tierce pure D-R-A de coeur = 31, brelan de valets avec joker = 10 + 10 + 10 = 30,
-    // soit 61 points : la tierce de validation est pure, le joker est ailleurs.
+    // Tierce franche D-R-A de coeur = 31, brelan de valets avec joker = 10 + 10 + 10 = 30,
+    // soit 61 points : la tierce de validation est franche, le joker est ailleurs.
     const suite = [c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
     const valets = [c('pique', 'V'), c('trefle', 'V'), joker()];
     const main = mainDe(...suite, ...valets);
@@ -84,7 +84,7 @@ describe('peutPoser', () => {
   });
 
   it('atteint les 51 points grace a la valeur de la carte remplacee par un joker', () => {
-    // Tierce V-joker(D)-R de pique = 30 et tierce pure 7-8-9 de coeur = 24, soit 54.
+    // Tierce V-joker(D)-R de pique = 30 et tierce franche 7-8-9 de coeur = 24, soit 54.
     // Avec un joker compte pour 0, le total serait de 44 et la pose refusee.
     const jokerDame = jokerPour('pique', 'D');
     const figures = [c('pique', 'V'), jokerDame, c('pique', 'R')];
@@ -143,7 +143,7 @@ describe('peutPoser', () => {
     // Le joker declare le 9 de coeur : la suite se lit 7-8-9 = 24 points,
     // + brelan de valets 30 = 54 points, avec une tierce validante ? non :
     // le joker normal exclut cette tierce de la validation, il faut une autre
-    // tierce pure. On en ajoute une : D-R-A de pique = 31.
+    // tierce franche. On en ajoute une : D-R-A de pique = 31.
     const jokerNeuf = jokerPour('coeur', 9);
     const suite = [c('coeur', 7), c('coeur', 8), jokerNeuf];
     const pure = [c('pique', 'D'), c('pique', 'R'), c('pique', 'A')];

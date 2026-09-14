@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculerValeurCombinaison,
   DeclarationJokerRequiseError,
-  estTiercePure,
+  estTierceFranche,
   estTierceValidante,
   estTierceValide,
 } from '../game-engine/combinaisons.js';
@@ -10,7 +10,7 @@ import { c, coucou, coucouPour, ensemble, joker, jokerPour, tierce } from './fix
 
 /**
  * Réf. docs/REGLES.md § « Conditions pour poser » (calcul des points, tierce,
- * tierce pure, exception du coucou) et § « Bonus quinte flush royale ».
+ * tierce franche, exception du coucou) et § « Bonus quinte flush royale ».
  */
 
 describe('calculerValeurCombinaison', () => {
@@ -222,26 +222,26 @@ describe('estTierceValide', () => {
   });
 });
 
-describe('estTiercePure', () => {
+describe('estTierceFranche', () => {
   it('est vraie pour une tierce valide sans aucun joker', () => {
-    expect(estTiercePure(tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)]))).toBe(true);
+    expect(estTierceFranche(tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)]))).toBe(true);
   });
 
   it('est fausse des qu un joker normal est present', () => {
-    expect(estTiercePure(tierce('coeur', [c('coeur', 7), jokerPour('coeur', 8), c('coeur', 9)]))).toBe(false);
+    expect(estTierceFranche(tierce('coeur', [c('coeur', 7), jokerPour('coeur', 8), c('coeur', 9)]))).toBe(false);
   });
 
   it('est fausse avec le coucou : « une tierce sans aucun joker dedans »', () => {
-    expect(estTiercePure(tierce('coeur', [c('coeur', 7), coucouPour('coeur', 8), c('coeur', 9)]))).toBe(false);
+    expect(estTierceFranche(tierce('coeur', [c('coeur', 7), coucouPour('coeur', 8), c('coeur', 9)]))).toBe(false);
   });
 
   it('est fausse si la tierce n est pas valide', () => {
-    expect(estTiercePure(tierce('coeur', [c('coeur', 2), c('coeur', 5), c('coeur', 9)]))).toBe(false);
+    expect(estTierceFranche(tierce('coeur', [c('coeur', 2), c('coeur', 5), c('coeur', 9)]))).toBe(false);
   });
 });
 
 describe('estTierceValidante', () => {
-  it('accepte une tierce pure', () => {
+  it('accepte une tierce franche', () => {
     expect(estTierceValidante(tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)]))).toBe(true);
   });
 

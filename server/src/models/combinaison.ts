@@ -52,7 +52,7 @@ export interface Tierce extends CombinaisonBase {
   readonly type: 'tierce';
   readonly couleur: Couleur;
   /**
-   * Cache de `estTiercePure()` figé au moment de la pose : aucun joker ni
+   * Cache de `estTierceFranche()` figé au moment de la pose : aucun joker ni
    * coucou dans la combinaison. La fonction du moteur reste la référence.
    */
   readonly pure: boolean;

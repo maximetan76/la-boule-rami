@@ -226,7 +226,7 @@ export const jouerTour = (
     }
     if (poses.length > 0 && !peutPoser(mainApresPioche, poses)) {
       throw new Error(
-        `Premiere pose invalide : il faut au moins ${String(SEUIL_POSE)} points et une tierce pure`,
+        `Premiere pose invalide : il faut au moins ${String(SEUIL_POSE)} points et une tierce franche`,
       );
     }
   }
