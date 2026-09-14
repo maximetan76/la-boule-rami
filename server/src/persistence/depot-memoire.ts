@@ -4,14 +4,15 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { JoueurId } from '../models/index.js';
-import type {
-  AbandonEnregistre,
-  Depot,
-  JoueurEnregistre,
-  MotifFin,
-  NouvellePartie,
-  PartieEnregistree,
-  PartieRechargee,
+import {
+  PSEUDO_COMPTE_SUPPRIME,
+  type AbandonEnregistre,
+  type Depot,
+  type JoueurEnregistre,
+  type MotifFin,
+  type NouvellePartie,
+  type PartieEnregistree,
+  type PartieRechargee,
 } from './depot.js';
 import type { EtatBoulePersiste } from './serialisation.js';
 
@@ -51,6 +52,21 @@ export class DepotMemoire implements Depot {
     const renomme: JoueurEnregistre = { ...joueur, pseudo };
     this.joueurs.set(id, renomme);
     return Promise.resolve(renomme);
+  }
+
+  anonymiserJoueur(id: JoueurId, identifiantRemplacant: string): Promise<JoueurEnregistre> {
+    const joueur = this.joueurs.get(id);
+    if (joueur === undefined) throw new Error(`Joueur ${id} introuvable`);
+
+    this.parApple.delete(joueur.identifiantApple);
+    const anonyme: JoueurEnregistre = {
+      ...joueur,
+      identifiantApple: identifiantRemplacant,
+      pseudo: PSEUDO_COMPTE_SUPPRIME,
+      supprimeLe: new Date(),
+    };
+    this.joueurs.set(id, anonyme);
+    return Promise.resolve(anonyme);
   }
 
   creerPartie(partie: NouvellePartie): Promise<PartieEnregistree> {

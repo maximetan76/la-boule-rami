@@ -113,6 +113,7 @@ récupère et met en cache tout seul.
 | `POST` | `/tables/:id/quitter` | libère sa place dans un salon pas encore démarré |
 | `POST` | `/tables/:id/abandonner` | clôt définitivement une partie interrompue |
 | `PATCH` | `/joueur/pseudo` | change le pseudo du joueur |
+| `DELETE` | `/joueur/compte` | supprime le compte du joueur, par anonymisation |
 | `GET` | `/sante` | sonde de disponibilité |
 
 Toutes sauf `/auth/*` et `/sante` attendent l'en-tête
@@ -126,6 +127,13 @@ encore connectés au moment où l'un d'eux abandonne.
 `quitter` et `abandonner` ne se confondent pas : on quitte un salon qui n'a pas
 démarré, en laissant la table vivre sans soi ; on abandonne une partie
 commencée, ce qui la clôt pour tout le monde.
+
+`DELETE /joueur/compte` n'efface aucune partie : une partie en cours est
+d'abord abandonnée au nom du joueur, un salon quitté ; puis le compte perd son
+identifiant Apple et son pseudo (« Joueur supprimé »), ses sessions sont
+refusées partout — HTTP, renouvellement, WebSocket — et ses connexions ouvertes
+coupées. Une nouvelle connexion avec le même identifiant Apple ouvre un compte
+neuf. Les parties archivées restent lisibles par les autres joueurs.
 
 `GET /tables/moi` est le point d'entrée d'un client qui n'a gardé que son jeton
 de session — après un redémarrage du serveur ou une réinstallation de l'app. Il

@@ -19,6 +19,9 @@ model Joueur {
   identifiantApple String   @unique
   pseudo           String
   creeLe           DateTime @default(now())
+  /// Compte supprimé à la demande du joueur : identifiant Apple détaché,
+  /// pseudo anonymisé, sessions refusées. Ses parties archivées restent.
+  supprimeLe       DateTime?
 
   parties JoueurSurPartie[]
 

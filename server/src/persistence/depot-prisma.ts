@@ -17,6 +17,7 @@ import type {
   PartieRechargee,
 } from './depot.js';
 import { deserialiserBoule, serialiserBoule, type EtatBoulePersiste } from './serialisation.js';
+import { PSEUDO_COMPTE_SUPPRIME } from './depot.js';
 import type { JoueurId } from '../models/index.js';
 
 /** Forme d'une partie telle que Prisma la rend, places comprises. */
@@ -105,6 +106,13 @@ export class DepotPrisma implements Depot {
 
   async renommerJoueur(id: JoueurId, pseudo: string): Promise<JoueurEnregistre> {
     return this.prisma.joueur.update({ where: { id }, data: { pseudo } });
+  }
+
+  async anonymiserJoueur(id: JoueurId, identifiantRemplacant: string): Promise<JoueurEnregistre> {
+    return this.prisma.joueur.update({
+      where: { id },
+      data: { identifiantApple: identifiantRemplacant, pseudo: PSEUDO_COMPTE_SUPPRIME, supprimeLe: new Date() },
+    });
   }
 
   async creerPartie(partie: NouvellePartie): Promise<PartieEnregistree> {

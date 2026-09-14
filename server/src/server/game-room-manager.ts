@@ -522,6 +522,17 @@ export class GameRoomManager {
     return table;
   }
 
+  /** Les tables vivantes où le joueur a une place : salons et parties en cours. */
+  tablesDuJoueur(joueurId: JoueurId): Table[] {
+    return [...this.tables.values()].filter((table) => table.connexions.has(joueurId));
+  }
+
+  /** Le compte a-t-il été supprimé ? Sans dépôt, aucun ne l'est. */
+  async compteSupprime(joueurId: JoueurId): Promise<boolean> {
+    const joueur = (await this.depot?.trouverJoueur(joueurId)) ?? null;
+    return joueur !== null && (joueur.supprimeLe ?? null) !== null;
+  }
+
   /** Répercute un changement de pseudo sur les tables où le joueur est assis. */
   renommerDansLesTables(joueurId: JoueurId, pseudo: string): void {
     for (const table of this.tables.values()) {

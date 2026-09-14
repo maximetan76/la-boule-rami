@@ -3,11 +3,12 @@
  *
  * Tout ce qui touche au jeu passe par les sockets ; le HTTP sert à ce qui se
  * fait hors table — s'authentifier, ouvrir un salon, le rejoindre par code,
- * abandonner une partie, changer de pseudo.
+ * abandonner une partie, changer de pseudo, supprimer son compte.
  */
 import { decrireTablePublique } from './game-room-manager.js';
 import { COUPS_PAR_NOMBRE_DE_JOUEURS, NOMBRE_COUPS_MAX, NOMBRE_COUPS_MIN } from '../models/index.js';
 import { calculerFinDeBoule, estBouleTerminee, surplusDeCoupsFriches } from '../game-engine/index.js';
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifierJetonApple, type ConfigApple } from '../auth/apple.js';
 import {
@@ -49,6 +50,8 @@ export interface DependancesHttp {
    * Sans cela, l'app ne l'apprendrait qu'au prochain `GET /tables/moi`.
    */
   readonly annoncerAbandon?: (socketIds: readonly string[], charge: unknown) => void;
+  /** Coupe toutes les connexions encore ouvertes d'un joueur : son compte vient d'être supprimé. */
+  readonly deconnecterJoueur?: (joueurId: string) => void;
 }
 
 /** Erreur destinée au client, avec le code HTTP qui va avec. */
@@ -111,6 +114,8 @@ const authentifier = async (
 
   const joueur = await deps.depot.trouverJoueur(joueurId);
   if (joueur === null) throw new ErreurHttp(401, 'Compte inconnu');
+  // Un jeton signé avant la suppression du compte ne vaut plus rien.
+  if ((joueur.supprimeLe ?? null) !== null) throw new ErreurHttp(401, 'Compte supprime');
   return joueur;
 };
 
@@ -466,6 +471,37 @@ const changerPseudo = async (
   return { joueur: { id: renomme.id, pseudo: renomme.pseudo } };
 };
 
+/**
+ * Supprime le compte de l'appelant, par anonymisation.
+ *
+ * Une partie en cours s'abandonne d'abord, au nom du joueur : aucune table ne
+ * reste à attendre quelqu'un qui ne reviendra pas. Un salon se quitte. Le
+ * compte perd ensuite son identifiant Apple — une prochaine connexion Apple en
+ * ouvre un neuf — et son pseudo ; plus aucune session ne l'ouvre, et ses
+ * connexions encore ouvertes sont coupées. Les parties archivées restent,
+ * lisibles par les autres joueurs sous « Joueur supprimé ».
+ */
+const supprimerCompte = async (deps: DependancesHttp, joueur: JoueurEnregistre): Promise<unknown> => {
+  for (const table of deps.manager.tablesDuJoueur(joueur.id)) {
+    if (table.statut === 'salon') {
+      const restante = await deps.manager.quitterSalon(table.id, joueur.id);
+      if (restante.joueurs.length > 0) deps.notifier?.(restante);
+    } else if (table.statut === 'en-cours') {
+      const { socketsPrevenues } = await deps.manager.abandonner(table.id, joueur.id);
+      deps.annoncerAbandon?.(socketsPrevenues, {
+        tableId: table.id,
+        motif: 'abandon',
+        parJoueurId: joueur.id,
+        termineeLe: new Date().toISOString(),
+      });
+    }
+  }
+
+  await deps.depot.anonymiserJoueur(joueur.id, `supprime:${randomUUID()}`);
+  deps.deconnecterJoueur?.(joueur.id);
+  return { ok: true };
+};
+
 /** Résumé de Boule, pour un client qui reprend une partie sans coup distribué. */
 const resumerBoule = (table: Table) =>
   table.boule === null
@@ -625,11 +661,20 @@ export const gererRequeteHttp =
       if (methode === 'POST' && chemin === '/auth/renouveler') {
         const jeton = texteOuNull((await lireCorps(requete))['jeton']);
         if (jeton === null) throw new ErreurHttp(401, 'Jeton manquant');
+        let renouvele: string;
+        let joueurId: string;
         try {
-          return { code: 200, corps: { jetonSession: await renouvelerJetonSession(jeton, deps.session) } };
+          ({ joueurId } = await verifierJetonSession(jeton, deps.session));
+          renouvele = await renouvelerJetonSession(jeton, deps.session);
         } catch {
           throw new ErreurHttp(401, 'Jeton de session refuse');
         }
+        // Un compte supprimé ne se prolonge pas.
+        const joueur = await deps.depot.trouverJoueur(joueurId);
+        if (joueur === null || (joueur.supprimeLe ?? null) !== null) {
+          throw new ErreurHttp(401, 'Jeton de session refuse');
+        }
+        return { code: 200, corps: { jetonSession: renouvele } };
       }
 
       if (methode === 'GET' && chemin === '/tables') {
@@ -666,6 +711,10 @@ export const gererRequeteHttp =
       if (methode === 'GET' && historique !== null) {
         const joueur = await authentifier(requete, deps);
         return { code: 200, corps: await historiqueDeLaBoule(historique[1] as string, deps, joueur) };
+      }
+
+      if (methode === 'DELETE' && chemin === '/joueur/compte') {
+        return { code: 200, corps: await supprimerCompte(deps, await authentifier(requete, deps)) };
       }
 
       if (methode === 'PATCH' && chemin === '/joueur/pseudo') {

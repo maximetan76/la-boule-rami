@@ -698,6 +698,10 @@ export const enregistrerHandlers = (
 
         // L'identité vient du jeton de session, jamais du client lui-même.
         const { joueurId } = await verifierJetonSession(payload.jeton, session);
+        // Un compte supprimé n'ouvre plus rien, même avec un jeton encore signé.
+        if (await manager.compteSupprime(joueurId)) throw new Error('Compte supprime');
+        // Pour couper toutes ses connexions si le compte est supprimé.
+        socket.data.joueurId = joueurId;
         const quittee = manager.tableDeLaSocket(socket.id);
         const table = manager.attacherSocket(payload.tableId, joueurId, socket.id);
         // La table que cette connexion suivait vient de la perdre : ses

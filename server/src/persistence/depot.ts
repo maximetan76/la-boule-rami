@@ -45,7 +45,12 @@ export interface JoueurEnregistre {
   readonly identifiantApple: string;
   readonly pseudo: string;
   readonly creeLe: Date;
+  /** Renseignée pour un compte supprimé : plus aucune session ne l'ouvre. */
+  readonly supprimeLe?: Date | null;
 }
+
+/** Le pseudo d'un compte supprimé, tel que le voient les autres joueurs. */
+export const PSEUDO_COMPTE_SUPPRIME = 'Joueur supprimé';
 
 /** Pourquoi une partie s'est arrêtée. */
 export type MotifFin = 'abandon' | 'achevee';
@@ -122,6 +127,13 @@ export interface Depot {
   trouverOuCreerJoueurApple(identifiantApple: string, pseudo: string): Promise<JoueurEnregistre>;
   trouverJoueur(id: JoueurId): Promise<JoueurEnregistre | null>;
   renommerJoueur(id: JoueurId, pseudo: string): Promise<JoueurEnregistre>;
+  /**
+   * Anonymise un compte : l'identifiant Apple est remplacé — une prochaine
+   * connexion Apple crée un nouveau compte —, le pseudo aussi, et le compte
+   * est daté comme supprimé. Ses places aux parties sont conservées : les
+   * archives partagées restent lisibles par les autres joueurs.
+   */
+  anonymiserJoueur(id: JoueurId, identifiantRemplacant: string): Promise<JoueurEnregistre>;
 
   creerPartie(partie: NouvellePartie): Promise<PartieEnregistree>;
   trouverPartieParCode(codeInvitation: string): Promise<PartieEnregistree | null>;

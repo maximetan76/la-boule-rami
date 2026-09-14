@@ -105,6 +105,11 @@ export const creerServeur = (options: OptionsServeur = {}): Serveur => {
       annoncerAbandon: (socketIds, charge) => {
         for (const socketId of socketIds) io?.to(socketId).emit('partie-abandonnee', charge);
       },
+      deconnecterJoueur: (joueurId) => {
+        for (const socket of io?.sockets.sockets.values() ?? []) {
+          if (socket.data.joueurId === joueurId) socket.disconnect(true);
+        }
+      },
     }),
   );
 
