@@ -31,6 +31,7 @@ import {
   calculerScoreCoup,
   detecterDoubleOuTriple,
   enregistrerResultatCoup,
+  calculerFinDeBoule,
   estBouleTerminee,
   estJoker,
   jouerTour,
@@ -269,6 +270,10 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
   // `filtrerEtatPourJoueur` ne s'en sert que pour lui.
   const echanges = table.tourEnCours === null ? null : vueDesEchanges(coup, table.tourEnCours);
   const echeance = echeanceFiltree(table, coup);
+  // La Boule complète, son décompte part avec chaque état : pendant l'entracte
+  // du dernier coup, puis une fois la partie close.
+  const finDeBoule =
+    table.boule !== null && estBouleTerminee(table.boule) ? calculerFinDeBoule(table.boule) : null;
 
   for (const joueurId of connectes) {
     const socketId = manager.socketDe(table, joueurId);
@@ -285,6 +290,7 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         tirageOuverture: tirageFiltre(table),
         jokersGardes: (table.jokersGardes.get(joueurId) ?? []).map((joker) => joker.id),
         jokersConserves: Object.fromEntries(table.jokersGardes),
+        finDeBoule,
         echeance,
       }),
     );

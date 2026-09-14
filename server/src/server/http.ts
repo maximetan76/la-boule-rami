@@ -5,6 +5,7 @@
  * fait hors table — s'authentifier, ouvrir un salon, le rejoindre par code,
  * abandonner une partie, changer de pseudo.
  */
+import { calculerFinDeBoule, estBouleTerminee } from '../game-engine/index.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifierJetonApple, type ConfigApple } from '../auth/apple.js';
 import {
@@ -276,6 +277,10 @@ const abandonner = async (
  * les combinaisons étaient face visible, et les mains ont été révélées à
  * l'entracte de chaque coup. Le coup en cours, lui, n'y figure jamais.
  */
+/** Le décompte d'une Boule dont tous les coups sont joués ; `null` avant, ou après un abandon. */
+const finDe = (boule: Parameters<typeof estBouleTerminee>[0] | null) =>
+  boule !== null && estBouleTerminee(boule) ? calculerFinDeBoule(boule) : null;
+
 /** Les coups archivés, tels que l'historique les montre. */
 const decrireCoups = (historique: readonly ResultatCoup[]) =>
   historique.map((coup) => ({
@@ -314,6 +319,7 @@ const historiqueDeLaBoule = async (
       tableId,
       statut: vivante.statut,
       coups: decrireCoups(vivante.boule?.historique ?? []),
+      finDeBoule: finDe(vivante.boule),
       abandon: null,
     };
   }
@@ -321,6 +327,7 @@ const historiqueDeLaBoule = async (
   const archive = await deps.depot.chargerArchive(tableId);
   if (archive === null) throw new ErreurHttp(404, 'Table introuvable');
   const { partie } = archive;
+  const bouleArchivee = archive.etatBoule === null ? null : deserialiserBoule(archive.etatBoule);
   if (!partie.joueursIds.includes(joueur.id)) {
     throw new ErreurHttp(403, "Vous n'etes pas a cette table");
   }
@@ -335,7 +342,8 @@ const historiqueDeLaBoule = async (
         : partie.motifFin === 'abandon'
           ? 'abandonnee'
           : 'terminee',
-    coups: decrireCoups(archive.etatBoule === null ? [] : deserialiserBoule(archive.etatBoule).historique),
+    coups: decrireCoups(bouleArchivee?.historique ?? []),
+    finDeBoule: finDe(bouleArchivee),
     abandon:
       partie.abandon === null
         ? null

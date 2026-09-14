@@ -313,3 +313,22 @@ describe('filtrerEtatPourJoueur — jokers conserves d une friche generalisee', 
     expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').jokersConserves).toEqual({});
   });
 });
+
+describe('filtrerEtatPourJoueur — fin de Boule', () => {
+  it('transmet le decompte de fin de Boule tel quel, croix et ecarts compris', () => {
+    const finDeBoule = {
+      scoresCumules: { j1: 120, j2: 300 },
+      gagnantsIds: ['j1'],
+      bonusVictoire: { j1: -100, j2: 0 },
+      penalitesCroix: { j1: 0, j2: -200 },
+      scoresFinaux: { j1: 20, j2: 100 },
+      ecarts: { j1: { j2: 80 }, j2: { j1: -80 } },
+    };
+    const filtre = filtrerEtatPourJoueur(etatComplet(), boule(), 'j2', { finDeBoule });
+    expect(filtre.finDeBoule).toEqual(finDeBoule);
+  });
+
+  it('reste vide tant que la Boule n est pas complete', () => {
+    expect(filtrerEtatPourJoueur(etatComplet(), boule(), 'j1').finDeBoule).toBeNull();
+  });
+});

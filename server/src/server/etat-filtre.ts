@@ -135,6 +135,8 @@ export interface EcheanceFiltree {
   readonly dureeMs: number;
 }
 
+import type { ResultatBoule } from '../models/index.js';
+
 /** Ce qu'un joueur a gardé d'une friche généralisée : combien, jamais lesquels. */
 export interface JokersConservesFiltres {
   readonly jokers: number;
@@ -201,6 +203,12 @@ export interface EtatCoupFiltre {
    * tour, et muet sur qui n'a rien gardé.
    */
   readonly jokersConserves: Record<JoueurId, JokersConservesFiltres>;
+  /**
+   * Le décompte de fin de Boule, dès que tous ses coups sont joués : scores
+   * cumulés, bonus de victoire, pénalités de croix, scores finaux et écarts
+   * entre joueurs. Réf. docs/REGLES.md § « Fin de la Boule ». `null` avant.
+   */
+  readonly finDeBoule: ResultatBoule | null;
   readonly boule: {
     readonly nombreCoupsTotal: number;
     readonly nombreCoupsFriches: number;
@@ -242,6 +250,8 @@ export const filtrerEtatPourJoueur = (
     readonly jokersGardes?: readonly string[];
     /** Les cartes gardées par chacun à la friche généralisée. */
     readonly jokersConserves?: Readonly<Record<JoueurId, readonly Carte[]>>;
+    /** Le décompte de fin de Boule, si elle est complète. */
+    readonly finDeBoule?: ResultatBoule | null;
     readonly echeance?: EcheanceFiltree | null;
   } = {},
 ): EtatCoupFiltre => {
@@ -255,6 +265,7 @@ export const filtrerEtatPourJoueur = (
     jokersGardes = [],
     jokersConserves = {},
     echeance = null,
+    finDeBoule = null,
   } = options;
 
   // Le rappel tient le temps du premier tour de table : le tour ne passe au
@@ -328,6 +339,7 @@ export const filtrerEtatPourJoueur = (
     tirageOuverture,
     echeance,
     jokersConserves: conserves,
+    finDeBoule,
     boule: {
       nombreCoupsTotal: boule.nombreCoupsTotal,
       nombreCoupsFriches: boule.nombreCoupsFriches,
