@@ -15,6 +15,7 @@
  * Sans cela, un client pourrait déclarer un 7 de cœur porteur de l'identifiant
  * d'un 2 de pique qu'il détient.
  */
+import { COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
 import type { Server, Socket } from 'socket.io';
 import type {
   Annonce,
@@ -32,6 +33,7 @@ import {
   detecterDoubleOuTriple,
   enregistrerResultatCoup,
   calculerFinDeBoule,
+  coupsFrichesPourLaSuivante,
   estBouleTerminee,
   estJoker,
   jouerTour,
@@ -45,6 +47,7 @@ import type { AttenteDeJeu, TourEnCours } from './game-room-manager.js';
 import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
 import {
   bouleEnCours,
+  decrireTablePublique,
   demarrerCoup,
   GameRoomManager,
   redistribuerCoup,
@@ -351,6 +354,8 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
     derniereCoup: resultat.derniereCoup,
     poseFinale: [...(resultat.poseFinale ?? [])],
     carteDefaussee: resultat.carteDefaussee ?? null,
+    rejouer: [...resultat.rejouer],
+    rejouerAnnulePar: resultat.rejouerAnnulePar,
   };
 };
 
@@ -395,6 +400,8 @@ const cloturerCoup = async (
     poseFinale: [...poseFinale],
     // La défausse qui a clos le coup : la carte du dessus est la sienne.
     carteDefaussee: poseFinale.length === 0 && coup.defausse.length === 0 ? null : (coup.defausse.at(-1) ?? null),
+    rejouer: [],
+    rejouerAnnulePar: null,
   };
 };
 
@@ -404,15 +411,68 @@ const cloturerCoup = async (
  * N'est appelée qu'une fois tous les joueurs prêts — c'est le sens même de
  * l'entracte.
  */
-const enchainer = async (manager: GameRoomManager, table: Table): Promise<void> => {
-  const derniere = table.resultatCoup?.derniereCoup ?? false;
+const enchainer = async (io: Server, manager: GameRoomManager, table: Table): Promise<void> => {
+  const resultat = table.resultatCoup;
+  const derniere = resultat?.derniereCoup ?? false;
+  const rejouer =
+    resultat !== null &&
+    resultat.rejouerAnnulePar === null &&
+    table.joueurs.every((joueur) => resultat.rejouer.includes(joueur.id));
   table.resultatCoup = null;
 
   if (derniere) {
     await manager.cloreLaPartie(table);
+    if (rejouer) await rejouerAvecLeGroupe(io, manager, table);
     return;
   }
   demarrerCoup(table);
+};
+
+/**
+ * Relance une Boule avec le même groupe, tous l'ayant confirmé.
+ *
+ * Une nouvelle table naît avec les mêmes joueurs, assis d'office — sans code à
+ * saisir —, et la même configuration : places, délais, gestion des
+ * déconnexions. Seuls les coups frichés de départ changent : les 2 par défaut,
+ * plus le surplus que les friches généralisées ont ajouté pendant la Boule qui
+ * s'achève. Chaque joueur reçoit `nouvelle-table` et y bascule.
+ */
+const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: Table): Promise<void> => {
+  const createur = table.joueurs.find((joueur) => joueur.id === table.createurId) ?? table.joueurs[0];
+  if (createur === undefined) return;
+
+  const coupsFrichesDepart = coupsFrichesPourLaSuivante(
+    bouleEnCours(table),
+    table.coupsFrichesDepart,
+    COUPS_PAR_NOMBRE_DE_JOUEURS[table.capacite] ?? 0,
+  );
+  const creee = await manager.creerTable(
+    { id: createur.id, pseudo: createur.nom },
+    {
+      capacite: table.capacite,
+      gestionDeconnexion: table.gestionDeconnexion,
+      delais: table.delais,
+      coupsFrichesDepart,
+      alea: table.alea,
+    },
+  );
+  // La dernière place prise démarre la partie, comme dans un salon ordinaire.
+  for (const joueur of table.joueurs) {
+    if (joueur.id === createur.id) continue;
+    await manager.rejoindreParCode(creee.codeInvitation, { id: joueur.id, pseudo: joueur.nom });
+  }
+
+  const description = decrireTablePublique(manager.table(creee.tableId));
+  const annoncer = (): void => {
+    for (const joueur of table.joueurs) {
+      const socketId = manager.socketDe(table, joueur.id);
+      if (socketId !== null) io.to(socketId).emit('nouvelle-table', { ancienneTableId: table.id, table: description });
+    }
+  };
+  // Après l'acquittement de la dernière confirmation : l'app ferme la connexion
+  // de l'ancienne table dès qu'elle reçoit l'annonce, et un acquittement parti
+  // derrière elle serait perdu — « le serveur n'a pas répondu ».
+  setImmediate(annoncer);
 };
 
 /**
@@ -1032,13 +1092,57 @@ export const enregistrerHandlers = (
         }
         // Une confirmation pour un coup déjà passé ne vaut rien pour celui-ci.
         if (numero !== null && numero !== resultat.numero) return;
+        // Au dernier coup, confirmer, c'est « Terminer la Boule » : renoncer à
+        // la rejouer, pour tous — même après avoir voulu rejouer.
+        const renonce = resultat.derniereCoup && resultat.rejouerAnnulePar === null;
+        if (renonce) resultat.rejouerAnnulePar = joueurId;
         // Déjà prêt : la seconde confirmation est simplement acquittée.
-        if (resultat.prets.includes(joueurId)) return;
+        if (resultat.prets.includes(joueurId)) {
+          if (renonce) publier(io, manager, table);
+          return;
+        }
         resultat.prets = [...resultat.prets, joueurId];
 
         const attendus = table.joueurs.map((joueur) => joueur.id);
         if (attendus.every((id) => resultat.prets.includes(id))) {
-          await enchainer(manager, table);
+          await enchainer(io, manager, table);
+        }
+        publier(io, manager, table);
+      });
+    });
+
+    /**
+     * Rejouer une Boule avec le même groupe, une fois la sienne terminée.
+     *
+     * Chacun confirme depuis la fin de Boule ; tant que tous ne l'ont pas
+     * fait, rien ne se passe, et l'état dit qui a confirmé. Un seul « Terminer
+     * la Boule » y renonce pour tous. Confirmer vaut aussi « prêt » : la Boule
+     * se clôt dès que chacun a répondu, par une nouvelle table si tous veulent
+     * rejouer, sinon comme d'habitude.
+     */
+    socket.on('rejouer', (payload: { numero?: unknown } | undefined, ack: unknown) => {
+      repondre(ack, async () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const resultat = table.resultatCoup;
+        const numero = typeof payload?.numero === 'number' ? payload.numero : null;
+
+        if (resultat === null) {
+          // Un doublon arrivé après la relance : sans objet, pas en faute.
+          if (numero !== null && (table.boule?.historique.length ?? 0) >= numero) return;
+          throw new Error('Aucune Boule terminee a rejouer');
+        }
+        if (numero !== null && numero !== resultat.numero) return;
+        if (!resultat.derniereCoup) throw new Error("La Boule n'est pas terminee");
+        if (resultat.rejouerAnnulePar !== null) {
+          const nom = table.joueurs.find((joueur) => joueur.id === resultat.rejouerAnnulePar)?.nom;
+          throw new Error(`Pas de nouvelle partie : ${nom ?? resultat.rejouerAnnulePar} a choisi de terminer`);
+        }
+        if (!resultat.rejouer.includes(joueurId)) resultat.rejouer = [...resultat.rejouer, joueurId];
+        if (!resultat.prets.includes(joueurId)) resultat.prets = [...resultat.prets, joueurId];
+
+        const attendus = table.joueurs.map((joueur) => joueur.id);
+        if (attendus.every((id) => resultat.prets.includes(id))) {
+          await enchainer(io, manager, table);
         }
         publier(io, manager, table);
       });

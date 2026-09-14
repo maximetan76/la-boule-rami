@@ -129,6 +129,10 @@ export interface ResultatCoupEnAttente {
   readonly poseFinale?: readonly CarteId[];
   /** La carte jetée par le gagnant pour finir, s'il en a jeté une. */
   readonly carteDefaussee?: Carte | null;
+  /** Dernier coup : les joueurs qui veulent rejouer une Boule avec ce groupe. */
+  rejouer: JoueurId[];
+  /** Dernier coup : qui a choisi de terminer — plus de nouvelle Boule pour personne. */
+  rejouerAnnulePar: JoueurId | null;
 }
 
 /** Le délai de jeu qui court pour le joueur attendu. */
@@ -200,6 +204,18 @@ export interface TableCreee {
   readonly codeInvitation: string;
   readonly capacite: number;
 }
+
+/** Une table telle que la décrivent l'API et l'annonce d'une nouvelle table. */
+export const decrireTablePublique = (table: Table) => ({
+  tableId: table.id,
+  codeInvitation: table.codeInvitation,
+  capacite: table.capacite,
+  statut: table.statut,
+  createurId: table.createurId,
+  joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
+  delais: table.delais,
+  coupsFrichesDepart: table.coupsFrichesDepart,
+});
 
 /** La Boule d'une table dont la partie a démarré. */
 export const bouleEnCours = (table: Table): Boule => {

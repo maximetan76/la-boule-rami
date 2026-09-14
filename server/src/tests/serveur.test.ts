@@ -800,6 +800,92 @@ describe('serveur socket.io', () => {
     expect(serveur.manager.table(tableId).boule?.historique[0]?.poseFinale).toEqual([dix.id]);
   });
 
+  /** Mène une table au dernier entracte : Boule d'un seul coup, gagné par le premier joueur. */
+  const finirLaBoule = async (options: { coupsFrichesDepart?: number; frichesAjoutees?: number } = {}) => {
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, {
+      alea: aleaFixe(),
+      ...(options.coupsFrichesDepart === undefined ? {} : { coupsFrichesDepart: options.coupsFrichesDepart }),
+    });
+    for (const joueur of JOUEURS) await connecter(tableId, joueur.id);
+    await attendrePremiersEtats(espions);
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null || table.boule === null) throw new Error('coup absent');
+    // Les friches généralisées ajoutées en route, simulées sur le compteur.
+    table.boule = {
+      ...table.boule,
+      nombreCoupsTotal: 1,
+      nombreCoupsFriches: table.coupsFrichesDepart + (options.frichesAjoutees ?? 0),
+    };
+    const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId, JoueurId];
+    const suite = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)], second);
+    const dix = c('coeur', 10);
+    const aJeter = c('pique', 2);
+    table.coup.combinaisons = [suite];
+    table.coup.mains[premier] = [dix];
+    table.coup.pioche.unshift(aJeter);
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+    const joueur = espions.find((espion) => espion.joueurId === premier) as Espion;
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    await emettre(joueur.socket, 'poser', { ajouts: [{ combinaisonId: suite.id, cartes: [{ carteId: dix.id }] }] });
+    await agir(joueur, 'defausser', { carteId: aJeter.id });
+    expect(table.resultatCoup?.derniereCoup).toBe(true);
+    return { table, numero: table.resultatCoup?.numero };
+  };
+  const annonceDeNouvelleTable = (espion: Espion) =>
+    espion.recus.find((recu) => typeof recu === 'object' && recu !== null && 'ancienneTableId' in recu) as
+      | { ancienneTableId: string; table: { tableId: string; statut: string; coupsFrichesDepart: number } }
+      | undefined;
+
+  it('rejoue une Boule avec le meme groupe quand tous confirment, surplus de friches reporte', async () => {
+    // Départ à 1, trois friches généralisées : 4 en fin de Boule, 3 en plus.
+    const { table, numero } = await finirLaBoule({ coupsFrichesDepart: 1, frichesAjoutees: 3 });
+    const [ana, bo, cy] = espions as [Espion, Espion, Espion];
+
+    expect((await agir(ana, 'rejouer', { numero })).ok).toBe(true);
+    // Rien ne se passe tant que tous n'ont pas confirmé, et chacun voit qui l'a fait.
+    expect(table.statut).toBe('en-cours');
+    expect(bo.dernierEtat?.resultat?.rejouer).toEqual(['p-ana']);
+    expect((await agir(bo, 'rejouer', { numero })).ok).toBe(true);
+    expect(annonceDeNouvelleTable(ana)).toBeUndefined();
+
+    expect((await emettre(cy.socket, 'rejouer', { numero })).ok).toBe(true);
+    await patienter(30);
+    expect(table.statut).toBe('terminee');
+
+    const annonces = espions.map(annonceDeNouvelleTable);
+    const nouvelleId = annonces[0]?.table.tableId as string;
+    for (const annonce of annonces) {
+      expect(annonce?.ancienneTableId).toBe(table.id);
+      expect(annonce?.table.tableId).toBe(nouvelleId);
+    }
+    const nouvelle = serveur.manager.table(nouvelleId);
+    expect(nouvelle.joueurs.map((joueur) => joueur.id).sort()).toEqual(['p-ana', 'p-bo', 'p-cy']);
+    expect(nouvelle.statut).toBe('en-cours');
+    expect(nouvelle.delais).toEqual(table.delais);
+    expect(nouvelle.createurId).toBe(table.createurId);
+    // 2 par défaut + 3 en plus.
+    expect(nouvelle.coupsFrichesDepart).toBe(5);
+    expect(nouvelle.boule?.nombreCoupsFriches).toBe(5);
+  });
+
+  it('renonce a rejouer pour tous des qu un joueur choisit de terminer la Boule', async () => {
+    const { table, numero } = await finirLaBoule();
+    const [ana, bo, cy] = espions as [Espion, Espion, Espion];
+
+    expect((await agir(ana, 'rejouer', { numero })).ok).toBe(true);
+    expect((await agir(bo, 'pret-pour-suivant', { numero })).ok).toBe(true);
+    expect(cy.dernierEtat?.resultat?.rejouerAnnulePar).toBe('p-bo');
+
+    const refus = await emettre(cy.socket, 'rejouer', { numero });
+    expect(refus.ok).toBe(false);
+    expect(refus.erreur).toMatch(/Bo a choisi de terminer/);
+
+    expect((await agir(cy, 'pret-pour-suivant', { numero })).ok).toBe(true);
+    expect(table.statut).toBe('terminee');
+    expect(espions.map(annonceDeNouvelleTable).every((annonce) => annonce === undefined)).toBe(true);
+  });
+
   it('traite un double appui sur « Continuer » sans rien casser, avant comme apres la donne suivante', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);
@@ -867,6 +953,8 @@ describe('serveur socket.io', () => {
       mains: restes,
       prets: [],
       derniereCoup: false,
+      rejouer: [],
+      rejouerAnnulePar: null,
     };
     await agir(espions[0] as Espion, 'pret-pour-suivant', {});
 

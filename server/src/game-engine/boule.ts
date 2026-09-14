@@ -220,6 +220,25 @@ export const numeroCoupCourant = (boule: Boule): number => boule.historique.leng
 export const estBouleTerminee = (boule: Boule): boolean =>
   boule.historique.length >= boule.nombreCoupsTotal;
 
+/**
+ * Coups frichés ajoutés pendant la Boule par les friches généralisées, au-delà
+ * de ce qui avait été choisi au départ.
+ */
+export const surplusDeCoupsFriches = (boule: Boule, coupsFrichesDepart: number): number =>
+  Math.max(0, boule.nombreCoupsFriches - coupsFrichesDepart);
+
+/**
+ * Coups frichés de départ d'une Boule rejouée avec le même groupe : les 2 par
+ * défaut, plus le surplus de la Boule qui s'achève, sans dépasser le nombre de
+ * coups de la nouvelle Boule. Boule configurée à 2, trois friches généralisées
+ * en route (5 à la fin) : la suivante démarre à 2 + 3 = 5.
+ */
+export const coupsFrichesPourLaSuivante = (
+  boule: Boule,
+  coupsFrichesDepart: number,
+  coupsDeLaBoule: number,
+): number => Math.min(COUPS_FRICHES_PAR_DEFAUT + surplusDeCoupsFriches(boule, coupsFrichesDepart), coupsDeLaBoule);
+
 /** Résultat du tirage d'ouverture d'une Boule. */
 export interface TirageOuverture {
   /** Joueurs assis dans l'ordre croissant des cartes tirées. */

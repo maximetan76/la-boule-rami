@@ -61,6 +61,10 @@ export interface TourEnAttente {
  * décompte. Réf. docs/REGLES.md § « Fin d'un coup et scoring ».
  */
 export interface ResultatCoupFiltre {
+  /** Dernier coup : les joueurs qui veulent rejouer une Boule avec ce groupe. */
+  readonly rejouer: JoueurId[];
+  /** Dernier coup : qui a choisi de terminer plutôt que de rejouer. */
+  readonly rejouerAnnulePar: JoueurId | null;
   readonly numero: number;
   readonly gagnantId: JoueurId;
   readonly typeVictoire: string;

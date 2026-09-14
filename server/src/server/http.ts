@@ -5,6 +5,7 @@
  * fait hors table — s'authentifier, ouvrir un salon, le rejoindre par code,
  * abandonner une partie, changer de pseudo.
  */
+import { decrireTablePublique } from './game-room-manager.js';
 import { COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
 import { calculerFinDeBoule, estBouleTerminee } from '../game-engine/index.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -208,16 +209,7 @@ const lireCoupsFriches = (valeur: unknown, capacite: number): number | undefined
   return valeur;
 };
 
-const decrireTable = (table: Table) => ({
-  tableId: table.id,
-  codeInvitation: table.codeInvitation,
-  capacite: table.capacite,
-  statut: table.statut,
-  createurId: table.createurId,
-  joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
-  delais: table.delais,
-  coupsFrichesDepart: table.coupsFrichesDepart,
-});
+const decrireTable = decrireTablePublique;
 
 const creerTable = async (
   corps: Record<string, unknown>,

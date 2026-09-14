@@ -7,6 +7,11 @@ import {
   initialiserBoule,
   numeroCoupCourant,
 } from '../game-engine/boule.js';
+import {
+  coupsFrichesPourLaSuivante,
+  initialiserBoule as initialiserLaBoule,
+  surplusDeCoupsFriches,
+} from '../game-engine/boule.js';
 import { calculerFinDeBoule } from '../game-engine/fin-de-boule.js';
 import { joueur } from './fixtures.js';
 import type { JoueurId, ScoreCoup } from '../models/index.js';
@@ -378,3 +383,25 @@ describe('articulation avec calculerFinDeBoule', () => {
     expect(resultat.scoresFinaux['j1']).toBe(140);
   });
 });
+
+describe('report des coups friches sur la Boule rejouee', () => {
+  it('ajoute aux 2 par defaut le surplus des friches generalisees : 2 au depart, 5 a la fin, la suivante a 5', () => {
+    const finie = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id))), nombreCoupsFriches: 5 };
+    expect(surplusDeCoupsFriches(finie, 2)).toBe(3);
+    expect(coupsFrichesPourLaSuivante(finie, 2, 8)).toBe(5);
+  });
+
+  it('repart a 2 sans friche generalisee, meme d un depart choisi plus haut ou plus bas', () => {
+    const sansFriche = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id))), nombreCoupsFriches: 6 };
+    expect(surplusDeCoupsFriches(sansFriche, 6)).toBe(0);
+    expect(coupsFrichesPourLaSuivante(sansFriche, 6, 8)).toBe(2);
+    const departZero = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 0), nombreCoupsFriches: 0 };
+    expect(coupsFrichesPourLaSuivante(departZero, 0, 8)).toBe(2);
+  });
+
+  it('ne depasse jamais le nombre de coups de la nouvelle Boule', () => {
+    const toutFriche = { ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 0), nombreCoupsFriches: 8 };
+    expect(coupsFrichesPourLaSuivante(toutFriche, 0, 8)).toBe(8);
+  });
+});
+
