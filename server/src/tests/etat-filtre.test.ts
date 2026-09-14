@@ -258,18 +258,32 @@ describe('filtrerEtatPourJoueur — jokers gardes d une friche generalisee', () 
 });
 
 describe('filtrerEtatPourJoueur — carte prise en defausse', () => {
-  it('ne la montre plus sur la pile, a personne : la pile montre la carte d en dessous', () => {
+  it('ne la retire de la pile que pour celui qui l a prise : il voit la carte d en dessous', () => {
     const etat = etatComplet();
     const prise = etat.defausse.at(-1) as Carte;
     const tour = { joueurId: 'j1', source: 'defausse' as const, cartePiochee: prise, poses: [], ajouts: [] };
 
-    for (const joueurId of ['j1', 'j2', 'j3']) {
-      const filtre = filtrerEtatPourJoueur(etat, boule(), joueurId, { tourEnAttente: tour });
-      expect(filtre.defausse.derniereCarte?.id).toBe(etat.defausse.at(-2)?.id);
-      expect(filtre.defausse.cartesSorties.map((carte) => carte.id)).not.toContain(prise.id);
+    const vuParJ1 = filtrerEtatPourJoueur(etat, boule(), 'j1', { tourEnAttente: tour });
+    expect(vuParJ1.defausse.derniereCarte?.id).toBe(etat.defausse.at(-2)?.id);
+    expect(vuParJ1.defausse.cartesSorties.map((carte) => carte.id)).not.toContain(prise.id);
+    // Il la tient à part.
+    expect(vuParJ1.moi.carteEnAttente?.id).toBe(prise.id);
+  });
+
+  it('laisse la pile intacte aux autres tant que la prise n est pas validee, comme une pioche au talon', () => {
+    const etat = etatComplet();
+    const prise = etat.defausse.at(-1) as Carte;
+    const enDefausse = { joueurId: 'j1', source: 'defausse' as const, cartePiochee: prise, poses: [], ajouts: [] };
+    const auTalon = { ...enDefausse, source: 'pioche' as const, cartePiochee: c('carreau', 4) };
+
+    for (const joueurId of ['j2', 'j3']) {
+      const pendantLaPrise = filtrerEtatPourJoueur(etat, boule(), joueurId, { tourEnAttente: enDefausse });
+      const pendantUnePioche = filtrerEtatPourJoueur(etat, boule(), joueurId, { tourEnAttente: auTalon });
+      // Rien ne distingue les deux : ni la pile, ni les cartes sorties.
+      expect(pendantLaPrise.defausse).toEqual(pendantUnePioche.defausse);
+      expect(pendantLaPrise.defausse.derniereCarte?.id).toBe(prise.id);
+      expect(pendantLaPrise.moi.carteEnAttente).toBeNull();
     }
-    // Celui qui l'a prise la tient à part.
-    expect(filtrerEtatPourJoueur(etat, boule(), 'j1', { tourEnAttente: tour }).moi.carteEnAttente?.id).toBe(prise.id);
   });
 
   it('laisse la pile entiere quand la carte vient du talon', () => {
