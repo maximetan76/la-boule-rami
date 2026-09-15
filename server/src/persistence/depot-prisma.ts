@@ -30,6 +30,7 @@ interface LignePartie {
   gestionDeconnexionType: string;
   gestionDeconnexionDureeMs: number;
   creeeLe: Date;
+  demarreeLe?: Date | null;
   termineeLe: Date | null;
   motifFin: string | null;
   delaiAnnonceMs: number | null;
@@ -85,6 +86,7 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
     .sort((a, b) => a.position - b.position)
     .map((place) => place.joueurId),
   creeeLe: ligne.creeeLe,
+  demarreeLe: ligne.demarreeLe ?? null,
   termineeLe: ligne.termineeLe,
   motifFin: ligne.motifFin === 'abandon' || ligne.motifFin === 'achevee' ? ligne.motifFin : null,
 });
@@ -215,7 +217,7 @@ export class DepotPrisma implements Depot {
           data: { position },
         }),
       ),
-      this.prisma.partie.update({ where: { id: partieId }, data: { demarree: true } }),
+      this.prisma.partie.update({ where: { id: partieId }, data: { demarree: true, demarreeLe: new Date() } }),
     ]);
   }
 
@@ -236,6 +238,11 @@ export class DepotPrisma implements Depot {
             }),
       },
     });
+  }
+
+  /** Les places et la Boule partent avec la partie : leurs relations sont en cascade. */
+  async supprimerPartie(id: string): Promise<void> {
+    await this.prisma.partie.deleteMany({ where: { id } });
   }
 
   /**

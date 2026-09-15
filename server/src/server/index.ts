@@ -33,7 +33,18 @@ export interface Serveur {
   readonly session: ConfigSession;
   /** `null` quand Sign in with Apple n'est pas configuré. */
   readonly apple: ConfigApple | null;
+  /**
+   * Supprime les tables où rien ne s'est joué depuis trois heures et prévient
+   * les joueurs encore connectés. Rend le nombre de tables supprimées.
+   */
+  readonly nettoyerTablesInactives: (maintenant?: Date) => Promise<number>;
 }
+
+/** Ce que lit un joueur encore connecté à une table supprimée pour inactivité. */
+export const MESSAGE_FERMETURE_INACTIVITE = 'Cette partie a été fermée pour inactivité';
+
+/** Fréquence du nettoyage des tables inactives. */
+export const INTERVALLE_NETTOYAGE_MS = 30 * 60 * 1000;
 
 const variable = (nom: string): string | null => {
   const valeur = process.env[nom];
@@ -118,7 +129,21 @@ export const creerServeur = (options: OptionsServeur = {}): Serveur => {
   });
 
   enregistrerHandlers(io, manager, session);
-  return { io, httpServer, manager, depot, session, apple };
+
+  const nettoyerTablesInactives = async (maintenant?: Date): Promise<number> => {
+    const supprimees = await manager.nettoyerTablesInactives(maintenant);
+    for (const { tableId, socketsPrevenues } of supprimees) {
+      for (const socketId of socketsPrevenues) {
+        io?.to(socketId).emit('table-fermee', {
+          tableId,
+          motif: 'inactivite',
+          message: MESSAGE_FERMETURE_INACTIVITE,
+        });
+      }
+    }
+    return supprimees.length;
+  };
+  return { io, httpServer, manager, depot, session, apple, nettoyerTablesInactives };
 };
 
 export {
@@ -139,6 +164,21 @@ const demarrer = async (): Promise<void> => {
   if (reprises.length > 0) {
     console.info(`Parties reprises : ${String(reprises.length)}`);
   }
+
+  // Toutes les demi-heures : une table où rien ne s'est joué depuis trois
+  // heures disparaît, et ses joueurs encore connectés en sont prévenus.
+  const nettoyer = (): void => {
+    serveur
+      .nettoyerTablesInactives()
+      .then((nombre) => {
+        if (nombre > 0) console.info(`Tables inactives supprimees : ${String(nombre)}`);
+      })
+      .catch((erreur: unknown) => {
+        console.error('Nettoyage des tables inactives impossible', erreur);
+      });
+  };
+  nettoyer();
+  setInterval(nettoyer, INTERVALLE_NETTOYAGE_MS).unref();
 
   serveur.httpServer.listen(Number(process.env['PORT'] ?? 3000));
 };

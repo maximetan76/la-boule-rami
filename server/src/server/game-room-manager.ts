@@ -163,6 +163,10 @@ export interface Table {
   readonly createurId: JoueurId;
   readonly capacite: number;
   statut: StatutTable;
+  /** Ouverture du salon : l'âge d'un salon jamais démarré se compte d'ici. */
+  readonly creeeLe: Date;
+  /** Démarrage de la partie, `null` en salon : l'inactivité d'une partie se compte d'ici. */
+  demarreeLe: Date | null;
   /** Joueurs assis. En salon, dans l'ordre d'arrivée ; ensuite, celui du tirage. */
   joueurs: Joueur[];
   /** `null` tant que la partie n'a pas démarré. */
@@ -289,6 +293,32 @@ const photographierAbandon = (table: Table, parJoueurId: JoueurId): AbandonEnreg
   };
 };
 
+/**
+ * Au-delà de ce délai, une table où rien ne s'est joué est supprimée : un salon
+ * jamais démarré depuis sa création, une partie sans action de jeu depuis son
+ * démarrage. Voir `nettoyerTablesInactives`.
+ */
+export const DELAI_INACTIVITE_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Rien ne s'est joué : aucun coup terminé, aucune friche généralisée, et dans
+ * le premier coup personne n'a encore pioché ni défaussé. Les annonces seules
+ * ne comptent pas.
+ */
+const sansActionDeJeu = (table: Table): boolean => {
+  const boule = table.boule;
+  if (boule !== null && (boule.historique.length > 0 || (boule.frichesGeneralisees ?? 0) > 0)) return false;
+  if (table.tourEnCours !== null || table.resultatCoup !== null) return false;
+  return table.coup === null || table.coup.defausse.length === 0;
+};
+
+const estInactive = (table: Table, maintenant: Date): boolean => {
+  const age = (depuis: Date): number => maintenant.getTime() - depuis.getTime();
+  if (table.statut === 'salon') return age(table.creeeLe) > DELAI_INACTIVITE_MS;
+  if (table.statut !== 'en-cours' || !sansActionDeJeu(table)) return false;
+  return age(table.demarreeLe ?? table.creeeLe) > DELAI_INACTIVITE_MS;
+};
+
 export class GameRoomManager {
   private readonly tables = new Map<TableId, Table>();
   private readonly parCode = new Map<string, TableId>();
@@ -386,6 +416,8 @@ export class GameRoomManager {
       createurId: createur.id,
       capacite,
       statut: 'salon',
+      creeeLe: new Date(),
+      demarreeLe: null,
       joueurs: [{ id: createur.id, nom: createur.pseudo, croix: 0 }],
       boule: null,
       coup: null,
@@ -467,6 +499,7 @@ export class GameRoomManager {
     table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
     table.tirageOuverture = tirage;
     table.statut = 'en-cours';
+    table.demarreeLe = new Date();
 
     await this.depot?.demarrerPartie(table.id, tirage.ordreTable);
   }
@@ -548,6 +581,44 @@ export class GameRoomManager {
     return table;
   }
 
+  /**
+   * Supprime pour de bon les tables où rien ne s'est joué depuis plus de trois
+   * heures.
+   *
+   * Deux cas, et seulement ceux-là : un salon jamais démarré, ouvert depuis plus
+   * de trois heures ; une partie démarrée où aucune action de jeu n'a eu lieu
+   * depuis son démarrage (voir `sansActionDeJeu`). Une table où un coup s'est
+   * joué n'est jamais concernée, quel que soit son âge. Rien n'est archivé :
+   * la partie disparaît de la base, places et Boule comprises.
+   *
+   * Les sockets encore rattachées sont rendues à l'appelant, qui les prévient.
+   */
+  async nettoyerTablesInactives(
+    maintenant: Date = new Date(),
+  ): Promise<{ readonly tableId: TableId; readonly socketsPrevenues: string[] }[]> {
+    const supprimees: { tableId: TableId; socketsPrevenues: string[] }[] = [];
+
+    for (const table of [...this.tables.values()]) {
+      if (!estInactive(table, maintenant)) continue;
+
+      const socketsPrevenues = [...table.connexions.values()].filter(
+        (socketId): socketId is string => socketId !== null,
+      );
+      table.annulerMinuteur?.();
+      table.annulerMinuteur = null;
+      table.attenteDeJeu?.annuler();
+      table.attenteDeJeu = null;
+      table.statut = 'terminee';
+      for (const socketId of socketsPrevenues) this.sockets.delete(socketId);
+      this.parCode.delete(table.codeInvitation);
+      this.tables.delete(table.id);
+
+      await this.depot?.supprimerPartie(table.id);
+      supprimees.push({ tableId: table.id, socketsPrevenues });
+    }
+    return supprimees;
+  }
+
   /** Les tables vivantes où le joueur a une place : salons et parties en cours. */
   tablesDuJoueur(joueurId: JoueurId): Table[] {
     return [...this.tables.values()].filter((table) => table.connexions.has(joueurId));
@@ -595,6 +666,8 @@ export class GameRoomManager {
         createurId: partie.createurId,
         capacite: partie.capacite,
         statut: partie.demarree ? 'en-cours' : 'salon',
+        creeeLe: partie.creeeLe,
+        demarreeLe: partie.demarree ? (partie.demarreeLe ?? partie.creeeLe) : null,
         joueurs: assis,
         boule:
           etatBoule === null

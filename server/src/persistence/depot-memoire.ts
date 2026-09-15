@@ -138,7 +138,7 @@ export class DepotMemoire implements Depot {
     const partie = this.parties.get(partieId);
     if (partie === undefined) throw new Error(`Partie ${partieId} introuvable`);
 
-    this.parties.set(partieId, { ...partie, demarree: true, joueursIds: [...ordreTable] });
+    this.parties.set(partieId, { ...partie, demarree: true, demarreeLe: new Date(), joueursIds: [...ordreTable] });
     return Promise.resolve();
   }
 
@@ -147,6 +147,12 @@ export class DepotMemoire implements Depot {
     if (partie !== undefined) {
       this.parties.set(id, { ...partie, termineeLe: new Date(), motifFin: motif, abandon: abandon ?? null });
     }
+    return Promise.resolve();
+  }
+
+  supprimerPartie(id: string): Promise<void> {
+    this.parties.delete(id);
+    this.boules.delete(id);
     return Promise.resolve();
   }
 

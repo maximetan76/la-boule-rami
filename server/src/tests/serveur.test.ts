@@ -9,7 +9,7 @@ import { publierTable } from '../server/handlers.js';
 import { ouvrirTablePleine } from './aide-table.js';
 import { c, coucou, joker, recap, tierce } from './fixtures.js';
 import type { DelaisDeJeu, GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
-import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
+import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAI_INACTIVITE_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
 
@@ -209,6 +209,26 @@ describe('serveur socket.io', () => {
       .filter((message) => (message as { tableId?: string } | null)?.tableId === premiere);
     expect(venusDeLaPremiere).toEqual([]);
     expect(bo.etatsRecus).toBeGreaterThan(etatsDeBo);
+  });
+
+  it('previent clairement un joueur encore connecte a une table supprimee pour inactivite', async () => {
+    const { tableId } = await ouvrirTable();
+    const [ana] = espions as [Espion, Espion, Espion];
+    const fermetures: unknown[] = [];
+    ana.socket.on('table-fermee', (charge: unknown) => {
+      fermetures.push(charge);
+    });
+
+    // La donne est faite, mais personne n'a joué : trois heures plus tard, la table disparaît.
+    expect(await serveur.nettoyerTablesInactives(new Date(Date.now() + DELAI_INACTIVITE_MS + 60_000))).toBe(1);
+    for (let essai = 0; essai < 100 && fermetures.length === 0; essai += 1) await patienter(5);
+
+    expect(fermetures).toEqual([
+      { tableId, motif: 'inactivite', message: 'Cette partie a été fermée pour inactivité' },
+    ]);
+    expect(serveur.manager.tableVivante(tableId)).toBeNull();
+    // Une action sur la table disparue est refusée, pas ignorée en silence.
+    expect((await emettre(ana.socket, 'piocher', { source: 'pioche' })).ok).toBe(false);
   });
 
   /** Une table aux délais choisis, tous les joueurs présents. */

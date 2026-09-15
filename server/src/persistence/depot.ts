@@ -100,6 +100,8 @@ export interface PartieEnregistree {
   readonly nombreCoups: number | null;
   readonly joueursIds: JoueurId[];
   readonly creeeLe: Date;
+  /** Démarrage de la partie ; absent d'une partie jamais démarrée, ou démarrée avant ce suivi. */
+  readonly demarreeLe?: Date | null;
   readonly termineeLe: Date | null;
   readonly motifFin: MotifFin | null;
   /** Renseigné pour une partie abandonnée par un joueur. */
@@ -166,6 +168,12 @@ export interface Depot {
   demarrerPartie(partieId: string, ordreTable: readonly JoueurId[]): Promise<void>;
   /** `abandon` : pour un abandon décidé par un joueur, ce qu'il faut en archiver. */
   terminerPartie(id: string, motif: MotifFin, abandon?: AbandonEnregistre): Promise<void>;
+  /**
+   * Supprime la partie de la base, places et Boule comprises, sans rien en
+   * archiver. Réservé aux tables où rien ne s'est joué : voir
+   * `GameRoomManager.nettoyerTablesInactives`. Sans effet si elle n'existe plus.
+   */
+  supprimerPartie(id: string): Promise<void>;
 
   /** Écrit l'état de la Boule d'une partie, en écrasant le précédent. */
   enregistrerBoule(partieId: string, etat: EtatBoulePersiste): Promise<void>;

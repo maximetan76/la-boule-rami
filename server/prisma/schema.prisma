@@ -75,6 +75,9 @@ model Partie {
   interruption   Json?
 
   creeeLe    DateTime  @default(now())
+  /// Démarrage de la partie, une fois le salon complet. L'inactivité d'une
+  /// partie où rien ne s'est joué se compte d'ici ; absent : `creeeLe`.
+  demarreeLe DateTime?
   termineeLe DateTime?
   /// Pourquoi la partie s'est arrêtée : « abandon » ou « achevee ». Sert à
   /// dire à un joueur revenu plus tard que sa partie a été abandonnée.
