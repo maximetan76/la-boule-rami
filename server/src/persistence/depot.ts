@@ -90,6 +90,10 @@ export interface PartieEnregistree {
   readonly delais: DelaisDeJeu;
   /** Coups frichés choisis à la création. */
   readonly coupsFrichesDepart: number;
+  /** Base du report en cascade, transmise de Boule rejouée en Boule rejouée ; absente : le départ. */
+  readonly coupsFrichesConfigures?: number | null;
+  /** Report reçu au-delà du nombre de coups, gardé pour la Boule suivante. */
+  readonly excedentDeFriches?: number;
   /** Valeur d'un point, décimal normalisé ; `null` : aucune. */
   readonly valeurPoint: string | null;
   /** Nombre de coups choisi à la création ; `null` : celui des règles. */
@@ -110,6 +114,8 @@ export interface NouvellePartie {
   readonly gestionDeconnexion: GestionDeconnexion;
   readonly delais: DelaisDeJeu;
   readonly coupsFrichesDepart: number;
+  readonly coupsFrichesConfigures?: number;
+  readonly excedentDeFriches?: number;
   readonly valeurPoint: string | null;
   readonly nombreCoups: number | null;
 }

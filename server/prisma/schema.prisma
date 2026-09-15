@@ -53,6 +53,14 @@ model Partie {
   /// la Boule). Voir Table.coupsFrichesDepart côté serveur.
   coupsFrichesDepart Int @default(2)
 
+  /// Coups frichés configurés par le créateur, transmis d'une Boule rejouée à
+  /// la suivante ; absent : ceux du départ. Base du report en cascade.
+  coupsFrichesConfigures Int?
+
+  /// Report de coups frichés reçu au-delà du nombre de coups de cette Boule,
+  /// gardé pour la Boule suivante si le groupe rejoue.
+  excedentDeFriches Int @default(0)
+
   /// Valeur monétaire d'un point, décimal normalisé (« 0.20 ») ; absente :
   /// aucune. Texte plutôt que flottant : un montant ne s'arrondit pas en base.
   valeurPoint String?

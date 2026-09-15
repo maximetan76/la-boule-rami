@@ -865,9 +865,34 @@ describe('serveur socket.io', () => {
     expect(nouvelle.statut).toBe('en-cours');
     expect(nouvelle.delais).toEqual(table.delais);
     expect(nouvelle.createurId).toBe(table.createurId);
-    // 2 par défaut + 3 en plus.
-    expect(nouvelle.coupsFrichesDepart).toBe(5);
-    expect(nouvelle.boule?.nombreCoupsFriches).toBe(5);
+    // Le départ configuré (1) + les 3 friches généralisées ; rien au-delà.
+    expect(nouvelle.coupsFrichesDepart).toBe(4);
+    expect(nouvelle.boule?.nombreCoupsFriches).toBe(4);
+    expect(nouvelle.coupsFrichesConfigures).toBe(1);
+    expect(nouvelle.excedentDeFriches).toBe(0);
+  });
+
+  it('rejoue une Boule entierement frichee par le report, et garde l excedent pour la suivante', async () => {
+    // 2 configurés + 10 friches généralisées = 12, pour une Boule suivante de
+    // 9 coups à trois joueurs : tous frichés, et 3 gardés pour celle d'après.
+    const { table, numero } = await finirLaBoule({ coupsFrichesDepart: 2, frichesAjoutees: 10 });
+    for (const espion of espions) {
+      expect((await agir(espion, 'rejouer', { numero })).ok).toBe(true);
+    }
+    await patienter(30);
+    expect(table.statut).toBe('terminee');
+
+    const annonce = annonceDeNouvelleTable(espions[0] as Espion) as unknown as {
+      table: { tableId: string; coupsFrichesDepart: number; coupsFrichesConfigures: number; excedentDeFriches: number };
+    };
+    const nouvelle = serveur.manager.table(annonce.table.tableId);
+    expect(nouvelle.boule?.nombreCoupsTotal).toBe(9);
+    expect(nouvelle.coupsFrichesDepart).toBe(9);
+    expect(nouvelle.boule?.nombreCoupsFriches).toBe(9);
+    expect(nouvelle.excedentDeFriches).toBe(3);
+    expect(nouvelle.coupsFrichesConfigures).toBe(2);
+    // L'app le lit dans l'annonce, pour dire que la Boule est frichée par le report.
+    expect(annonce.table).toMatchObject({ coupsFrichesDepart: 9, coupsFrichesConfigures: 2, excedentDeFriches: 3 });
   });
 
   it('laisse un joueur terminer seul : la Boule se clot aussitot, nul ne la rejoue, les autres gardent le decompte', async () => {

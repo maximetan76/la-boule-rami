@@ -36,6 +36,8 @@ interface LignePartie {
   delaiJeuMs: number | null;
   delaiProlongationMs: number | null;
   coupsFrichesDepart: number;
+  coupsFrichesConfigures: number | null;
+  excedentDeFriches: number;
   valeurPoint: string | null;
   nombreCoups: number | null;
   abandonneParId: string | null;
@@ -72,6 +74,8 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
     prolongationMs: ligne.delaiProlongationMs,
   },
   coupsFrichesDepart: ligne.coupsFrichesDepart,
+  coupsFrichesConfigures: ligne.coupsFrichesConfigures,
+  excedentDeFriches: ligne.excedentDeFriches,
   valeurPoint: ligne.valeurPoint,
   nombreCoups: ligne.nombreCoups,
   abandon: relireAbandon(ligne.abandonneParId, ligne.interruption),
@@ -129,6 +133,8 @@ export class DepotPrisma implements Depot {
         delaiJeuMs: partie.delais.jeuMs,
         delaiProlongationMs: partie.delais.prolongationMs,
         coupsFrichesDepart: partie.coupsFrichesDepart,
+        coupsFrichesConfigures: partie.coupsFrichesConfigures ?? null,
+        excedentDeFriches: partie.excedentDeFriches ?? 0,
         valeurPoint: partie.valeurPoint,
         nombreCoups: partie.nombreCoups,
       },

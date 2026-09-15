@@ -181,6 +181,16 @@ export interface Table {
    */
   readonly coupsFrichesDepart: number;
   /**
+   * Coups frichés configurés par le créateur, transmis tels quels d'une Boule
+   * rejouée à la suivante : la base du report en cascade.
+   */
+  readonly coupsFrichesConfigures: number;
+  /**
+   * Report reçu de la Boule précédente au-delà du nombre de coups de celle-ci :
+   * gardé pour la Boule suivante si le groupe rejoue.
+   */
+  readonly excedentDeFriches: number;
+  /**
    * Nombre de coups de la Boule choisi à la création, de 1 à 12 ; `null` :
    * celui des règles pour ce nombre de joueurs.
    */
@@ -232,6 +242,8 @@ export const decrireTablePublique = (table: Table) => ({
   joueurs: table.joueurs.map((joueur) => ({ joueurId: joueur.id, pseudo: joueur.nom })),
   delais: table.delais,
   coupsFrichesDepart: table.coupsFrichesDepart,
+  coupsFrichesConfigures: table.coupsFrichesConfigures,
+  excedentDeFriches: table.excedentDeFriches,
   nombreCoups: table.nombreCoups,
   valeurPoint: table.valeurPoint,
 });
@@ -318,6 +330,10 @@ export class GameRoomManager {
       readonly delais?: DelaisDeJeu;
       /** Coups frichés de départ ; 2 sans précision. */
       readonly coupsFrichesDepart?: number;
+      /** Base du report en cascade ; les coups frichés de départ sans précision. */
+      readonly coupsFrichesConfigures?: number;
+      /** Report reçu au-delà du nombre de coups ; aucun sans précision. */
+      readonly excedentDeFriches?: number;
       /** Nombre de coups de la Boule ; celui des règles sans précision. */
       readonly nombreCoups?: number | null;
       /** Valeur d'un point, décimal normalisé ; aucune sans précision. */
@@ -350,6 +366,12 @@ export class GameRoomManager {
       );
     }
 
+    const coupsFrichesConfigures = options.coupsFrichesConfigures ?? coupsFrichesDepart;
+    const excedentDeFriches = options.excedentDeFriches ?? 0;
+    if (!Number.isInteger(excedentDeFriches) || excedentDeFriches < 0) {
+      throw new Error(`Report de coups friches invalide : ${String(excedentDeFriches)}`);
+    }
+
     const tableId = randomUUID();
     const codeInvitation = await this.codeUnique();
     const delais = options.delais ?? DELAIS_ILLIMITES;
@@ -373,6 +395,8 @@ export class GameRoomManager {
       gestionDeconnexion,
       delais,
       coupsFrichesDepart,
+      coupsFrichesConfigures,
+      excedentDeFriches,
       nombreCoups,
       valeurPoint: options.valeurPoint ?? null,
       attenteDeJeu: null,
@@ -395,6 +419,8 @@ export class GameRoomManager {
       gestionDeconnexion,
       delais,
       coupsFrichesDepart,
+      coupsFrichesConfigures,
+      excedentDeFriches,
       nombreCoups,
       valeurPoint: options.valeurPoint ?? null,
     });
@@ -585,6 +611,8 @@ export class GameRoomManager {
         gestionDeconnexion: partie.gestionDeconnexion,
         delais: partie.delais,
         coupsFrichesDepart: partie.coupsFrichesDepart,
+        coupsFrichesConfigures: partie.coupsFrichesConfigures ?? partie.coupsFrichesDepart,
+        excedentDeFriches: partie.excedentDeFriches ?? 0,
         nombreCoups: partie.nombreCoups,
         valeurPoint: partie.valeurPoint,
         attenteDeJeu: null,

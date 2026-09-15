@@ -33,7 +33,7 @@ import {
   detecterDoubleOuTriple,
   enregistrerResultatCoup,
   calculerFinDeBoule,
-  coupsFrichesPourLaSuivante,
+  reportDeFriches,
   estBouleTerminee,
   estJoker,
   jouerTour,
@@ -433,26 +433,31 @@ const enchainer = async (io: Server, manager: GameRoomManager, table: Table): Pr
  *
  * Une nouvelle table naît avec les mêmes joueurs, assis d'office — sans code à
  * saisir —, et la même configuration : places, délais, gestion des
- * déconnexions. Seuls les coups frichés de départ changent : les 2 par défaut,
- * plus le surplus que les friches généralisées ont ajouté pendant la Boule qui
- * s'achève. Chaque joueur reçoit `nouvelle-table` et y bascule.
+ * déconnexions. Seuls les coups frichés de départ changent, en cascade : les
+ * coups frichés configurés, plus le surplus des friches généralisées de la
+ * Boule qui s'achève, plus le report qu'elle avait reçu. Au-delà du nombre de
+ * coups, la nouvelle Boule est entièrement frichée et garde l'excédent pour la
+ * suivante. Chaque joueur reçoit `nouvelle-table` et y bascule.
  */
 const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: Table): Promise<void> => {
   const createur = table.joueurs.find((joueur) => joueur.id === table.createurId) ?? table.joueurs[0];
   if (createur === undefined) return;
 
-  const coupsFrichesDepart = coupsFrichesPourLaSuivante(
-    bouleEnCours(table),
-    table.coupsFrichesDepart,
-    table.nombreCoups ?? COUPS_PAR_NOMBRE_DE_JOUEURS[table.capacite] ?? 0,
-  );
+  const report = reportDeFriches(bouleEnCours(table), {
+    coupsFrichesConfigures: table.coupsFrichesConfigures,
+    coupsFrichesDepart: table.coupsFrichesDepart,
+    excedentRecu: table.excedentDeFriches,
+    coupsDeLaSuivante: table.nombreCoups ?? COUPS_PAR_NOMBRE_DE_JOUEURS[table.capacite] ?? 0,
+  });
   const creee = await manager.creerTable(
     { id: createur.id, pseudo: createur.nom },
     {
       capacite: table.capacite,
       gestionDeconnexion: table.gestionDeconnexion,
       delais: table.delais,
-      coupsFrichesDepart,
+      coupsFrichesDepart: report.coupsFrichesDepart,
+      coupsFrichesConfigures: table.coupsFrichesConfigures,
+      excedentDeFriches: report.excedent,
       nombreCoups: table.nombreCoups,
       valeurPoint: table.valeurPoint,
       alea: table.alea,

@@ -588,6 +588,11 @@ const decrirePartie = async (partie: PartieEnregistree, depot: Depot) => {
     statut: partie.demarree ? 'en-cours' : 'salon',
     createurId: partie.createurId,
     joueurs,
+    coupsFrichesDepart: partie.coupsFrichesDepart,
+    coupsFrichesConfigures: partie.coupsFrichesConfigures ?? partie.coupsFrichesDepart,
+    excedentDeFriches: partie.excedentDeFriches ?? 0,
+    nombreCoups: partie.nombreCoups,
+    valeurPoint: partie.valeurPoint,
   };
 };
 

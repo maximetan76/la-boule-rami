@@ -66,7 +66,7 @@ export {
   estCoupFriche,
   initialiserBoule,
   surplusDeCoupsFriches,
-  coupsFrichesPourLaSuivante,
+  reportDeFriches,
   JOUEURS_SUR_LE_COTE,
   numeroCoupCourant,
   rangDeTirage,

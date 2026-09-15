@@ -237,17 +237,49 @@ export const estBouleTerminee = (boule: Boule): boolean =>
 export const surplusDeCoupsFriches = (boule: Boule, coupsFrichesDepart: number): number =>
   boule.frichesGeneralisees ?? Math.max(0, boule.nombreCoupsFriches - coupsFrichesDepart);
 
+/** Ce qu'une Boule rejouée reçoit de celle qui s'achève. */
+export interface ReportDeFriches {
+  /** Coups frichés de départ de la Boule suivante, bornés à son nombre de coups. */
+  readonly coupsFrichesDepart: number;
+  /**
+   * Ce qui dépasse le nombre de coups de la Boule suivante : gardé, et reporté
+   * à son tour sur la Boule d'encore après si le groupe rejoue.
+   */
+  readonly excedent: number;
+}
+
 /**
- * Coups frichés de départ d'une Boule rejouée avec le même groupe : les 2 par
- * défaut, plus le surplus de la Boule qui s'achève, sans dépasser le nombre de
- * coups de la nouvelle Boule. Boule configurée à 2, trois friches généralisées
- * en route (5 à la fin) : la suivante démarre à 2 + 3 = 5.
+ * Coups frichés de départ d'une Boule rejouée avec le même groupe, en cascade.
+ *
+ * Les coups frichés configurés à la création — le choix du créateur, transmis
+ * de Boule en Boule —, plus le surplus des friches généralisées de la Boule qui
+ * s'achève, plus l'excédent qu'elle avait elle-même reçu. Au-delà du nombre de
+ * coups de la suivante, tous ses coups sont frichés et le reste est gardé pour
+ * la suivante encore : aucun report ne se perd en route.
+ *
+ * Boule de 8 coups configurée à 2, 8 friches généralisées : 2 + 8 = 10, la
+ * suivante démarre à 8/8 et en reporte 2.
  */
-export const coupsFrichesPourLaSuivante = (
+export const reportDeFriches = (
   boule: Boule,
-  coupsFrichesDepart: number,
-  coupsDeLaBoule: number,
-): number => Math.min(COUPS_FRICHES_PAR_DEFAUT + surplusDeCoupsFriches(boule, coupsFrichesDepart), coupsDeLaBoule);
+  options: {
+    /** Coups frichés configurés à la création, transmis de Boule en Boule. */
+    readonly coupsFrichesConfigures: number;
+    /** Coups frichés de départ effectifs de la Boule qui s'achève. */
+    readonly coupsFrichesDepart: number;
+    /** L'excédent que la Boule qui s'achève avait reçu. */
+    readonly excedentRecu: number;
+    /** Nombre de coups de la Boule suivante. */
+    readonly coupsDeLaSuivante: number;
+  },
+): ReportDeFriches => {
+  const total =
+    options.coupsFrichesConfigures + surplusDeCoupsFriches(boule, options.coupsFrichesDepart) + options.excedentRecu;
+  return {
+    coupsFrichesDepart: Math.min(total, options.coupsDeLaSuivante),
+    excedent: Math.max(0, total - options.coupsDeLaSuivante),
+  };
+};
 
 /** Résultat du tirage d'ouverture d'une Boule. */
 export interface TirageOuverture {
