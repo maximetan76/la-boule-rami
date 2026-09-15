@@ -312,6 +312,67 @@ describe('serveur socket.io', () => {
     expect(compterCroix(t.coupReel(), t.premier)).toBe(2);
   });
 
+  it('banc : reprendre un joker chez un adversaire avant d ouvrir puis tout poser d un coup reste un double', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId];
+    const jokerEnSix = { carte: joker(), remplace: { couleur: 'trefle' as const, valeur: 6 as const } };
+    const chezLeSecond = {
+      id: 'comb-du-second', type: 'tierce' as const, proprietaireId: second, tourDePose: 1, couleur: 'trefle' as const, pure: false,
+      cartes: [{ carte: c('trefle', 5), remplace: null }, jokerEnSix, { carte: c('trefle', 7), remplace: null }],
+    };
+    const six = c('trefle', 6);
+    const coeur = ([10, 'V', 'D', 'R', 'A'] as const).map((valeur) => c('coeur', valeur));
+    const pique = ([2, 3, 4, 5, 6] as const).map((valeur) => c('pique', valeur));
+    const sept = [c('carreau', 7), c('pique', 7), c('trefle', 7)];
+    const aJeter = c('coeur', 8);
+    table.coup.combinaisons = [chezLeSecond];
+    table.coup.mains[premier] = [six, ...coeur, ...pique, ...sept];
+    table.coup.pioche.unshift(aJeter);
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [] });
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    expect((await emettre(joueur.socket, 'recuperer-joker', {
+      carteReelleId: six.id, combinaisonId: chezLeSecond.id, carteJokerId: jokerEnSix.carte.id,
+    })).ok).toBe(true);
+    expect((await emettre(joueur.socket, 'poser', {
+      poses: [
+        { type: 'tierce', couleur: 'coeur', cartes: coeur.map((carte) => ({ carteId: carte.id })) },
+        { type: 'tierce', couleur: 'pique', cartes: pique.map((carte) => ({ carteId: carte.id })) },
+        { type: 'ensemble', valeur: 7, cartes: [...sept.map((carte) => ({ carteId: carte.id })), { carteId: jokerEnSix.carte.id, remplace: { couleur: 'coeur', valeur: 7 } }] },
+      ],
+    })).ok).toBe(true);
+    expect(await agir(joueur, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
+
+    expect(table.resultatCoup?.score.gagnantId).toBe(premier);
+    expect(table.resultatCoup?.score.typeVictoire).toBe('double');
+  });
+
+  it('banc : un joker ajoute a une suite sans declaration est refuse a la defausse', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const suite = tierce('pique', [c('pique', 5), c('pique', 6), c('pique', 7)], premier);
+    const jokerEnMain = joker();
+    const aJeter = c('trefle', 3);
+    table.coup.combinaisons = [suite];
+    table.coup.mains[premier] = [jokerEnMain, aJeter, c('carreau', 9)];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    await emettre(joueur.socket, 'poser', { ajouts: [{ combinaisonId: suite.id, cartes: [{ carteId: jokerEnMain.id }] }] });
+    const refus = await emettre(joueur.socket, 'defausser', { carteId: aJeter.id });
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('Joker non declare');
+    expect(table.coup.combinaisons[0]?.cartes).toHaveLength(3);
+  });
+
   /** Une table aux délais choisis, tous les joueurs présents. */
   const ouvrirTableMinutee = async (delais: DelaisDeJeu) => {
     const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, { alea: aleaFixe(), delais });

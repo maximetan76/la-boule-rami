@@ -3,6 +3,7 @@ import { detecterDoubleOuTriple } from '../game-engine/fin-de-coup.js';
 import { echangerJoker, jouerTour, recupererJoker } from '../game-engine/tour.js';
 import { verifierFinDeCoupSpeciale } from '../game-engine/pose.js';
 import { c, coucou, coucouPour, coup, ensemble, joker, jokerPour, recap, tierce } from './fixtures.js';
+import { DeclarationJokerRequiseError } from '../game-engine/combinaisons.js';
 import type { Carte, Combinaison } from '../models/index.js';
 
 /**
@@ -1530,5 +1531,107 @@ describe('joker tout juste recupere et premiere pose', () => {
     expect(() =>
       jouerTour(avecEchange, 'j1', { source: 'pioche', poses, carteDefausseeId: aJeter.id }),
     ).not.toThrow();
+  });
+});
+
+describe('declaration exigee, et reprise sur le jeu d un adversaire', () => {
+  // Réf. docs/REGLES.md § « Conditions pour poser » et § « Fin d'un coup et scoring ».
+  const dejaOuvert = (main: Carte[], combinaisons: ReturnType<typeof tierce>[] = []) =>
+    coupJouable(main, { combinaisons, recapitulatifs: { j1: recap({ toursAvecPose: [1] }) } });
+
+  it('refuse un joker ajoute a une suite sans la carte qu il remplace, l accepte declare', () => {
+    const suite = tierce('pique', [c('pique', 5), c('pique', 6), c('pique', 7)], 'j1', 1);
+    const jokerEnMain = joker();
+    const aJeter = c('trefle', 3);
+    const depart = dejaOuvert([jokerEnMain, aJeter], [suite]);
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: jokerEnMain, remplace: null }] }],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(DeclarationJokerRequiseError);
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: jokerEnMain, remplace: { couleur: 'pique', valeur: 8 } }] }],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(apres.combinaisons[0]?.cartes.at(-1)?.remplace).toEqual({ couleur: 'pique', valeur: 8 });
+  });
+
+  it('refuse aussi une suite posee avec un joker encadre mais non declare', () => {
+    const cinq = c('pique', 5);
+    const jokerEnMain = joker();
+    const sept = c('pique', 7);
+    const aJeter = c('trefle', 3);
+    expect(() =>
+      jouerTour(dejaOuvert([cinq, jokerEnMain, sept, aJeter]), 'j1', {
+        source: 'pioche',
+        poses: [tierce('pique', [cinq, { carte: jokerEnMain, remplace: null }, sept])],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(DeclarationJokerRequiseError);
+  });
+
+  it('un joker ajoute a un brelan peut rester sans declaration', () => {
+    const brelan = ensemble(8, [c('pique', 8), c('carreau', 8), c('trefle', 8)], 'j1', 1);
+    const jokerEnMain = joker();
+    const aJeter = c('trefle', 3);
+    const { coup: apres } = jouerTour(
+      coupJouable([jokerEnMain, aJeter], { combinaisons: [brelan], recapitulatifs: { j1: recap({ toursAvecPose: [1] }) } }),
+      'j1',
+      { source: 'pioche', ajouts: [{ combinaisonId: brelan.id, cartes: [{ carte: jokerEnMain, remplace: null }] }], carteDefausseeId: aJeter.id },
+    );
+    expect(apres.combinaisons[0]?.type).toBe('carre');
+  });
+
+  it('reprendre un joker sur la combinaison d un adversaire puis tout poser en une fois : double', () => {
+    const jokerEnSix = jokerPour('trefle', 6);
+    const chezJ2 = tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], 'j2', 1);
+    const six = c('trefle', 6);
+    const coeur = ([10, 'V', 'D', 'R', 'A'] as const).map((valeur) => c('coeur', valeur));
+    const pique = ([2, 3, 4, 5, 6] as const).map((valeur) => c('pique', valeur));
+    const sept = [c('carreau', 7), c('pique', 7), c('trefle', 7)];
+    const aJeter = c('coeur', 8);
+    const depart = coupJouable([six, ...coeur, ...pique, ...sept], {
+      combinaisons: [chezJ2],
+      pioche: [aJeter, c('carreau', 2)],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
+    });
+    const { coup: avecEchange, joker: repris } = echangerJoker(depart, 'j1', six, {
+      combinaisonId: chezJ2.id,
+      carteJokerId: jokerEnSix.carte.id,
+    });
+
+    const { coup: fin, coupTermine } = jouerTour(avecEchange, 'j1', {
+      source: 'pioche',
+      poses: [
+        tierce('coeur', coeur),
+        tierce('pique', pique),
+        ensemble(7, [...sept, { carte: repris, remplace: { couleur: 'coeur', valeur: 7 } }]),
+      ],
+      carteDefausseeId: aJeter.id,
+      jokersRecuperes: [repris.id],
+    });
+    expect(coupTermine).toBe(true);
+    expect(fin.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(false);
+    expect(detecterDoubleOuTriple(fin, 'j1')).toBe('double');
+  });
+
+  it('recupererJoker ne compte pas non plus la reprise chez un adversaire comme une aide', () => {
+    const jokerEnSix = jokerPour('trefle', 6);
+    const chezJ2 = tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], 'j2', 1);
+    const six = c('trefle', 6);
+    const paire = [c('pique', 8), c('coeur', 8)];
+    const { coup: apres } = recupererJoker(
+      dejaOuvert([six, ...paire], [chezJ2]),
+      'j1',
+      six,
+      { combinaisonId: chezJ2.id, carteJokerId: jokerEnSix.carte.id },
+      ensemble(8, [...paire, { carte: jokerEnSix.carte, remplace: { couleur: 'carreau', valeur: 8 } }], 'j1'),
+    );
+    expect(apres.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(false);
   });
 });

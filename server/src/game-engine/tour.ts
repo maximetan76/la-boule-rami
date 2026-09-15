@@ -21,6 +21,7 @@ import { croixALaPose } from './croix.js';
 import {
   estCombinaisonProlongeeValide,
   estCombinaisonValide,
+  verifierDeclarationsAjout,
   verifierDeclarationsJokers,
 } from './combinaisons.js';
 import { peutPoser, SEUIL_POSE, verifierFinDeCoupSpeciale } from './pose.js';
@@ -253,6 +254,7 @@ export const jouerTour = (
     const ajout = ajouts.find((candidat) => candidat.combinaisonId === combinaison.id);
     if (ajout === undefined) return combinaison;
 
+    verifierDeclarationsAjout(combinaison, ajout.cartes);
     const enrichie = avecCartes(combinaison, [...combinaison.cartes, ...ajout.cartes]);
     // Une combinaison qui grandit n'est pas une pose : elle n'a pas de plafond.
     if (!estCombinaisonProlongeeValide(enrichie)) {
@@ -567,10 +569,10 @@ export const recupererJoker = (
           toursAvecPose: precedent.toursAvecPose.includes(coup.numeroTour)
             ? [...precedent.toursAvecPose]
             : [...precedent.toursAvecPose, coup.numeroTour],
-          // Placer une carte dans la combinaison d'un autre joueur, c'est
-          // s'appuyer sur son jeu visible : cela ferme la porte au « double ».
-          aAjouteSurCombinaisonAutrui:
-            precedent.aAjouteSurCombinaisonAutrui || cible.proprietaireId !== joueurId,
+          // Réf. § « Fin d'un coup et scoring » : reprendre un joker sur la
+          // combinaison d'un autre joueur n'est pas s'aider de son jeu. Seule
+          // compte, pour le double, la pose de toute sa main en une fois.
+          aAjouteSurCombinaisonAutrui: precedent.aAjouteSurCombinaisonAutrui,
         },
       },
     },

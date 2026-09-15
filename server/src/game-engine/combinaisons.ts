@@ -32,8 +32,8 @@ interface CarteResolue {
 export class DeclarationJokerRequiseError extends Error {
   constructor(description: string) {
     super(
-      `Joker en bout de suite non declare (${description}) : precisez la carte ` +
-        `qu il represente via le champ « remplace » avant de poser cette tierce.`,
+      `Joker non declare (${description}) : precisez la carte ` +
+        `qu il represente via le champ « remplace » avant de le poser dans une suite.`,
     );
     this.name = 'DeclarationJokerRequiseError';
   }
@@ -347,6 +347,12 @@ export const verifierDeclarationsJokers = (combinaisons: readonly Combinaison[])
       }
       continue;
     }
+    // Réf. § « Conditions pour poser » : tout joker d'une suite dit la carte
+    // qu'il remplace, même quand sa place ne fait aucun doute — sans quoi il
+    // ne pourrait jamais être récupéré.
+    if (combinaison.cartes.some((cp) => estJoker(cp.carte) && cp.remplace === null)) {
+      throw new DeclarationJokerRequiseError(decrire(combinaison));
+    }
     verifierEncadrement(combinaison);
     // Une tierce simplement invalide n'est pas un problème de déclaration :
     // elle sera refusée par la validation ordinaire.
@@ -354,6 +360,22 @@ export const verifierDeclarationsJokers = (combinaisons: readonly Combinaison[])
     if (fenetreTierce(combinaison) === null) {
       throw new DeclarationJokerRequiseError(decrire(combinaison));
     }
+  }
+};
+
+/**
+ * Un ajout à une suite déjà posée : chaque joker ajouté déclare la carte qu'il
+ * remplace, comme à la pose. Un brelan ou un carré n'exige rien : la valeur
+ * est commune, et la couleur se déduit quand il n'en reste qu'une.
+ * @throws DeclarationJokerRequiseError
+ */
+export const verifierDeclarationsAjout = (
+  combinaison: Combinaison,
+  ajoutees: readonly CartePosee[],
+): void => {
+  if (combinaison.type !== 'tierce') return;
+  if (ajoutees.some((cp) => estJoker(cp.carte) && cp.remplace === null)) {
+    throw new DeclarationJokerRequiseError(decrire({ ...combinaison, cartes: [...combinaison.cartes, ...ajoutees] }));
   }
 };
 
