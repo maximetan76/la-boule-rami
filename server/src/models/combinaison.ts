@@ -45,6 +45,13 @@ interface CombinaisonBase {
    */
   readonly tourDePose: number;
   readonly cartes: readonly CartePosee[];
+  /**
+   * Croix gagnées par cette combinaison, arrêtées au moment même de sa pose.
+   * Réf. docs/REGLES.md § « Bonus quinte flush royale » : seule une quinte
+   * posée d'un seul coup les rapporte, et rien de ce qui s'y ajoute ou s'y
+   * échange ensuite n'y change quoi que ce soit. Absent : aucune.
+   */
+  readonly croix?: number;
 }
 
 /** Suite de 3 à 5 cartes consécutives de la même couleur. */

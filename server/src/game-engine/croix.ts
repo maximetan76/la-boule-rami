@@ -5,7 +5,8 @@
  * - quinte flush royale PURE (A-R-D-V-10 de la même couleur, sans joker) : 2 croix ;
  * - la même posée avec le coucou à la place d'une des 5 cartes : 1 croix ;
  * - le bonus tombe si le joueur pose en même temps une carte qui prolongerait
- *   la quinte (le 9 de la même couleur) : il doit la garder pour un tour ultérieur.
+ *   la quinte (le 9 de la même couleur) : il doit la garder pour un tour ultérieur ;
+ * - la quinte se pose d'un seul coup : ni complétée plus tard, ni avec un joker repris.
  */
 import type { Combinaison, Coup, JoueurId } from '../models/index.js';
 import { RANG_MAX } from './cartes.js';
@@ -41,31 +42,46 @@ export const detecterQuinteFlushRoyale = (
 };
 
 /**
- * Le joueur a-t-il posé, au même tour, une carte qui prolongerait la quinte ?
+ * Croix que rapporte une combinaison, à l'instant même de sa pose.
  *
- * Le texte des règles ne cite que le 9 de la même couleur, seule carte capable
- * de prolonger une suite qui monte déjà jusqu'à l'as.
+ * Réf. docs/REGLES.md § « Bonus quinte flush royale (les croix) ». La quinte
+ * doit être posée d'un seul coup : ses 5 cartes dans la même pose, le coucou
+ * venant de la main ou de la carte piochée, jamais d'une autre combinaison.
+ * Compléter plus tard une suite de 4, même d'une carte réelle, ne rapporte
+ * rien — c'est pourquoi le compte se fait ici et non sur la table en fin de
+ * coup. Un joker tout juste repris dans la quinte l'annule, comme le 9 de la
+ * même couleur posé dans la même action.
+ *
+ * @param posesDuTour toutes les combinaisons posées dans la même action, elle comprise.
+ * @param jokersRecuperes jokers repris sur la table ce tour-ci.
  */
-const quinteProlongeeAuMemeTour = (coup: Coup, quinte: Combinaison): boolean => {
-  if (quinte.type !== 'tierce') return false;
-  const rangProlongement = RANG_DIX - 1;
+export const croixALaPose = (
+  combinaison: Combinaison,
+  posesDuTour: readonly Combinaison[],
+  jokersRecuperes: readonly string[] = [],
+): number => {
+  if (combinaison.type !== 'tierce') return 0;
+  const repris = new Set(jokersRecuperes);
+  if (combinaison.cartes.some((cp) => repris.has(cp.carte.id))) return 0;
 
-  return coup.combinaisons.some(
+  // « Il doit poser seulement A-R-D-V-10 et garder le 9 pour un tour ultérieur. »
+  const prolongee = posesDuTour.some(
     (autre) =>
-      autre.id !== quinte.id &&
-      autre.proprietaireId === quinte.proprietaireId &&
-      autre.tourDePose === quinte.tourDePose &&
-      rangsDesCartesReelles(autre, quinte.couleur).includes(rangProlongement),
+      autre.id !== combinaison.id &&
+      rangsDesCartesReelles(autre, combinaison.couleur).includes(RANG_DIX - 1),
   );
+  if (prolongee) return 0;
+
+  if (detecterQuinteFlushRoyale(combinaison, false)) return CROIX_QUINTE_PURE;
+  if (detecterQuinteFlushRoyale(combinaison, true)) return CROIX_QUINTE_AVEC_COUCOU;
+  return 0;
 };
 
-/** Croix gagnées par un joueur pendant un coup, avant multiplicateur. */
+/**
+ * Croix gagnées par un joueur pendant un coup, avant multiplicateur : celles
+ * que ses combinaisons ont rapportées à leur pose.
+ */
 export const compterCroix = (coup: Coup, joueurId: JoueurId): number =>
   coup.combinaisons
     .filter((combinaison) => combinaison.proprietaireId === joueurId)
-    .reduce((total, combinaison) => {
-      if (quinteProlongeeAuMemeTour(coup, combinaison)) return total;
-      if (detecterQuinteFlushRoyale(combinaison, false)) return total + CROIX_QUINTE_PURE;
-      if (detecterQuinteFlushRoyale(combinaison, true)) return total + CROIX_QUINTE_AVEC_COUCOU;
-      return total;
-    }, 0);
+    .reduce((total, combinaison) => total + (combinaison.croix ?? 0), 0);

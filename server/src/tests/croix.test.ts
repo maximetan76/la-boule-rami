@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { compterCroix, detecterQuinteFlushRoyale } from '../game-engine/croix.js';
-import { c, coucouPour, coup, jokerPour, tierce } from './fixtures.js';
-import type { Couleur } from '../models/index.js';
+import { compterCroix, croixALaPose, detecterQuinteFlushRoyale } from '../game-engine/croix.js';
+import { echangerJoker, jouerTour } from '../game-engine/tour.js';
+import { c, coucouPour, coup, jokerPour, recap, tierce } from './fixtures.js';
+import type { Carte, Combinaison, Couleur } from '../models/index.js';
 
 /** Réf. docs/REGLES.md § « Bonus quinte flush royale (les croix) ». */
 
@@ -55,9 +56,15 @@ describe('detecterQuinteFlushRoyale', () => {
   });
 });
 
+/** Une combinaison telle que le moteur la signe à la pose, croix arrêtées. */
+const poseeDUnCoup = <T extends Combinaison>(combinaison: T, poses: Combinaison[] = [combinaison]): T => ({
+  ...combinaison,
+  croix: croixALaPose(combinaison, poses),
+});
+
 describe('compterCroix', () => {
-  it('accorde 2 croix pour une quinte pure et 1 pour une quinte au coucou', () => {
-    expect(compterCroix(coup({ combinaisons: [quintePure()] }), 'j1')).toBe(2);
+  it('additionne les croix arretees a la pose : 2 pour une quinte pure, 1 au coucou', () => {
+    expect(compterCroix(coup({ combinaisons: [poseeDUnCoup(quintePure())] }), 'j1')).toBe(2);
 
     const avecCoucou = tierce('pique', [
       c('pique', 10),
@@ -66,51 +73,148 @@ describe('compterCroix', () => {
       coucouPour('pique', 'R'),
       c('pique', 'A'),
     ]);
-    expect(compterCroix(coup({ combinaisons: [avecCoucou] }), 'j1')).toBe(1);
+    expect(compterCroix(coup({ combinaisons: [poseeDUnCoup(avecCoucou)] }), 'j1')).toBe(1);
   });
 
   it('cumule les croix de plusieurs quintes', () => {
-    const partie = coup({ combinaisons: [quintePure('coeur'), quintePure('pique')] });
+    const partie = coup({ combinaisons: [poseeDUnCoup(quintePure('coeur')), poseeDUnCoup(quintePure('pique'))] });
     expect(compterCroix(partie, 'j1')).toBe(4);
   });
 
   it('n accorde rien au joueur qui n a pas pose la quinte', () => {
-    expect(compterCroix(coup({ combinaisons: [quintePure('coeur', 'j1')] }), 'j2')).toBe(0);
+    expect(compterCroix(coup({ combinaisons: [poseeDUnCoup(quintePure('coeur', 'j1'))] }), 'j2')).toBe(0);
   });
 
-  it('annule le bonus si le 9 de la meme couleur est pose au meme tour', () => {
+  it('ne juge pas la table en fin de coup : une quinte que la pose n a pas marquee ne rapporte rien', () => {
+    expect(compterCroix(coup({ combinaisons: [quintePure()] }), 'j1')).toBe(0);
+  });
+});
+
+describe('croixALaPose', () => {
+  it('annule le bonus si le 9 de la meme couleur est pose dans la meme action', () => {
     // § « le joueur ne doit PAS poser la suite complete en une fois s il a une
     // carte supplementaire qui prolongerait la quinte flush ».
-    const prolongement = tierce(
-      'coeur',
-      [c('coeur', 7), c('coeur', 8), c('coeur', 9)],
-      'j1',
-      1,
-    );
-    const partie = coup({ combinaisons: [quintePure('coeur', 'j1', 1), prolongement] });
-    expect(compterCroix(partie, 'j1')).toBe(0);
-  });
-
-  it('conserve le bonus si le 9 est pose a un tour ulterieur', () => {
-    // « il doit poser seulement A-K-Q-J-10 et garder le 9 pour un tour ulterieur ».
-    const prolongement = tierce(
-      'coeur',
-      [c('coeur', 7), c('coeur', 8), c('coeur', 9)],
-      'j1',
-      4,
-    );
-    const partie = coup({ combinaisons: [quintePure('coeur', 'j1', 1), prolongement] });
-    expect(compterCroix(partie, 'j1')).toBe(2);
+    const quinte = quintePure('coeur');
+    const prolongement = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)]);
+    expect(croixALaPose(quinte, [quinte, prolongement])).toBe(0);
+    expect(croixALaPose(quinte, [quinte])).toBe(2);
   });
 
   it('ignore un prolongement d une autre couleur', () => {
-    const autreCouleur = tierce(
-      'pique',
-      [c('pique', 7), c('pique', 8), c('pique', 9)],
-      'j1',
-      1,
-    );
-    const partie = coup({ combinaisons: [quintePure('coeur', 'j1', 1), autreCouleur] });
-    expect(compterCroix(partie, 'j1')).toBe(2);
+    const quinte = quintePure('coeur');
+    const autreCouleur = tierce('pique', [c('pique', 7), c('pique', 8), c('pique', 9)]);
+    expect(croixALaPose(quinte, [quinte, autreCouleur])).toBe(2);
+  });
+
+  it('annule le bonus d une quinte qui porte un joker tout juste repris', () => {
+    const coucouRepris = coucouPour('coeur', 10);
+    const quinte = tierce('coeur', [coucouRepris, c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')]);
+    expect(croixALaPose(quinte, [quinte])).toBe(1);
+    expect(croixALaPose(quinte, [quinte], [coucouRepris.carte.id])).toBe(0);
+  });
+});
+
+describe('croix : seule une quinte posee d un seul coup compte, au fil des tours', () => {
+  /** Le tour de j1, qui a déjà ouvert son jeu. */
+  const tourDeJ1 = (main: Carte[], combinaisons: Combinaison[] = []) =>
+    coup({
+      mains: { j1: main, j2: [c('pique', 2), c('pique', 4)], j3: [c('trefle', 2)] },
+      pioche: [c('carreau', 4), c('carreau', 6)],
+      combinaisons,
+      recapitulatifs: { j1: recap({ toursAvecPose: [1] }), j2: recap(), j3: recap() },
+      numeroTour: 2,
+    });
+  const royale = (couleur: Couleur) => [c(couleur, 10), c(couleur, 'V'), c(couleur, 'D'), c(couleur, 'R'), c(couleur, 'A')];
+
+  it('les 5 cartes posees d un coup : 2 croix, qui restent quand la quinte grandit plus tard', () => {
+    const cartes = royale('coeur');
+    const aJeter = c('pique', 3);
+    const { coup: apres } = jouerTour(tourDeJ1([...cartes, aJeter]), 'j1', {
+      source: 'pioche',
+      poses: [tierce('coeur', cartes)],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(compterCroix(apres, 'j1')).toBe(2);
+
+    const quinte = apres.combinaisons[0] as Combinaison;
+    const neuf = c('coeur', 9);
+    const autreAJeter = c('pique', 5);
+    const { coup: prolongee } = jouerTour(tourDeJ1([neuf, autreAJeter], [quinte]), 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: quinte.id, cartes: [{ carte: neuf, remplace: null }] }],
+      carteDefausseeId: autreAJeter.id,
+    });
+    expect(prolongee.combinaisons[0]?.cartes).toHaveLength(6);
+    expect(compterCroix(prolongee, 'j1')).toBe(2);
+  });
+
+  it('les 5 posees d un coup avec le coucou tenu en main : 1 croix', () => {
+    const coucouEnDix = coucouPour('pique', 10);
+    const reste = [c('pique', 'V'), c('pique', 'D'), c('pique', 'R'), c('pique', 'A')];
+    const aJeter = c('coeur', 3);
+    const { coup: apres } = jouerTour(tourDeJ1([coucouEnDix.carte, ...reste, aJeter]), 'j1', {
+      source: 'pioche',
+      poses: [tierce('pique', [coucouEnDix, ...reste])],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(compterCroix(apres, 'j1')).toBe(1);
+  });
+
+  it('A-R-D-V deja posee, le 10 reel ajoute a un tour suivant : aucune croix', () => {
+    const quatre = tierce('coeur', [c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')], 'j1', 1);
+    const dix = c('coeur', 10);
+    const aJeter = c('pique', 3);
+    const { coup: apres } = jouerTour(tourDeJ1([dix, aJeter], [quatre]), 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: quatre.id, cartes: [{ carte: dix, remplace: null }] }],
+      carteDefausseeId: aJeter.id,
+    });
+    const quinte = apres.combinaisons[0] as Combinaison;
+    expect(detecterQuinteFlushRoyale(quinte)).toBe(true);
+    expect(compterCroix(apres, 'j1')).toBe(0);
+  });
+
+  it('scenario rapporte : A-R-D-V de coeur posee, coucou recupere ailleurs et place en 10 : aucune croix', () => {
+    const quatre = tierce('coeur', [c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')], 'j1', 1);
+    const coucouEnSix = coucouPour('trefle', 6);
+    const ailleurs = tierce('trefle', [c('trefle', 5), coucouEnSix, c('trefle', 7)], 'j2', 1);
+    const six = c('trefle', 6);
+    const aJeter = c('pique', 3);
+    const { coup: avecEchange, joker: repris } = echangerJoker(tourDeJ1([six, aJeter], [quatre, ailleurs]), 'j1', six, {
+      combinaisonId: ailleurs.id,
+      carteJokerId: coucouEnSix.carte.id,
+    });
+
+    const { coup: apres } = jouerTour(avecEchange, 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: quatre.id, cartes: [{ carte: repris, remplace: { couleur: 'coeur', valeur: 10 } }] }],
+      carteDefausseeId: aJeter.id,
+      jokersRecuperes: [repris.id],
+    });
+    const quinte = apres.combinaisons.find((combinaison) => combinaison.id === quatre.id) as Combinaison;
+    // Sur la table, c'est bien une quinte au coucou…
+    expect(detecterQuinteFlushRoyale(quinte, true)).toBe(true);
+    // … mais formée par un ajout, avec un coucou repris : aucune croix.
+    expect(compterCroix(apres, 'j1')).toBe(0);
+  });
+
+  it('le coucou repris et pose avec les quatre autres cartes d un coup ne rapporte rien non plus', () => {
+    const reste = [c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+    const coucouEnSix = coucouPour('trefle', 6);
+    const ailleurs = tierce('trefle', [c('trefle', 5), coucouEnSix, c('trefle', 7)], 'j2', 1);
+    const six = c('trefle', 6);
+    const aJeter = c('pique', 3);
+    const { coup: avecEchange, joker: repris } = echangerJoker(tourDeJ1([six, ...reste, aJeter], [ailleurs]), 'j1', six, {
+      combinaisonId: ailleurs.id,
+      carteJokerId: coucouEnSix.carte.id,
+    });
+
+    const { coup: apres } = jouerTour(avecEchange, 'j1', {
+      source: 'pioche',
+      poses: [tierce('coeur', [{ carte: repris, remplace: { couleur: 'coeur', valeur: 10 } }, ...reste])],
+      carteDefausseeId: aJeter.id,
+      jokersRecuperes: [repris.id],
+    });
+    expect(compterCroix(apres, 'j1')).toBe(0);
   });
 });

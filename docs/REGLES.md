@@ -70,6 +70,7 @@
 ### Bonus "quinte flush royale" (les "croix")
 - Si un joueur pose, au moment de sa pose, une quinte flush royale PURE (A-K-Q-J-10 de la même couleur, sans joker), il reçoit 2 "croix".
 - S'il la pose en utilisant le "coucou" à la place d'une des 5 cartes, il ne reçoit qu'1 "croix".
+- La quinte doit être posée D'UN SEUL COUP : ses 5 cartes dans la même pose, le coucou pouvant venir de la main ou de la carte tout juste piochée ou prise en défausse. Une suite de 4 complétée plus tard par une 5e carte, même réelle (A-R-D-V de cœur posée, le 10 ajouté à un tour suivant), ne rapporte AUCUNE croix. Un joker ou un coucou récupéré sur une autre combinaison puis placé dans la quinte — pour la compléter ou en la posant — ne rapporte jamais de croix non plus. Les croix sont acquises au moment de la pose : ce qui s'ajoute ou s'échange ensuite sur la quinte ne les change pas.
 - Ces croix sont cumulables sur plusieurs coups au sein de la même Boule.
 - Si le joueur qui obtient une croix réalise ce coup en "double" ou "triple" (voir plus haut), le nombre de croix obtenu ce coup-là est lui aussi doublé ou triplé en conséquence.
 - Contrainte de validité : pour prétendre à ce bonus, le joueur ne doit PAS poser la suite complète en une fois s'il a une carte supplémentaire qui prolongerait la quinte flush (exemple : s'il a A-K-Q-J-10 de cœur ET le 9 de cœur en main, il ne doit PAS poser les 6 cartes ensemble — il doit poser seulement A-K-Q-J-10 et garder le 9 pour un tour ultérieur, sinon la quinte flush royale n'est pas reconnue comme telle pour le bonus).

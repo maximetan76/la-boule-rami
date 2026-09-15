@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { croixALaPose } from '../game-engine/croix.js';
 import { arrondirALaDizaine, calculerScoreCoup, scoreDeLaMain } from '../game-engine/scoring.js';
 import { c, coup, coucouPour, recap, tierce } from './fixtures.js';
-import type { Carte, Couleur } from '../models/index.js';
+import type { Carte, Combinaison, Couleur } from '../models/index.js';
 
 /** Réf. docs/REGLES.md § « Fin d'un coup et scoring ». */
 
@@ -10,11 +11,19 @@ const main34 = (): Carte[] => [c('pique', 'A'), c('coeur', 'R'), c('trefle', 9),
 /** Une main valant exactement 35 points : As 11 + Roi 10 + Dame 10 + 4. */
 const main35 = (): Carte[] => [c('pique', 'A'), c('coeur', 'R'), c('trefle', 'D'), c('carreau', 4)];
 
+/** Une quinte posée d'un seul coup : le moteur y a arrêté ses croix. */
+const poseeDUnCoup = <T extends Combinaison>(combinaison: T): T => ({
+  ...combinaison,
+  croix: croixALaPose(combinaison, [combinaison]),
+});
+
 const quintePure = (couleur: Couleur, proprietaire: string) =>
-  tierce(
-    couleur,
-    [c(couleur, 10), c(couleur, 'V'), c(couleur, 'D'), c(couleur, 'R'), c(couleur, 'A')],
-    proprietaire,
+  poseeDUnCoup(
+    tierce(
+      couleur,
+      [c(couleur, 10), c(couleur, 'V'), c(couleur, 'D'), c(couleur, 'R'), c(couleur, 'A')],
+      proprietaire,
+    ),
   );
 
 const coupA3 = (partiel: Parameters<typeof coup>[0] = {}) =>
@@ -155,10 +164,12 @@ describe('calculerScoreCoup', () => {
   });
 
   it('accorde 1 croix pour une quinte posee avec le coucou', () => {
-    const avecCoucou = tierce(
-      'pique',
-      [c('pique', 10), c('pique', 'V'), c('pique', 'D'), coucouPour('pique', 'R'), c('pique', 'A')],
-      'j1',
+    const avecCoucou = poseeDUnCoup(
+      tierce(
+        'pique',
+        [c('pique', 10), c('pique', 'V'), c('pique', 'D'), coucouPour('pique', 'R'), c('pique', 'A')],
+        'j1',
+      ),
     );
     const partie = coupA3({ combinaisons: [avecCoucou] });
     const score = calculerScoreCoup(partie, 'j1', 'simple', false);

@@ -10,7 +10,8 @@ import { ouvrirTablePleine } from './aide-table.js';
 import { c, coucou, joker, recap, tierce } from './fixtures.js';
 import type { DelaisDeJeu, GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAI_INACTIVITE_MS } from '../server/game-room-manager.js';
-import type { Carte, JoueurId } from '../models/index.js';
+import type { Carte, Coup, JoueurId } from '../models/index.js';
+import { compterCroix } from '../game-engine/croix.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
 
 /**
@@ -229,6 +230,86 @@ describe('serveur socket.io', () => {
     expect(serveur.manager.tableVivante(tableId)).toBeNull();
     // Une action sur la table disparue est refusée, pas ignorée en silence.
     expect((await emettre(ana.socket, 'piocher', { source: 'pioche' })).ok).toBe(false);
+  });
+
+  /**
+   * Réf. docs/REGLES.md § « Bonus quinte flush royale ». Le premier joueur a
+   * déjà ouvert : sa suite V-D-R-A de cœur est sur la table, et le second a
+   * posé 5-[coucou en 6]-7 de trèfle.
+   */
+  const tablePourLesCroix = async (main: Carte[]) => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const second = table.coup.ordreJoueurs[1] as JoueurId;
+
+    const coucouEnSix = { carte: coucou(), remplace: { couleur: 'trefle' as const, valeur: 6 as const } };
+    const quatre = {
+      id: 'comb-quatre',
+      type: 'tierce' as const,
+      proprietaireId: premier,
+      tourDePose: 1,
+      couleur: 'coeur' as const,
+      cartes: [c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')].map((carte) => ({ carte, remplace: null })),
+      pure: true,
+    };
+    const ailleurs = {
+      id: 'comb-ailleurs',
+      type: 'tierce' as const,
+      proprietaireId: second,
+      tourDePose: 1,
+      couleur: 'trefle' as const,
+      cartes: [{ carte: c('trefle', 5), remplace: null }, coucouEnSix, { carte: c('trefle', 7), remplace: null }],
+      pure: false,
+    };
+    table.coup.combinaisons = [quatre, ailleurs];
+    table.coup.mains[premier] = main;
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    const coupReel = (): Coup => {
+      if (table.coup === null) throw new Error('coup absent');
+      return table.coup;
+    };
+    return { joueur, premier, quatre, coucouEnSix, coupReel };
+  };
+
+  it('croix, scenario rapporte : coucou recupere ailleurs et place en 10 sur A-R-D-V de coeur, aucune croix', async () => {
+    const six = c('trefle', 6);
+    const aJeter = c('pique', 3);
+    const t = await tablePourLesCroix([six, aJeter, c('carreau', 9)]);
+
+    const reprise = await emettre(t.joueur.socket, 'recuperer-joker', {
+      carteReelleId: six.id,
+      combinaisonId: 'comb-ailleurs',
+      carteJokerId: t.coucouEnSix.carte.id,
+    });
+    expect(reprise.ok).toBe(true);
+    const ajout = await emettre(t.joueur.socket, 'poser', {
+      ajouts: [{ combinaisonId: t.quatre.id, cartes: [{ carteId: t.coucouEnSix.carte.id, remplace: { couleur: 'coeur', valeur: 10 } }] }],
+    });
+    expect(ajout.ok).toBe(true);
+    expect(await emettre(t.joueur.socket, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
+
+    const quinte = t.coupReel().combinaisons.find((combinaison) => combinaison.id === t.quatre.id);
+    expect(quinte?.cartes).toHaveLength(5);
+    expect(compterCroix(t.coupReel(), t.premier)).toBe(0);
+  });
+
+  it('croix, cas legitime : la quinte royale posee d un coup rapporte ses 2 croix', async () => {
+    const quinte = [c('pique', 10), c('pique', 'V'), c('pique', 'D'), c('pique', 'R'), c('pique', 'A')];
+    const aJeter = c('trefle', 3);
+    const t = await tablePourLesCroix([...quinte, aJeter, c('carreau', 9)]);
+
+    const pose = await emettre(t.joueur.socket, 'poser', {
+      poses: [{ type: 'tierce', couleur: 'pique', cartes: quinte.map((carte) => ({ carteId: carte.id })) }],
+    });
+    expect(pose.ok).toBe(true);
+    expect(await emettre(t.joueur.socket, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
+    expect(compterCroix(t.coupReel(), t.premier)).toBe(2);
   });
 
   /** Une table aux délais choisis, tous les joueurs présents. */

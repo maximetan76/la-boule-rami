@@ -17,6 +17,7 @@ import type {
   JoueurId,
 } from '../models/index.js';
 import { estJoker } from './cartes.js';
+import { croixALaPose } from './croix.js';
 import {
   estCombinaisonProlongeeValide,
   estCombinaisonValide,
@@ -309,7 +310,9 @@ export const jouerTour = (
     if (!estCombinaisonValide(signee)) {
       throw new Error(`Combinaison posee invalide : ${signee.id}`);
     }
-    return signee;
+    // Réf. § « Bonus quinte flush royale » : les croix s'arrêtent ici, à la
+    // pose, et nulle part ailleurs.
+    return { ...signee, croix: croixALaPose(signee, poses, action.jokersRecuperes ?? []) };
   });
 
   // --- Défausse -----------------------------------------------------------
