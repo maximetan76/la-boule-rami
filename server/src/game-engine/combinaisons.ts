@@ -143,6 +143,10 @@ export const estEnsembleValide = (combinaison: Combinaison): boolean => {
   const taille = combinaison.type === 'brelan' ? 3 : 4;
   if (cartes.length !== taille) return false;
 
+  // Réf. § « Conditions pour poser » : une seule carte réelle parmi des jokers
+  // forme une suite, jamais un brelan ni un carré.
+  if (cartes.filter((cp) => cp.carte.type === 'normale').length < 2) return false;
+
   const resolues = cartes.map(resoudre).filter((r): r is CarteResolue => r !== null);
   if (resolues.some((r) => r.valeur !== valeur)) return false;
 
@@ -293,44 +297,56 @@ export const rangsDesCartesReelles = (combinaison: Combinaison, couleur: Couleur
  * Vérifie que toute combinaison proposée est lisible sans ambiguïté.
  * @throws DeclarationJokerRequiseError si un joker en bout de suite n'est pas déclaré.
  */
-/** La valeur de chaque rang, de 1 à 14 : l'As se lit en 1 sous le 2, en 14 sur le Roi. */
-const VALEUR_DU_RANG: readonly (Valeur | null)[] = [null, 'A', 2, 3, 4, 5, 6, 7, 8, 9, 10, 'V', 'D', 'R', 'A'];
-
 /**
- * Une tierce de trois cartes dont une seule est réelle : la carte réelle est
- * au centre, un joker juste en dessous, un juste au-dessus.
+ * Une suite dont une seule carte est réelle : la carte n'y est jamais en bout.
  *
- * Réf. docs/REGLES.md § « Conditions pour poser ». Aucune autre disposition
- * n'est valide, et un As — toujours en bout de suite — ne peut jamais être
- * ainsi encadré. Des jokers encore non déclarés laissent la lecture à dire :
+ * Réf. docs/REGLES.md § « Conditions pour poser ». À trois cartes, elle est au
+ * centre, un joker juste en dessous, un juste au-dessus ; à quatre, en
+ * deuxième ou troisième place — Valet et trois jokers se lisent 9-10-V-D ou
+ * 10-V-D-R. Un As, toujours en bout de suite, ne peut jamais être la seule
+ * carte réelle. Des jokers encore non déclarés laissent la lecture à dire :
  * `fenetreTierce` le signale ensuite.
  */
 const verifierEncadrement = (combinaison: Combinaison): void => {
-  if (combinaison.cartes.length !== 3) return;
   const reelles = combinaison.cartes.filter((cp) => cp.carte.type === 'normale');
   const reelle = reelles[0]?.carte;
   if (reelles.length !== 1 || reelle === undefined || reelle.type !== 'normale') return;
+  const aTroisCartes = combinaison.cartes.length === 3;
 
-  if (reelle.valeur === 'A') throw new Error('Un As ne peut pas etre encadre par deux jokers');
-
-  const declarees = combinaison.cartes
-    .filter((cp) => cp.carte.type !== 'normale')
-    .map((cp) => cp.remplace?.valeur ?? null);
-  if (declarees.some((valeur) => valeur === null)) return;
-
-  const centre = rang(reelle.valeur, true);
-  const attendues = [VALEUR_DU_RANG[centre - 1], VALEUR_DU_RANG[centre + 1]];
-  const encadree = attendues.every((attendue) => declarees.some((valeur) => valeur === attendue));
-  if (!encadree) {
+  if (reelle.valeur === 'A') {
     throw new Error(
-      "Une tierce d'une seule carte et de deux jokers doit encadrer la carte : un joker juste en dessous, un juste au-dessus",
+      aTroisCartes
+        ? 'Un As ne peut pas etre encadre par deux jokers'
+        : 'Un As ne peut pas etre la seule carte reelle d une suite : il y serait toujours en bout',
     );
   }
+  if (combinaison.cartes.some((cp) => cp.carte.type !== 'normale' && cp.remplace === null)) return;
+
+  const fenetre = fenetreTierce(combinaison);
+  if (fenetre === null) return;
+  const rangReel = rang(reelle.valeur, true);
+  if (rangReel > fenetre.debut && rangReel < fenetre.fin) return;
+  throw new Error(
+    aTroisCartes
+      ? "Une tierce d'une seule carte et de deux jokers doit encadrer la carte : un joker juste en dessous, un juste au-dessus"
+      : "Une suite d'une seule carte reelle ne la place jamais en bout : il faut au moins un joker de chaque cote",
+  );
 };
+
+/** Une seule carte réelle parmi des jokers : c'est une suite, jamais un ensemble. */
+const cartesReelles = (combinaison: Combinaison): number =>
+  combinaison.cartes.filter((cp) => cp.carte.type === 'normale').length;
 
 export const verifierDeclarationsJokers = (combinaisons: readonly Combinaison[]): void => {
   for (const combinaison of combinaisons) {
-    if (combinaison.type !== 'tierce') continue;
+    if (combinaison.type !== 'tierce') {
+      if (cartesReelles(combinaison) < 2) {
+        throw new Error(
+          'Un brelan ou un carre compte au moins deux cartes reelles : une seule carte et des jokers forment une suite',
+        );
+      }
+      continue;
+    }
     verifierEncadrement(combinaison);
     // Une tierce simplement invalide n'est pas un problème de déclaration :
     // elle sera refusée par la validation ordinaire.
