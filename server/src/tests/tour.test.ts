@@ -1774,3 +1774,42 @@ describe('joker frais : une seule regle pour ouvrir, sauf en finissant le coup',
     expect(coupTermine).toBe(true);
   });
 });
+
+describe('joker non declare dans un brelan : deduit par elimination des couleurs', () => {
+  // Réf. docs/REGLES.md § « Récupération d'un joker posé ».
+  const ouvert = (main: Carte[], combinaison: ReturnType<typeof ensemble>) =>
+    coupJouable(main, { combinaisons: [combinaison], recapitulatifs: { j1: recap({ toursAvecPose: [1] }) } });
+
+  it('3♥ 3♣ et un joker : ambigu ; 3♠ ajoute, le joker devient le 3♦ et le 3♦ le reprend', () => {
+    const jokerNu = joker();
+    const troisCarreau = c('carreau', 3);
+    const brelan = ensemble(3, [c('coeur', 3), c('trefle', 3), jokerNu], 'j2', 1);
+    expect(() =>
+      echangerJoker(ouvert([troisCarreau], brelan), 'j1', troisCarreau, { combinaisonId: brelan.id, carteJokerId: jokerNu.id }),
+    ).toThrow(/plusieurs couleurs restent possibles/);
+
+    const carre = ensemble(3, [c('coeur', 3), c('trefle', 3), c('pique', 3), jokerNu], 'j2', 1);
+    const troisPique = c('pique', 3);
+    expect(() =>
+      echangerJoker(ouvert([troisPique], carre), 'j1', troisPique, { combinaisonId: carre.id, carteJokerId: jokerNu.id }),
+    ).toThrow(/n est pas celle que le joker represente/);
+
+    const { coup: apres, joker: repris } = echangerJoker(ouvert([troisCarreau], carre), 'j1', troisCarreau, {
+      combinaisonId: carre.id,
+      carteJokerId: jokerNu.id,
+    });
+    expect(repris.id).toBe(jokerNu.id);
+    expect(apres.combinaisons[0]?.cartes.map((cp) => cp.carte.id)).toContain(troisCarreau.id);
+    expect(apres.combinaisons[0]?.cartes.some((cp) => cp.carte.type !== 'normale')).toBe(false);
+  });
+
+  it('deux jokers non declares dans un carre : rien ne se deduit', () => {
+    const premier = joker();
+    const second = joker();
+    const troisCarreau = c('carreau', 3);
+    const carre = ensemble(3, [c('coeur', 3), c('trefle', 3), premier, second], 'j2', 1);
+    expect(() =>
+      echangerJoker(ouvert([troisCarreau], carre), 'j1', troisCarreau, { combinaisonId: carre.id, carteJokerId: premier.id }),
+    ).toThrow(/plusieurs couleurs restent possibles/);
+  });
+});

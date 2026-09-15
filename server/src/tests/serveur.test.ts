@@ -7,7 +7,7 @@ import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { publierTable } from '../server/handlers.js';
 import { ouvrirTablePleine } from './aide-table.js';
-import { c, coucou, joker, recap, tierce } from './fixtures.js';
+import { c, coucou, ensemble, joker, recap, tierce } from './fixtures.js';
 import type { DelaisDeJeu, GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAI_INACTIVITE_MS } from '../server/game-room-manager.js';
 import type { Carte, Combinaison, Coup, JoueurId } from '../models/index.js';
@@ -479,6 +479,57 @@ describe('serveur socket.io', () => {
     })).ok).toBe(true);
     expect(await agir(t.joueur, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
     expect(t.table.resultatCoup?.score.gagnantId).toBe(t.premier);
+  });
+
+  it('banc brelan : 3♥ 3♣ et un joker ambigu, 3♠ ajoute, puis le 3♦ reprend le joker au tour suivant', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second, troisieme] = table.coup.ordreJoueurs as [JoueurId, JoueurId, JoueurId];
+    const jokerNu = joker();
+    const brelan = ensemble(3, [c('coeur', 3), c('trefle', 3), jokerNu], troisieme);
+    const troisCarreauPremier = c('carreau', 3);
+    const troisPique = c('pique', 3);
+    const aJeterPremier = c('trefle', 9);
+    const troisCarreauSecond = c('carreau', 3);
+    const huitPique = c('pique', 8);
+    const huitCarreau = c('carreau', 8);
+    const aJeterSecond = c('coeur', 9);
+    table.coup.combinaisons = [brelan];
+    table.coup.mains[premier] = [troisCarreauPremier, troisPique, aJeterPremier, c('pique', 'R')];
+    table.coup.mains[second] = [troisCarreauSecond, huitPique, huitCarreau, aJeterSecond, c('pique', 'D')];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+    table.coup.recapitulatifs[second] = recap({ toursAvecPose: [1] });
+    const joueurPremier = espions.find((e) => e.joueurId === premier) as Espion;
+    const joueurSecond = espions.find((e) => e.joueurId === second) as Espion;
+
+    await agir(joueurPremier, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueurPremier, 'piocher', { source: 'pioche' });
+    // Deux couleurs restent possibles : le 3♦ ne reprend rien.
+    const ambigu = await emettre(joueurPremier.socket, 'recuperer-joker', {
+      carteReelleId: troisCarreauPremier.id, combinaisonId: brelan.id, carteJokerId: jokerNu.id,
+    });
+    expect(ambigu.ok).toBe(false);
+    expect(ambigu.ok === false && ambigu.erreur).toContain('plusieurs couleurs restent possibles');
+    // Le 3♠ rejoint le groupe : il ne reste que le carreau.
+    await emettre(joueurPremier.socket, 'poser', { ajouts: [{ combinaisonId: brelan.id, cartes: [{ carteId: troisPique.id }] }] });
+    expect(await agir(joueurPremier, 'defausser', { carteId: aJeterPremier.id })).toEqual({ ok: true });
+    expect(table.coup.combinaisons[0]?.type).toBe('carre');
+
+    await agir(joueurSecond, 'piocher', { source: 'pioche' });
+    expect(await emettre(joueurSecond.socket, 'recuperer-joker', {
+      carteReelleId: troisCarreauSecond.id, combinaisonId: brelan.id, carteJokerId: jokerNu.id,
+    })).toEqual({ ok: true });
+    expect((await emettre(joueurSecond.socket, 'poser', {
+      poses: [{ type: 'ensemble', valeur: 8, cartes: [{ carteId: huitPique.id }, { carteId: huitCarreau.id }, { carteId: jokerNu.id }] }],
+    })).ok).toBe(true);
+    expect(await agir(joueurSecond, 'defausser', { carteId: aJeterSecond.id })).toEqual({ ok: true });
+
+    const carre = table.coup.combinaisons.find((combinaison) => combinaison.id === brelan.id);
+    expect(carre?.cartes.map((cp) => cp.carte.id)).toContain(troisCarreauSecond.id);
+    expect(carre?.cartes.some((cp) => cp.carte.id === jokerNu.id)).toBe(false);
+    expect(table.coup.combinaisons.some((combinaison) =>
+      combinaison.proprietaireId === second && combinaison.cartes.some((cp) => cp.carte.id === jokerNu.id))).toBe(true);
   });
 
   /** Une table aux délais choisis, tous les joueurs présents. */

@@ -9,6 +9,7 @@
  */
 import type { Carte, Combinaison, CartePosee, Couleur, Tierce, Valeur } from '../models/index.js';
 import { TIERCE_LONGUEUR_MAX, TIERCE_LONGUEUR_MIN } from '../models/index.js';
+import { COULEURS } from '../models/carte.js';
 import {
   estJoker,
   pointsDeValeur,
@@ -45,6 +46,34 @@ const resoudre = (posee: CartePosee): CarteResolue | null => {
     return { couleur, valeur };
   }
   return posee.remplace;
+};
+
+/**
+ * La carte qu'un joker posé représente : celle qu'il déclare, ou, dans un
+ * brelan ou un carré, celle que les autres cartes ne laissent qu'à lui.
+ *
+ * Réf. docs/REGLES.md § « Récupération d'un joker posé ». Un ensemble n'a
+ * qu'une carte par couleur : 3♥, 3♣, 3♠ et un joker non déclaré, ce joker ne
+ * peut être que le 3♦. Avec deux couleurs encore libres, ou deux jokers non
+ * déclarés, rien ne se déduit. `null` pour une carte réelle, ou une identité
+ * encore ambiguë.
+ */
+export const carteRepresentee = (
+  combinaison: Combinaison,
+  posee: CartePosee,
+): { readonly couleur: Couleur; readonly valeur: Valeur } | null => {
+  if (!estJoker(posee.carte)) return null;
+  if (posee.remplace !== null) return posee.remplace;
+  if (combinaison.type === 'tierce') return null;
+
+  const nonDeclares = combinaison.cartes.filter((cp) => estJoker(cp.carte) && cp.remplace === null);
+  if (nonDeclares.length !== 1) return null;
+  const prises = new Set(
+    combinaison.cartes.map(resoudre).filter((r): r is CarteResolue => r !== null).map((r) => r.couleur),
+  );
+  const libres = COULEURS.filter((couleur) => !prises.has(couleur));
+  const couleur = libres[0];
+  return libres.length === 1 && couleur !== undefined ? { couleur, valeur: combinaison.valeur } : null;
 };
 
 const contientJokerNormal = (cartes: readonly CartePosee[]): boolean =>

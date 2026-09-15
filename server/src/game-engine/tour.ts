@@ -19,6 +19,7 @@ import type {
 import { estJoker } from './cartes.js';
 import { croixALaPose } from './croix.js';
 import {
+  carteRepresentee,
   estCombinaisonProlongeeValide,
   estCombinaisonValide,
   verifierDeclarationsAjout,
@@ -396,11 +397,17 @@ const verifierEchange = (
   if (jokerPosee === undefined || !estJoker(jokerPosee.carte)) {
     throw new Error(`Aucun joker d'identifiant ${jokerCible.carteJokerId} dans cette combinaison`);
   }
-  if (jokerPosee.remplace === null) {
-    throw new Error('Ce joker ne declare pas la carte qu il represente : echange impossible');
+  // Déclarée, ou déduite d'un brelan ou d'un carré qui ne laisse qu'une couleur.
+  const representee = carteRepresentee(cible, jokerPosee);
+  if (representee === null) {
+    throw new Error(
+      cible.type === 'tierce'
+        ? 'Ce joker ne declare pas la carte qu il represente : echange impossible'
+        : 'Ce joker ne declare pas sa couleur et plusieurs couleurs restent possibles : echange impossible',
+    );
   }
 
-  const { couleur, valeur } = jokerPosee.remplace;
+  const { couleur, valeur } = representee;
   if (
     carteReelle.type !== 'normale' ||
     carteReelle.couleur !== couleur ||
