@@ -1635,3 +1635,142 @@ describe('declaration exigee, et reprise sur le jeu d un adversaire', () => {
     expect(apres.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(false);
   });
 });
+
+describe('joker frais : une seule regle pour ouvrir, sauf en finissant le coup', () => {
+  // Réf. docs/REGLES.md § « Récupération d'un joker posé ». j1 n'a pas ouvert ;
+  // la vraie carte part sur la combinaison de j2, un adversaire.
+  const avecJokerFrais = (main: Carte[], representant = jokerPour('trefle', 6)) => {
+    const chezJ2 = tierce('trefle', [c('trefle', 5), representant, c('trefle', 7)], 'j2', 1);
+    const six = c('trefle', 6);
+    const depart = coupJouable([six, ...main], {
+      combinaisons: [chezJ2],
+      pioche: [c('carreau', 'R'), c('carreau', 2)],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
+    });
+    return echangerJoker(depart, 'j1', six, { combinaisonId: chezJ2.id, carteJokerId: representant.carte.id });
+  };
+  const lu = (carte: Carte, couleur: 'coeur' | 'carreau' | 'pique' | 'trefle', valeur: 2 | 5 | 7 | 8 | 'V') => ({
+    carte,
+    remplace: { couleur, valeur },
+  });
+  const aqr = () => [c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+
+  it('exemple de reference libre : AKQ + 789 + 333 tiennent seuls, 6-[joker]-8 passe', () => {
+    const coeur = aqr();
+    const pique = [c('pique', 7), c('pique', 8), c('pique', 9)];
+    const trois = [c('pique', 3), c('carreau', 3), c('trefle', 3)];
+    const six = c('carreau', 6);
+    const huit = c('carreau', 8);
+    const aJeter = c('trefle', 2);
+    const { coup, joker: repris } = avecJokerFrais([...coeur, ...pique, ...trois, six, huit, aJeter]);
+
+    expect(() =>
+      jouerTour(coup, 'j1', {
+        source: 'pioche',
+        poses: [tierce('coeur', coeur), tierce('pique', pique), ensemble(3, trois), tierce('carreau', [six, lu(repris, 'carreau', 7), huit])],
+        carteDefausseeId: aJeter.id,
+        jokersRecuperes: [repris.id],
+      }),
+    ).not.toThrow();
+  });
+
+  it('exemple de reference bloque : AKQ + 7-[joker]-9, la pose ne tient que par le joker frais', () => {
+    const coeur = aqr();
+    const sept = c('carreau', 7);
+    const neuf = c('carreau', 9);
+    const aJeter = c('trefle', 2);
+    const { coup, joker: repris } = avecJokerFrais([...coeur, sept, neuf, aJeter]);
+
+    expect(() =>
+      jouerTour(coup, 'j1', {
+        source: 'pioche',
+        poses: [tierce('coeur', coeur), tierce('carreau', [sept, lu(repris, 'carreau', 8), neuf])],
+        carteDefausseeId: aJeter.id,
+        jokersRecuperes: [repris.id],
+      }),
+    ).toThrow(/joker tout juste recupere ne peut pas servir a ouvrir/);
+  });
+
+  it('la combinaison du joker frais ne compte pas du tout : 8-9-10-[joker] ne sauve pas AKQ', () => {
+    const coeur = aqr();
+    const suite = [c('carreau', 8), c('carreau', 9), c('carreau', 10)];
+    const aJeter = c('trefle', 2);
+    const { coup, joker: repris } = avecJokerFrais([...coeur, ...suite, aJeter]);
+
+    // Sans le joker, 8-9-10 vaudrait encore 27 points : 31 + 27 = 58. Mais c'est
+    // la combinaison entière qui ne compte pas.
+    expect(() =>
+      jouerTour(coup, 'j1', {
+        source: 'pioche',
+        poses: [tierce('coeur', coeur), tierce('carreau', [...suite, lu(repris, 'carreau', 'V')])],
+        carteDefausseeId: aJeter.id,
+        jokersRecuperes: [repris.id],
+      }),
+    ).toThrow(/joker tout juste recupere ne peut pas servir a ouvrir/);
+  });
+
+  it('la tierce franche qui ne tient que par un coucou frais est refusee, tenu en main il passe', () => {
+    const valets = [c('pique', 'V'), c('carreau', 'V'), c('trefle', 'V')];
+    const dames = [c('pique', 'D'), c('carreau', 'D'), c('trefle', 'D')];
+    const sept = c('coeur', 7);
+    const neuf = c('coeur', 9);
+    const aJeter = c('trefle', 2);
+    const { coup, joker: repris } = avecJokerFrais([...valets, ...dames, sept, neuf, aJeter], coucouPour('trefle', 6));
+
+    expect(() =>
+      jouerTour(coup, 'j1', {
+        source: 'pioche',
+        poses: [ensemble('V', valets), ensemble('D', dames), tierce('coeur', [sept, lu(repris, 'coeur', 8), neuf])],
+        carteDefausseeId: aJeter.id,
+        jokersRecuperes: [repris.id],
+      }),
+    ).toThrow(/joker tout juste recupere ne peut pas servir a ouvrir/);
+
+    const tenuEnMain = coucou();
+    expect(() =>
+      jouerTour(
+        coupJouable([...valets, ...dames, sept, tenuEnMain, neuf, aJeter], { recapitulatifs: { j1: recap({ toursAvecPose: [] }) } }),
+        'j1',
+        {
+          source: 'pioche',
+          poses: [ensemble('V', valets), ensemble('D', dames), tierce('coeur', [sept, lu(tenuEnMain, 'coeur', 8), neuf])],
+          carteDefausseeId: aJeter.id,
+        },
+      ),
+    ).not.toThrow();
+  });
+
+  it('fin de coup en posant ses 14 cartes : deux jokers frais, ni 51 points ni tierce franche, rien ne bloque', () => {
+    const jokerEnSix = jokerPour('trefle', 6);
+    const coucouEnQuatre = coucouPour('coeur', 4);
+    const chezJ2 = tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], 'j2', 1);
+    const chezJ3 = tierce('coeur', [c('coeur', 3), coucouEnQuatre, c('coeur', 5)], 'j3', 1);
+    const six = c('trefle', 6);
+    const quatre = c('coeur', 4);
+    const deux = [c('pique', 2), c('carreau', 2)];
+    const trois = [c('pique', 3), c('carreau', 3), c('trefle', 3), c('coeur', 3)];
+    const quatres = [c('pique', 4), c('carreau', 4), c('trefle', 4)];
+    const cinq = [c('pique', 5), c('carreau', 5), c('trefle', 5)];
+    const aJeter = c('coeur', 9);
+    const depart = coupJouable([six, quatre, ...deux, ...trois, ...quatres, ...cinq], {
+      combinaisons: [chezJ2, chezJ3],
+      pioche: [aJeter, c('carreau', 'R')],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
+    });
+    const premier = echangerJoker(depart, 'j1', six, { combinaisonId: chezJ2.id, carteJokerId: jokerEnSix.carte.id });
+    const second = echangerJoker(premier.coup, 'j1', quatre, { combinaisonId: chezJ3.id, carteJokerId: coucouEnQuatre.carte.id });
+
+    const { coupTermine } = jouerTour(second.coup, 'j1', {
+      source: 'pioche',
+      poses: [
+        ensemble(2, [...deux, lu(premier.joker, 'coeur', 2)]),
+        ensemble(3, trois),
+        ensemble(4, quatres),
+        ensemble(5, [...cinq, lu(second.joker, 'coeur', 5)]),
+      ],
+      carteDefausseeId: aJeter.id,
+      jokersRecuperes: [premier.joker.id, second.joker.id],
+    });
+    expect(coupTermine).toBe(true);
+  });
+});

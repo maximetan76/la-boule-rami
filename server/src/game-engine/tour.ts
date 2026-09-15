@@ -100,29 +100,26 @@ const avecCartes = (combinaison: Combinaison, cartes: readonly CartePosee[]): Co
     : { ...combinaison, type: cartes.length >= 4 ? 'carre' : 'brelan', cartes };
 
 /**
- * Les poses privées des jokers repris ce tour-ci : chaque combinaison perd ces
- * jokers, et disparaît si elle n'est plus valide sans eux.
+ * Les poses sans les combinaisons qui portent un joker repris ce tour-ci : la
+ * première pose doit tenir sans elles, entières — pas seulement sans le joker.
  */
 const sansJokersRecuperes = (
   poses: readonly Combinaison[],
   jokers: ReadonlySet<CarteId>,
 ): Combinaison[] =>
-  poses.flatMap((combinaison) => {
-    if (!combinaison.cartes.some((cp) => jokers.has(cp.carte.id))) return [combinaison];
-    const reduite = avecCartes(
-      combinaison,
-      combinaison.cartes.filter((cp) => !jokers.has(cp.carte.id)),
-    );
-    return estCombinaisonValide(reduite) ? [reduite] : [];
-  });
+  poses.filter((combinaison) => !combinaison.cartes.some((cp) => jokers.has(cp.carte.id)));
 
 /**
  * La première pose tient-elle sans les jokers tout juste repris ?
  *
- * Réf. docs/REGLES.md § « Récupération d'un joker posé ». Un joker repris se
- * place où l'on veut quand la pose remplit déjà seule les deux conditions ; il
- * ne peut pas être ce qui les remplit. Symétrique de la carte prise en
- * défausse, qui sert ailleurs mais pas à l'échange qu'elle compléterait.
+ * Réf. docs/REGLES.md § « Récupération d'un joker posé ». Une seule règle, où
+ * que la vraie carte soit allée — sur une combinaison du joueur ou d'un
+ * adversaire — et à quelque moment du tour que le joker ait été repris : la
+ * première pose doit remplir les deux conditions sans compter les combinaisons
+ * qui portent un joker repris ce tour-ci. Si c'est le cas, ces jokers se
+ * placent librement ; sinon la pose est refusée. Seul le joueur qui finit le
+ * coup en posant toute sa main y échappe : l'appelant ne consulte pas cette
+ * règle dans ce cas, pas plus que les deux conditions elles-mêmes.
  */
 const ouvreSansJokersRecuperes = (
   main: readonly Carte[],

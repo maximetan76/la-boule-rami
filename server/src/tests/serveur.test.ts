@@ -10,7 +10,7 @@ import { ouvrirTablePleine } from './aide-table.js';
 import { c, coucou, joker, recap, tierce } from './fixtures.js';
 import type { DelaisDeJeu, GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAI_INACTIVITE_MS } from '../server/game-room-manager.js';
-import type { Carte, Coup, JoueurId } from '../models/index.js';
+import type { Carte, Combinaison, Coup, JoueurId } from '../models/index.js';
 import { compterCroix } from '../game-engine/croix.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
 
@@ -371,6 +371,114 @@ describe('serveur socket.io', () => {
     expect(refus.ok).toBe(false);
     expect(refus.ok === false && refus.erreur).toContain('Joker non declare');
     expect(table.coup.combinaisons[0]?.cartes).toHaveLength(3);
+  });
+
+  /** Un joueur qui n'a pas ouvert, avec ce qu'il faut sur la table pour y reprendre des jokers. */
+  const tableJokerFrais = async (
+    surLaTable: (second: JoueurId, troisieme: JoueurId) => Combinaison[],
+    main: Carte[],
+    carteDuTalon?: Carte,
+  ) => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second, troisieme] = table.coup.ordreJoueurs as [JoueurId, JoueurId, JoueurId];
+    table.coup.combinaisons = surLaTable(second, troisieme);
+    table.coup.mains[premier] = main;
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [] });
+    if (carteDuTalon !== undefined) table.coup.pioche.unshift(carteDuTalon);
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    return { table, joueur, premier };
+  };
+  const identifiants = (cartes: Carte[]) => cartes.map((carte) => ({ carteId: carte.id }));
+
+  it('banc joker frais : vraie carte chez un adversaire avant d ouvrir, AKQ + 789 + 333 + 6-[joker]-8 passe', async () => {
+    const jokerEnSix = { carte: joker(), remplace: { couleur: 'trefle' as const, valeur: 6 as const } };
+    const six = c('trefle', 6);
+    const coeur = [c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+    const pique = [c('pique', 7), c('pique', 8), c('pique', 9)];
+    const trois = [c('pique', 3), c('carreau', 3), c('trefle', 3)];
+    const sixCarreau = c('carreau', 6);
+    const huitCarreau = c('carreau', 8);
+    const aJeter = c('trefle', 2);
+    const t = await tableJokerFrais(
+      (second) => [tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], second)],
+      [six, ...coeur, ...pique, ...trois, sixCarreau, huitCarreau, aJeter],
+    );
+    const surLaTable = t.table.coup?.combinaisons[0] as Combinaison;
+
+    expect((await emettre(t.joueur.socket, 'recuperer-joker', { carteReelleId: six.id, combinaisonId: surLaTable.id, carteJokerId: jokerEnSix.carte.id })).ok).toBe(true);
+    expect((await emettre(t.joueur.socket, 'poser', {
+      poses: [
+        { type: 'tierce', couleur: 'coeur', cartes: identifiants(coeur) },
+        { type: 'tierce', couleur: 'pique', cartes: identifiants(pique) },
+        { type: 'ensemble', valeur: 3, cartes: identifiants(trois) },
+        { type: 'tierce', couleur: 'carreau', cartes: [{ carteId: sixCarreau.id }, { carteId: jokerEnSix.carte.id, remplace: { couleur: 'carreau', valeur: 7 } }, { carteId: huitCarreau.id }] },
+      ],
+    })).ok).toBe(true);
+    expect(await agir(t.joueur, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
+    expect(t.joueur.dernierEtat?.moi.aPose).toBe(true);
+  });
+
+  it('banc joker frais : AKQ + 7-[joker]-9 est refuse a la defausse avec un message clair', async () => {
+    const jokerEnSix = { carte: joker(), remplace: { couleur: 'trefle' as const, valeur: 6 as const } };
+    const six = c('trefle', 6);
+    const coeur = [c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+    const sept = c('carreau', 7);
+    const neuf = c('carreau', 9);
+    const aJeter = c('trefle', 2);
+    const t = await tableJokerFrais(
+      (second) => [tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], second)],
+      [six, ...coeur, sept, neuf, aJeter],
+    );
+    const surLaTable = t.table.coup?.combinaisons[0] as Combinaison;
+
+    await emettre(t.joueur.socket, 'recuperer-joker', { carteReelleId: six.id, combinaisonId: surLaTable.id, carteJokerId: jokerEnSix.carte.id });
+    await emettre(t.joueur.socket, 'poser', {
+      poses: [
+        { type: 'tierce', couleur: 'coeur', cartes: identifiants(coeur) },
+        { type: 'tierce', couleur: 'carreau', cartes: [{ carteId: sept.id }, { carteId: jokerEnSix.carte.id, remplace: { couleur: 'carreau', valeur: 8 } }, { carteId: neuf.id }] },
+      ],
+    });
+    const refus = await emettre(t.joueur.socket, 'defausser', { carteId: aJeter.id });
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('joker tout juste recupere ne peut pas servir a ouvrir');
+  });
+
+  it('banc joker frais : fin de coup avec ses 14 cartes et deux jokers frais, sans 51 points ni tierce, passe', async () => {
+    const jokerEnSix = { carte: joker(), remplace: { couleur: 'trefle' as const, valeur: 6 as const } };
+    const coucouEnQuatre = { carte: coucou(), remplace: { couleur: 'coeur' as const, valeur: 4 as const } };
+    const six = c('trefle', 6);
+    const quatre = c('coeur', 4);
+    const deux = [c('pique', 2), c('carreau', 2)];
+    const trois = [c('pique', 3), c('carreau', 3), c('trefle', 3), c('coeur', 3)];
+    const quatres = [c('pique', 4), c('carreau', 4), c('trefle', 4)];
+    const cinq = [c('pique', 5), c('carreau', 5), c('trefle', 5)];
+    const aJeter = c('coeur', 9);
+    const t = await tableJokerFrais(
+      (second, troisieme) => [
+        tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], second),
+        tierce('coeur', [c('coeur', 3), coucouEnQuatre, c('coeur', 5)], troisieme),
+      ],
+      [six, quatre, ...deux, ...trois, ...quatres, ...cinq],
+      aJeter,
+    );
+    const [chezSecond, chezTroisieme] = t.table.coup?.combinaisons as [Combinaison, Combinaison];
+
+    expect((await emettre(t.joueur.socket, 'recuperer-joker', { carteReelleId: six.id, combinaisonId: chezSecond.id, carteJokerId: jokerEnSix.carte.id })).ok).toBe(true);
+    expect((await emettre(t.joueur.socket, 'recuperer-joker', { carteReelleId: quatre.id, combinaisonId: chezTroisieme.id, carteJokerId: coucouEnQuatre.carte.id })).ok).toBe(true);
+    expect((await emettre(t.joueur.socket, 'poser', {
+      poses: [
+        { type: 'ensemble', valeur: 2, cartes: [...identifiants(deux), { carteId: jokerEnSix.carte.id, remplace: { couleur: 'coeur', valeur: 2 } }] },
+        { type: 'ensemble', valeur: 3, cartes: identifiants(trois) },
+        { type: 'ensemble', valeur: 4, cartes: identifiants(quatres) },
+        { type: 'ensemble', valeur: 5, cartes: [...identifiants(cinq), { carteId: coucouEnQuatre.carte.id, remplace: { couleur: 'coeur', valeur: 5 } }] },
+      ],
+    })).ok).toBe(true);
+    expect(await agir(t.joueur, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
+    expect(t.table.resultatCoup?.score.gagnantId).toBe(t.premier);
   });
 
   /** Une table aux délais choisis, tous les joueurs présents. */
