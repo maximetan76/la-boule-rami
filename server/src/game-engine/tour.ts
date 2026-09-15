@@ -312,7 +312,7 @@ export const jouerTour = (
     }
     // Réf. § « Bonus quinte flush royale » : les croix s'arrêtent ici, à la
     // pose, et nulle part ailleurs.
-    return { ...signee, croix: croixALaPose(signee, poses, action.jokersRecuperes ?? []) };
+    return { ...signee, croix: croixALaPose(signee, action.jokersRecuperes ?? []) };
   });
 
   // --- Défausse -----------------------------------------------------------

@@ -14,7 +14,7 @@ const main35 = (): Carte[] => [c('pique', 'A'), c('coeur', 'R'), c('trefle', 'D'
 /** Une quinte posée d'un seul coup : le moteur y a arrêté ses croix. */
 const poseeDUnCoup = <T extends Combinaison>(combinaison: T): T => ({
   ...combinaison,
-  croix: croixALaPose(combinaison, [combinaison]),
+  croix: croixALaPose(combinaison),
 });
 
 const quintePure = (couleur: Couleur, proprietaire: string) =>

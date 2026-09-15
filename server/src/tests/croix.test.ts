@@ -57,9 +57,9 @@ describe('detecterQuinteFlushRoyale', () => {
 });
 
 /** Une combinaison telle que le moteur la signe à la pose, croix arrêtées. */
-const poseeDUnCoup = <T extends Combinaison>(combinaison: T, poses: Combinaison[] = [combinaison]): T => ({
+const poseeDUnCoup = <T extends Combinaison>(combinaison: T): T => ({
   ...combinaison,
-  croix: croixALaPose(combinaison, poses),
+  croix: croixALaPose(combinaison),
 });
 
 describe('compterCroix', () => {
@@ -91,26 +91,15 @@ describe('compterCroix', () => {
 });
 
 describe('croixALaPose', () => {
-  it('annule le bonus si le 9 de la meme couleur est pose dans la meme action', () => {
-    // § « le joueur ne doit PAS poser la suite complete en une fois s il a une
-    // carte supplementaire qui prolongerait la quinte flush ».
-    const quinte = quintePure('coeur');
-    const prolongement = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)]);
-    expect(croixALaPose(quinte, [quinte, prolongement])).toBe(0);
-    expect(croixALaPose(quinte, [quinte])).toBe(2);
-  });
-
-  it('ignore un prolongement d une autre couleur', () => {
-    const quinte = quintePure('coeur');
-    const autreCouleur = tierce('pique', [c('pique', 7), c('pique', 8), c('pique', 9)]);
-    expect(croixALaPose(quinte, [quinte, autreCouleur])).toBe(2);
+  it('ne regarde que la quinte posee : le 9 de la meme couleur pose a cote n y change rien', () => {
+    expect(croixALaPose(quintePure('coeur'))).toBe(2);
   });
 
   it('annule le bonus d une quinte qui porte un joker tout juste repris', () => {
     const coucouRepris = coucouPour('coeur', 10);
     const quinte = tierce('coeur', [coucouRepris, c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')]);
-    expect(croixALaPose(quinte, [quinte])).toBe(1);
-    expect(croixALaPose(quinte, [quinte], [coucouRepris.carte.id])).toBe(0);
+    expect(croixALaPose(quinte)).toBe(1);
+    expect(croixALaPose(quinte, [coucouRepris.carte.id])).toBe(0);
   });
 });
 
@@ -216,5 +205,47 @@ describe('croix : seule une quinte posee d un seul coup compte, au fil des tours
       jokersRecuperes: [repris.id],
     });
     expect(compterCroix(apres, 'j1')).toBe(0);
+  });
+});
+
+describe('croix verrouillees des la pose, sans exception', () => {
+  // Réf. docs/REGLES.md § « Bonus quinte flush royale ».
+  const royale = () => [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+
+  it('la quinte et 7-8-9 de coeur poses dans le meme tour : les 2 croix sont acquises', () => {
+    const quinte = royale();
+    const suite = [c('coeur', 7), c('coeur', 8), c('coeur', 9)];
+    const aJeter = c('pique', 3);
+    const { coup: apres } = jouerTour(
+      coup({
+        mains: { j1: [...quinte, ...suite, aJeter], j2: [c('pique', 2)], j3: [c('trefle', 2)] },
+        pioche: [c('carreau', 4)],
+        recapitulatifs: { j1: recap({ toursAvecPose: [1] }), j2: recap(), j3: recap() },
+      }),
+      'j1',
+      { source: 'pioche', poses: [tierce('coeur', quinte), tierce('coeur', suite)], carteDefausseeId: aJeter.id },
+    );
+    expect(compterCroix(apres, 'j1')).toBe(2);
+  });
+
+  it('au tour suivant, un autre joueur ajoute le 9 a la quinte : les croix de son poseur restent inchangees', () => {
+    const quinte = { ...tierce('coeur', royale(), 'j1', 1), croix: 2 };
+    const neuf = c('coeur', 9);
+    const aJeter = c('pique', 3);
+    const { coup: apres } = jouerTour(
+      coup({
+        mains: { j1: [c('pique', 2)], j2: [neuf, aJeter], j3: [c('trefle', 2)] },
+        pioche: [c('carreau', 4)],
+        combinaisons: [quinte],
+        joueurActifId: 'j2',
+        numeroTour: 2,
+        recapitulatifs: { j1: recap({ toursAvecPose: [1] }), j2: recap({ toursAvecPose: [1] }), j3: recap() },
+      }),
+      'j2',
+      { source: 'pioche', ajouts: [{ combinaisonId: quinte.id, cartes: [{ carte: neuf, remplace: null }] }], carteDefausseeId: aJeter.id },
+    );
+    expect(apres.combinaisons[0]?.cartes).toHaveLength(6);
+    expect(compterCroix(apres, 'j1')).toBe(2);
+    expect(compterCroix(apres, 'j2')).toBe(0);
   });
 });

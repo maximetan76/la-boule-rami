@@ -532,6 +532,47 @@ describe('serveur socket.io', () => {
       combinaison.proprietaireId === second && combinaison.cartes.some((cp) => cp.carte.id === jokerNu.id))).toBe(true);
   });
 
+  it('banc croix : quinte et 7-8-9 poses le meme tour, puis 9 ajoute par un autre joueur, les 2 croix restent', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId];
+    const quinte = [c('pique', 10), c('pique', 'V'), c('pique', 'D'), c('pique', 'R'), c('pique', 'A')];
+    const suite = [c('pique', 7), c('pique', 8), c('pique', 9)];
+    const aJeterPremier = c('trefle', 3);
+    const autreNeuf = c('pique', 9);
+    const aJeterSecond = c('coeur', 3);
+    table.coup.combinaisons = [];
+    table.coup.mains[premier] = [...quinte, ...suite, aJeterPremier, c('carreau', 'R')];
+    table.coup.mains[second] = [autreNeuf, aJeterSecond, c('carreau', 'D')];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+    table.coup.recapitulatifs[second] = recap({ toursAvecPose: [1] });
+    const joueurPremier = espions.find((e) => e.joueurId === premier) as Espion;
+    const joueurSecond = espions.find((e) => e.joueurId === second) as Espion;
+
+    await agir(joueurPremier, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueurPremier, 'piocher', { source: 'pioche' });
+    expect((await emettre(joueurPremier.socket, 'poser', {
+      poses: [
+        { type: 'tierce', couleur: 'pique', cartes: quinte.map((carte) => ({ carteId: carte.id })) },
+        { type: 'tierce', couleur: 'pique', cartes: suite.map((carte) => ({ carteId: carte.id })) },
+      ],
+    })).ok).toBe(true);
+    expect(await agir(joueurPremier, 'defausser', { carteId: aJeterPremier.id })).toEqual({ ok: true });
+    expect(compterCroix(table.coup, premier)).toBe(2);
+
+    await agir(joueurSecond, 'piocher', { source: 'pioche' });
+    const laQuinte = table.coup.combinaisons.find((combinaison) =>
+      combinaison.cartes.some((cp) => cp.carte.id === quinte[0]?.id)) as Combinaison;
+    expect((await emettre(joueurSecond.socket, 'poser', {
+      ajouts: [{ combinaisonId: laQuinte.id, cartes: [{ carteId: autreNeuf.id }] }],
+    })).ok).toBe(true);
+    expect(await agir(joueurSecond, 'defausser', { carteId: aJeterSecond.id })).toEqual({ ok: true });
+
+    expect(table.coup.combinaisons.find((combinaison) => combinaison.id === laQuinte.id)?.cartes).toHaveLength(6);
+    expect(compterCroix(table.coup, premier)).toBe(2);
+  });
+
   /** Une table aux délais choisis, tous les joueurs présents. */
   const ouvrirTableMinutee = async (delais: DelaisDeJeu) => {
     const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, { alea: aleaFixe(), delais });
