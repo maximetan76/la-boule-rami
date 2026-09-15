@@ -495,7 +495,12 @@ export class GameRoomManager {
     table.joueurs = tirage.ordreTable.map(
       (joueurId) => table.joueurs.find((joueur) => joueur.id === joueurId) as Joueur,
     );
-    table.boule = initialiserBoule(table.joueurs, table.coupsFrichesDepart, table.nombreCoups ?? undefined);
+    table.boule = initialiserBoule(
+      table.joueurs,
+      table.coupsFrichesDepart,
+      table.nombreCoups ?? undefined,
+      table.excedentDeFriches,
+    );
     table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
     table.tirageOuverture = tirage;
     table.statut = 'en-cours';
@@ -672,7 +677,12 @@ export class GameRoomManager {
         boule:
           etatBoule === null
             ? partie.demarree
-              ? initialiserBoule(assis, partie.coupsFrichesDepart, partie.nombreCoups ?? undefined)
+              ? initialiserBoule(
+                  assis,
+                  partie.coupsFrichesDepart,
+                  partie.nombreCoups ?? undefined,
+                  partie.excedentDeFriches ?? 0,
+                )
               : null
             : deserialiserBoule(etatBoule),
         coup: null,

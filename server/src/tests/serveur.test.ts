@@ -1061,9 +1061,8 @@ describe('serveur socket.io', () => {
       | { ancienneTableId: string; table: { tableId: string; statut: string; coupsFrichesDepart: number } }
       | undefined;
 
-  it('rejoue une Boule avec le meme groupe quand tous confirment, surplus de friches reporte', async () => {
-    // Départ à 1, trois friches généralisées : 4 en fin de Boule, 3 en plus.
-    const { table, numero } = await finirLaBoule({ coupsFrichesDepart: 1, frichesAjoutees: 3 });
+  it('rejoue une Boule avec le meme groupe quand tous confirment, sans report quand rien n a deborde', async () => {
+    const { table, numero } = await finirLaBoule({ coupsFrichesDepart: 1 });
     const [ana, bo, cy] = espions as [Espion, Espion, Espion];
 
     expect((await agir(ana, 'rejouer', { numero })).ok).toBe(true);
@@ -1088,35 +1087,118 @@ describe('serveur socket.io', () => {
     expect(nouvelle.statut).toBe('en-cours');
     expect(nouvelle.delais).toEqual(table.delais);
     expect(nouvelle.createurId).toBe(table.createurId);
-    // Le départ configuré (1) + les 3 friches généralisées ; rien au-delà.
-    expect(nouvelle.coupsFrichesDepart).toBe(4);
-    expect(nouvelle.boule?.nombreCoupsFriches).toBe(4);
+    // Aucune friche généralisée n'a débordé : la base configurée, sans report.
+    expect(nouvelle.coupsFrichesDepart).toBe(1);
+    expect(nouvelle.boule?.nombreCoupsFriches).toBe(1);
     expect(nouvelle.coupsFrichesConfigures).toBe(1);
     expect(nouvelle.excedentDeFriches).toBe(0);
   });
 
-  it('rejoue une Boule entierement frichee par le report, et garde l excedent pour la suivante', async () => {
-    // 2 configurés + 10 friches généralisées = 12, pour une Boule suivante de
-    // 9 coups à trois joueurs : tous frichés, et 3 gardés pour celle d'après.
-    const { table, numero } = await finirLaBoule({ coupsFrichesDepart: 2, frichesAjoutees: 10 });
-    for (const espion of espions) {
-      expect((await agir(espion, 'rejouer', { numero })).ok).toBe(true);
-    }
-    await patienter(30);
-    expect(table.statut).toBe('terminee');
-
-    const annonce = annonceDeNouvelleTable(espions[0] as Espion) as unknown as {
-      table: { tableId: string; coupsFrichesDepart: number; coupsFrichesConfigures: number; excedentDeFriches: number };
+  /**
+   * Réf. docs/REGLES.md § « Structure d'une Boule » : le report suivi friche
+   * généralisée par friche généralisée, sur de vraies parties. Chaque friche est
+   * annoncée par tous les joueurs, au coup voulu ; chaque coup est gagné pour
+   * de bon ; chaque « Rejouer » est confirmé par tous.
+   */
+  it('report de friches sur une chaine de deux Rejouer, friches annoncees au coup voulu', async () => {
+    const frichePourTous = async (table: ReturnType<typeof serveur.manager.table>) => {
+      const coup = table.coup;
+      if (coup === null) throw new Error('coup absent');
+      for (;;) {
+        const enCours = table.coup as Coup;
+        const parleur = enCours.ordreJoueurs.find((id) => enCours.annonces[id] === undefined);
+        if (parleur === undefined) throw new Error('personne ne parle');
+        const espion = espions.find((e) => e.joueurId === parleur) as Espion;
+        const avant = enCours.ordreJoueurs.length - Object.keys(enCours.annonces).length;
+        expect((await agir(espion, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+        // Le dernier à friche relance la donne : plus personne n'a parlé.
+        if (avant === 1) return;
+      }
     };
-    const nouvelle = serveur.manager.table(annonce.table.tableId);
-    expect(nouvelle.boule?.nombreCoupsTotal).toBe(9);
-    expect(nouvelle.coupsFrichesDepart).toBe(9);
-    expect(nouvelle.boule?.nombreCoupsFriches).toBe(9);
-    expect(nouvelle.excedentDeFriches).toBe(3);
-    expect(nouvelle.coupsFrichesConfigures).toBe(2);
-    // L'app le lit dans l'annonce, pour dire que la Boule est frichée par le report.
-    expect(annonce.table).toMatchObject({ coupsFrichesDepart: 9, coupsFrichesConfigures: 2, excedentDeFriches: 3 });
-  });
+    const gagnerLeCoup = async (table: ReturnType<typeof serveur.manager.table>) => {
+      const coup = table.coup as Coup;
+      const [premier, second] = coup.ordreJoueurs as [JoueurId, JoueurId];
+      const suite = tierce('coeur', [c('coeur', 7), c('coeur', 8), c('coeur', 9)], second);
+      const dix = c('coeur', 10);
+      const aJeter = c('pique', 2);
+      coup.combinaisons = [suite];
+      coup.mains[premier] = [dix];
+      coup.pioche.unshift(aJeter);
+      coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+      const joueur = espions.find((espion) => espion.joueurId === premier) as Espion;
+      await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+      await agir(joueur, 'piocher', { source: 'pioche' });
+      await emettre(joueur.socket, 'poser', { ajouts: [{ combinaisonId: suite.id, cartes: [{ carteId: dix.id }] }] });
+      await agir(joueur, 'defausser', { carteId: aJeter.id });
+      const resultat = table.resultatCoup;
+      if (resultat === null) throw new Error('coup non termine');
+      if (resultat.derniereCoup) return resultat.numero;
+      for (const espion of espions) await agir(espion, 'pret-pour-suivant', { numero: resultat.numero });
+      return resultat.numero;
+    };
+    const rejouer = async (table: ReturnType<typeof serveur.manager.table>, numero: number) => {
+      for (const espion of espions) expect((await agir(espion, 'rejouer', { numero })).ok).toBe(true);
+      await patienter(30);
+      const suivante = serveur.manager.table(table.relanceeVers as string);
+      // Chacun bascule sur la nouvelle table, comme l'app à « nouvelle-table ».
+      for (const espion of espions.splice(0)) espion.socket.disconnect();
+      for (const joueur of JOUEURS) await connecter(suivante.id, joueur.id);
+      await attendrePremiersEtats(espions);
+      return suivante;
+    };
+
+    // Boule A : 3 coups, 1 coup friché configuré.
+    const { tableId } = await ouvrirTablePleine(serveur.manager, JOUEURS, {
+      alea: aleaFixe(),
+      nombreCoups: 3,
+      coupsFrichesDepart: 1,
+    });
+    for (const joueur of JOUEURS) await connecter(tableId, joueur.id);
+    await attendrePremiersEtats(espions);
+    const a = serveur.manager.table(tableId);
+
+    await gagnerLeCoup(a);
+    // Deux friches au coup 2 : 2 coups restants. La première fait K = 2, la
+    // seconde en voudrait 3 : K reste à 2, 1 part au report.
+    await frichePourTous(a);
+    expect(a.boule?.nombreCoupsFriches).toBe(2);
+    expect(a.boule?.reportDeFriches).toBe(0);
+    await frichePourTous(a);
+    expect(a.boule?.nombreCoupsFriches).toBe(2);
+    expect(a.boule?.reportDeFriches).toBe(1);
+    await gagnerLeCoup(a);
+    // Une friche au coup 3 : 3 voulus pour 1 coup restant, 2 de plus au report.
+    await frichePourTous(a);
+    expect(a.boule?.nombreCoupsFriches).toBe(1);
+    expect(a.boule?.reportDeFriches).toBe(3);
+    const finA = await gagnerLeCoup(a);
+    const reportA = a.boule?.reportDeFriches as number;
+
+    // Boule B, premier Rejouer : 1 configuré + 3 = 4 voulus pour 3 coups.
+    const b = await rejouer(a, finA);
+    expect(b.coupsFrichesDepart).toBe(3);
+    expect(b.excedentDeFriches).toBe(1);
+    expect(b.boule?.nombreCoupsFriches).toBe(3);
+    expect(b.boule?.reportDeFriches).toBe(1);
+    // G = 2 friches au coup 1 de B, dont chacune déborde les 3 coups restants.
+    const g = 2;
+    await frichePourTous(b);
+    await frichePourTous(b);
+    await gagnerLeCoup(b);
+    await gagnerLeCoup(b);
+    const finB = await gagnerLeCoup(b);
+    const reportB = b.boule?.reportDeFriches as number;
+    // (base + R_A + G) - M : il croît, il ne se tronque pas.
+    expect(reportB).toBe(1 + reportA + g - 3);
+    expect(reportB).toBe(3);
+
+    // Boule C, deuxième Rejouer depuis B : son report hérité est celui de B.
+    const c3 = await rejouer(b, finB);
+    expect(c3.coupsFrichesDepart).toBe(Math.min(1 + reportB, 3));
+    expect(c3.excedentDeFriches).toBe(1 + reportB - 3);
+    expect(c3.boule?.nombreCoupsFriches).toBe(3);
+    expect(c3.boule?.reportDeFriches).toBe(1);
+  }, 60_000);
 
   it('laisse un joueur terminer seul : la Boule se clot aussitot, nul ne la rejoue, les autres gardent le decompte', async () => {
     const { table, numero } = await finirLaBoule();

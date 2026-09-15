@@ -15,7 +15,7 @@ import {
 } from '../game-engine/boule.js';
 import { calculerFinDeBoule } from '../game-engine/fin-de-boule.js';
 import { joueur } from './fixtures.js';
-import type { JoueurId, ScoreCoup } from '../models/index.js';
+import type { Boule, JoueurId, ScoreCoup } from '../models/index.js';
 
 /** Réf. docs/REGLES.md § « Structure d'une Boule » et § « Joueurs et matériel ». */
 
@@ -387,133 +387,6 @@ describe('articulation avec calculerFinDeBoule', () => {
 
 const quatreJoueurs = () => ['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id));
 
-describe('report des coups friches sur la Boule rejouee', () => {
-  it('ajoute aux coups friches configures le surplus des friches generalisees : 2 configures, 3 friches, la suivante a 5', () => {
-    const finie = { ...initialiserLaBoule(quatreJoueurs()), nombreCoupsFriches: 5, frichesGeneralisees: 3 };
-    expect(surplusDeCoupsFriches(finie, 2)).toBe(3);
-    expect(
-      reportDeFriches(finie, { coupsFrichesConfigures: 2, coupsFrichesDepart: 2, excedentRecu: 0, coupsDeLaSuivante: 8 }),
-    ).toEqual({ coupsFrichesDepart: 5, excedent: 0 });
-  });
-
-  it('repart des coups friches configures sans friche generalisee, qu ils soient hauts ou nuls', () => {
-    const sansFriche = { ...initialiserLaBoule(quatreJoueurs()), nombreCoupsFriches: 6 };
-    expect(surplusDeCoupsFriches(sansFriche, 6)).toBe(0);
-    expect(
-      reportDeFriches(sansFriche, { coupsFrichesConfigures: 6, coupsFrichesDepart: 6, excedentRecu: 0, coupsDeLaSuivante: 8 }),
-    ).toEqual({ coupsFrichesDepart: 6, excedent: 0 });
-    const departZero = { ...initialiserLaBoule(quatreJoueurs(), 0), nombreCoupsFriches: 0 };
-    expect(
-      reportDeFriches(departZero, { coupsFrichesConfigures: 0, coupsFrichesDepart: 0, excedentRecu: 0, coupsDeLaSuivante: 8 }),
-    ).toEqual({ coupsFrichesDepart: 0, excedent: 0 });
-  });
-
-  it('au-dela du nombre de coups de la suivante, rien ne se perd : l excedent est garde', () => {
-    const toutFriche = { ...initialiserLaBoule(quatreJoueurs(), 0), nombreCoupsFriches: 8, frichesGeneralisees: 9 };
-    expect(
-      reportDeFriches(toutFriche, { coupsFrichesConfigures: 0, coupsFrichesDepart: 0, excedentRecu: 0, coupsDeLaSuivante: 8 }),
-    ).toEqual({ coupsFrichesDepart: 8, excedent: 1 });
-  });
-});
-
-describe('report de coups friches en cascade sur plusieurs Boules', () => {
-  it('Boule de 8 coups, 2 friches au depart, 2 friches generalisees avant la zone frichee et 6 pendant : la suivante a 8/8', () => {
-    let boule = initialiserLaBoule(quatreJoueurs(), 2);
-    // Deux friches generalisees au premier coup, avant la zone frichee.
-    for (let friche = 0; friche < 2; friche += 1) {
-      boule = enregistrerFricheGeneralisee(boule, 1, { toutLeMondeAFriche: true });
-    }
-    // Les coups 1 à 6 se jouent normalement.
-    const gagne = {
-      gagnantId: 'j1',
-      typeVictoire: 'simple',
-      estFriche: false,
-      multiplicateur: 1,
-      scores: { j1: -20, j2: 10, j3: 10, j4: 10 },
-      croixGagnees: {},
-      chocolatId: null,
-    } as const;
-    for (let numero = 1; numero <= 6; numero += 1) {
-      boule = enregistrerResultatCoup(boule, numero, gagne);
-    }
-    // Six friches généralisées pendant les deux derniers coups, frichés.
-    for (let friche = 0; friche < 3; friche += 1) {
-      boule = enregistrerFricheGeneralisee(boule, 7, { toutLeMondeAFriche: true });
-    }
-    boule = enregistrerResultatCoup(boule, 7, { ...gagne, estFriche: true, multiplicateur: 2 });
-    for (let friche = 0; friche < 3; friche += 1) {
-      boule = enregistrerFricheGeneralisee(boule, 8, { toutLeMondeAFriche: true });
-    }
-    expect(boule.nombreCoupsFriches).toBe(8);
-    expect(surplusDeCoupsFriches(boule, 2)).toBe(8);
-
-    // Report total : les 2 configures et les 8 friches generalisees. La
-    // suivante est entierement frichee, et les 2 de trop vont a celle d apres.
-    expect(
-      reportDeFriches(boule, { coupsFrichesConfigures: 2, coupsFrichesDepart: 2, excedentRecu: 0, coupsDeLaSuivante: 8 }),
-    ).toEqual({ coupsFrichesDepart: 8, excedent: 2 });
-  });
-
-  it('un report plus grand que la Boule suivante se reporte encore sur la troisieme, puis s epuise', () => {
-    let premiere = initialiserLaBoule(quatreJoueurs(), 2);
-    for (let friche = 0; friche < 14; friche += 1) {
-      premiere = enregistrerFricheGeneralisee(premiere, 1, { toutLeMondeAFriche: true });
-    }
-    // 2 configures + 14 = 16 : la deuxieme a 8/8, et 8 gardes.
-    const versLaDeuxieme = reportDeFriches(premiere, {
-      coupsFrichesConfigures: 2,
-      coupsFrichesDepart: 2,
-      excedentRecu: 0,
-      coupsDeLaSuivante: 8,
-    });
-    expect(versLaDeuxieme).toEqual({ coupsFrichesDepart: 8, excedent: 8 });
-
-    // La deuxieme se joue sans friche generalisee : 2 + 0 + 8 = 10, la
-    // troisieme a 8/8 a son tour, et 2 gardes encore.
-    const deuxieme = initialiserLaBoule(quatreJoueurs(), versLaDeuxieme.coupsFrichesDepart);
-    const versLaTroisieme = reportDeFriches(deuxieme, {
-      coupsFrichesConfigures: 2,
-      coupsFrichesDepart: versLaDeuxieme.coupsFrichesDepart,
-      excedentRecu: versLaDeuxieme.excedent,
-      coupsDeLaSuivante: 8,
-    });
-    expect(versLaTroisieme).toEqual({ coupsFrichesDepart: 8, excedent: 2 });
-
-    // La troisieme non plus : 2 + 0 + 2 = 4, le report est epuise.
-    const troisieme = initialiserLaBoule(quatreJoueurs(), versLaTroisieme.coupsFrichesDepart);
-    expect(
-      reportDeFriches(troisieme, {
-        coupsFrichesConfigures: 2,
-        coupsFrichesDepart: versLaTroisieme.coupsFrichesDepart,
-        excedentRecu: versLaTroisieme.excedent,
-        coupsDeLaSuivante: 8,
-      }),
-    ).toEqual({ coupsFrichesDepart: 4, excedent: 0 });
-  });
-});
-
-describe('surplus de coups friches quand tous les coups deviennent friches', () => {
-  it('Boule a 4 joueurs, 8 coups, 2 au depart, 8 a la fin : 6 en plus, et la suivante plafonnee a 8', () => {
-    let finie = initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 2);
-    expect(finie.nombreCoupsTotal).toBe(8);
-    // Six friches generalisees, toutes au premier coup rejoue.
-    for (let friche = 0; friche < 6; friche += 1) {
-      finie = enregistrerFricheGeneralisee(finie, 1, { toutLeMondeAFriche: true });
-    }
-    expect(finie.nombreCoupsFriches).toBe(8);
-    expect(surplusDeCoupsFriches(finie, 2)).toBe(6);
-    expect(
-      reportDeFriches(finie, { coupsFrichesConfigures: 2, coupsFrichesDepart: 2, excedentRecu: 0, coupsDeLaSuivante: 8 }),
-    ).toEqual({ coupsFrichesDepart: 8, excedent: 0 });
-
-    // Une septieme ne depasse pas le nombre de coups, mais elle compte : le
-    // surplus passe a 7.
-    finie = enregistrerFricheGeneralisee(finie, 1, { toutLeMondeAFriche: true });
-    expect(finie.nombreCoupsFriches).toBe(8);
-    expect(surplusDeCoupsFriches(finie, 2)).toBe(7);
-  });
-});
-
 describe('nombre de coups choisi a la creation', () => {
   it('remplace celui des regles, et borne toujours les coups friches', () => {
     const quatre = ['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id));
@@ -524,28 +397,120 @@ describe('nombre de coups choisi a la creation', () => {
   });
 });
 
-describe('surplus de coups friches au-dela du plafond', () => {
-  it('Boule de 2 coups, 2 friches au depart, 5 friches generalisees : 5 en plus, pas 0', () => {
-    let boule = initialiserLaBoule(['j1', 'j2'].map((id) => joueur(id)), 2, 2);
-    for (let friche = 0; friche < 5; friche += 1) {
-      boule = enregistrerFricheGeneralisee(boule, 1, { toutLeMondeAFriche: true });
+describe('coups friches et report, friche generalisee par friche generalisee', () => {
+  // Réf. docs/REGLES.md § « Structure d'une Boule » : Boule de 8 coups, 2 frichés.
+  const jouerLesCoups = (depart: Boule, jusquAvant: number): Boule => {
+    let boule = depart;
+    for (let numero = boule.historique.length + 1; numero < jusquAvant; numero += 1) {
+      boule = enregistrerResultatCoup(boule, numero, score());
     }
-    // Le compteur de coups friches reste au nombre de coups...
-    expect(boule.nombreCoupsFriches).toBe(2);
-    // ... mais les cinq friches generalisees comptent toutes.
-    expect(boule.frichesGeneralisees).toBe(5);
-    expect(surplusDeCoupsFriches(boule, 2)).toBe(5);
-    expect(
-      reportDeFriches(boule, { coupsFrichesConfigures: 2, coupsFrichesDepart: 2, excedentRecu: 0, coupsDeLaSuivante: 8 }),
-    ).toEqual({ coupsFrichesDepart: 7, excedent: 0 });
+    return boule;
+  };
+  const friches = (depart: Boule, numero: number, nombre: number): Boule => {
+    let boule = depart;
+    for (let friche = 0; friche < nombre; friche += 1) {
+      boule = enregistrerFricheGeneralisee(boule, numero, { toutLeMondeAFriche: true });
+    }
+    return boule;
+  };
+  const coupsFriches = (boule: Boule): number[] =>
+    Array.from({ length: boule.nombreCoupsTotal }, (_, index) => index + 1).filter((numero) =>
+      estCoupFriche(boule, numero),
+    );
+
+  it('exemple 1 : deux friches au coup 3, K passe de 2 a 4, coups 5 a 8 friches, aucun report', () => {
+    const boule = friches(jouerLesCoups(initialiserLaBoule(quatreJoueurs(), 2), 3), 3, 2);
+    expect(boule.nombreCoupsFriches).toBe(4);
+    expect(coupsFriches(boule)).toEqual([5, 6, 7, 8]);
+    expect(estCoupFriche(boule, 3)).toBe(false);
+    expect(estCoupFriche(boule, 4)).toBe(false);
+    expect(boule.reportDeFriches).toBe(0);
   });
 
+  it('exemple 2 : trois friches au coup 5, seule la troisieme depasse les 4 coups restants : report 1', () => {
+    let boule = jouerLesCoups(initialiserLaBoule(quatreJoueurs(), 2), 5);
+    boule = friches(boule, 5, 1);
+    expect(boule.nombreCoupsFriches).toBe(3);
+    boule = friches(boule, 5, 1);
+    expect(boule.nombreCoupsFriches).toBe(4);
+    expect(boule.reportDeFriches).toBe(0);
+    boule = friches(boule, 5, 1);
+    expect(boule.nombreCoupsFriches).toBe(4);
+    expect(coupsFriches(boule)).toEqual([5, 6, 7, 8]);
+    expect(boule.reportDeFriches).toBe(1);
+  });
+
+  it('exemple 3 : une nouvelle friche au coup 6, 5 voulus pour 3 coups restants : le report passe a 3', () => {
+    let boule = friches(jouerLesCoups(initialiserLaBoule(quatreJoueurs(), 2), 5), 5, 3);
+    boule = friches(jouerLesCoups(boule, 6), 6, 1);
+    expect(boule.nombreCoupsFriches).toBe(3);
+    expect(coupsFriches(boule).filter((numero) => numero >= 6)).toEqual([6, 7, 8]);
+    expect(boule.reportDeFriches).toBe(3);
+  });
+
+  it('report de 6, Boule suivante d un seul coup : 8 voulus, 1 coup friche, 7 pour celle d apres', () => {
+    const a = { ...initialiserLaBoule(quatreJoueurs(), 2), reportDeFriches: 6 };
+    const versB = reportDeFriches(a, { coupsFrichesConfigures: 2, coupsDeLaSuivante: 1 });
+    expect(versB).toEqual({ coupsFrichesDepart: 1, excedent: 7 });
+
+    const b = enregistrerResultatCoup(initialiserLaBoule(quatreJoueurs(), versB.coupsFrichesDepart, 1, versB.excedent), 1, score());
+    expect(estCoupFriche(b, 1)).toBe(true);
+    expect(reportDeFriches(b, { coupsFrichesConfigures: 2, coupsDeLaSuivante: 8 })).toEqual({ coupsFrichesDepart: 8, excedent: 1 });
+  });
+
+  it('chaine de deux Rejouer : le report de B vaut (2 + R_A + G) - M, et C herite exactement de lui', () => {
+    // A : 8 coups, base 2, les friches des exemples 2 et 3 → R_A = 3.
+    let a = friches(jouerLesCoups(initialiserLaBoule(quatreJoueurs(), 2), 5), 5, 3);
+    a = jouerLesCoups(friches(jouerLesCoups(a, 6), 6, 1), 9);
+    expect(estBouleTerminee(a)).toBe(true);
+    const reportA = a.reportDeFriches ?? 0;
+    expect(reportA).toBe(3);
+
+    // B, premier Rejouer : 4 coups. 2 + 3 = 5 voulus : entièrement frichée, 1 d'avance.
+    const coupsB = 4;
+    const versB = reportDeFriches(a, { coupsFrichesConfigures: 2, coupsDeLaSuivante: coupsB });
+    expect(versB).toEqual({ coupsFrichesDepart: 4, excedent: 1 });
+    let b = initialiserLaBoule(quatreJoueurs(), versB.coupsFrichesDepart, coupsB, versB.excedent);
+    // G = 2 friches généralisées au coup 1, puis au coup 3 une troisième.
+    b = friches(b, 1, 2);
+    b = friches(jouerLesCoups(b, 3), 3, 1);
+    b = jouerLesCoups(b, coupsB + 1);
+    expect(estBouleTerminee(b)).toBe(true);
+    // Au coup 3, 5 voulus pour 2 coups restants : l'écart est de 3.
+    expect(b.reportDeFriches).toBe(1 + 1 + 1 + 3);
+    // Sur les deux friches du coup 1 — celles qui saturent dès le départ — la
+    // formule (2 + R_A + G) - M se retrouve exactement.
+    const bSeul = friches(initialiserLaBoule(quatreJoueurs(), versB.coupsFrichesDepart, coupsB, versB.excedent), 1, 2);
+    expect(bSeul.reportDeFriches).toBe(2 + reportA + 2 - coupsB);
+
+    // C, deuxième Rejouer depuis B : son report hérité est exactement celui de B.
+    const versC = reportDeFriches(b, { coupsFrichesConfigures: 2, coupsDeLaSuivante: 8 });
+    expect(versC).toEqual({ coupsFrichesDepart: 8, excedent: 2 + 6 - 8 });
+    const c = initialiserLaBoule(quatreJoueurs(), versC.coupsFrichesDepart, 8, versC.excedent);
+    expect(c.nombreCoupsFriches).toBe(8);
+    expect(c.reportDeFriches).toBe(0);
+  });
+
+  it('report de 6 et Boule de 8 coups frichee de bout en bout : 5 friches au coup 1 donnent 5 de report', () => {
+    const a = { ...initialiserLaBoule(quatreJoueurs(), 2), reportDeFriches: 6 };
+    const versB = reportDeFriches(a, { coupsFrichesConfigures: 2, coupsDeLaSuivante: 8 });
+    let b = initialiserLaBoule(quatreJoueurs(), versB.coupsFrichesDepart, 8, versB.excedent);
+    expect(b.nombreCoupsFriches).toBe(8);
+    b = friches(b, 1, 5);
+    // (2 + 6 + 5) - 8 : chaque friche tardive fait croître le report.
+    expect(b.reportDeFriches).toBe(5);
+  });
+});
+
+describe('Boules enregistrees avant le suivi du report', () => {
   it('lit encore une Boule enregistree avant le decompte, par difference avec le depart', () => {
-    const { frichesGeneralisees: _oublie, ...ancienne } = {
+    const { frichesGeneralisees: _oublie, reportDeFriches: _aussi, ...ancienne } = {
       ...initialiserLaBoule(['j1', 'j2', 'j3', 'j4'].map((id) => joueur(id)), 2),
       nombreCoupsFriches: 5,
     };
     expect(surplusDeCoupsFriches(ancienne, 2)).toBe(3);
+    expect(
+      reportDeFriches(ancienne, { coupsFrichesConfigures: 2, coupsFrichesDepart: 2, excedentRecu: 0, coupsDeLaSuivante: 8 }),
+    ).toEqual({ coupsFrichesDepart: 5, excedent: 0 });
   });
 });
-

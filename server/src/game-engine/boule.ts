@@ -38,11 +38,14 @@ const modulo = (valeur: number, base: number): number => ((valeur % base) + base
  * @param nombreCoupsFriches coups frichés d'office, choisis en début de Boule.
  * @param nombreCoupsChoisi nombre de coups choisi à la création de la table ;
  * sans lui, celui des règles pour ce nombre de joueurs.
+ * @param reportHerite coups frichés reçus de la Boule précédente au-delà du
+ * nombre de coups de celle-ci : le report part de là.
  */
 export const initialiserBoule = (
   joueurs: readonly Joueur[],
   nombreCoupsFriches: number = COUPS_FRICHES_PAR_DEFAUT,
   nombreCoupsChoisi?: number,
+  reportHerite = 0,
 ): Boule => {
   const nombreCoupsTotal = nombreCoupsChoisi ?? COUPS_PAR_NOMBRE_DE_JOUEURS[joueurs.length];
   if (nombreCoupsTotal === undefined) {
@@ -67,6 +70,7 @@ export const initialiserBoule = (
     nombreCoupsTotal,
     nombreCoupsFriches,
     frichesGeneralisees: 0,
+    reportDeFriches: reportHerite,
     coupEnCours: null,
     historique: [],
     scoresCumules,
@@ -166,13 +170,18 @@ export const enregistrerResultatCoup = (
 
   if (estFricheGeneralisee(resultat)) {
     // La Boule garde son nombre de coups scorés : le coup est simplement
-    // rejoué à la même place, avec le même donneur. Seul le compteur de coups
-    // frichés avance, ce qui décale les numéros concernés en partant de la fin.
+    // rejoué à la même place, avec le même donneur. Le compteur de coups
+    // frichés avance d'un cran ; s'il dépasse alors les coups restant à jouer
+    // — de ce coup à la fin —, il y est ramené, et l'écart part au report.
+    // Un coup déjà joué garde le statut qu'il avait.
+    const restants = boule.nombreCoupsTotal - numeroCoup + 1;
+    const voulus = boule.nombreCoupsFriches + 1;
+    const depassement = Math.max(0, voulus - restants);
     return {
       ...boule,
-      nombreCoupsFriches: Math.min(boule.nombreCoupsFriches + 1, boule.nombreCoupsTotal),
-      // Comptée sans plafond : c'est ce nombre que la Boule suivante reprend.
+      nombreCoupsFriches: depassement > 0 ? restants : voulus,
       frichesGeneralisees: (boule.frichesGeneralisees ?? 0) + 1,
+      reportDeFriches: (boule.reportDeFriches ?? 0) + depassement,
     };
   }
 
@@ -237,13 +246,21 @@ export const estBouleTerminee = (boule: Boule): boolean =>
 export const surplusDeCoupsFriches = (boule: Boule, coupsFrichesDepart: number): number =>
   boule.frichesGeneralisees ?? Math.max(0, boule.nombreCoupsFriches - coupsFrichesDepart);
 
+/**
+ * Coups frichés que la Boule reporte sur la suivante, tels qu'ils s'affichent
+ * en fin de Boule. Une Boule enregistrée avant le suivi du report se lit
+ * encore à l'ancienne, par son surplus de friches généralisées.
+ */
+export const reportEnCours = (boule: Boule, coupsFrichesDepart: number, excedentRecu = 0): number =>
+  boule.reportDeFriches ?? surplusDeCoupsFriches(boule, coupsFrichesDepart) + excedentRecu;
+
 /** Ce qu'une Boule rejouée reçoit de celle qui s'achève. */
 export interface ReportDeFriches {
   /** Coups frichés de départ de la Boule suivante, bornés à son nombre de coups. */
   readonly coupsFrichesDepart: number;
   /**
-   * Ce qui dépasse le nombre de coups de la Boule suivante : gardé, et reporté
-   * à son tour sur la Boule d'encore après si le groupe rejoue.
+   * Ce qui dépasse le nombre de coups de la Boule suivante : son report de
+   * départ, qui continue vers la Boule d'encore après si le groupe rejoue.
    */
   readonly excedent: number;
 }
@@ -251,30 +268,31 @@ export interface ReportDeFriches {
 /**
  * Coups frichés de départ d'une Boule rejouée avec le même groupe, en cascade.
  *
- * Les coups frichés configurés à la création — le choix du créateur, transmis
- * de Boule en Boule —, plus le surplus des friches généralisées de la Boule qui
- * s'achève, plus l'excédent qu'elle avait elle-même reçu. Au-delà du nombre de
- * coups de la suivante, tous ses coups sont frichés et le reste est gardé pour
- * la suivante encore : aucun report ne se perd en route.
+ * Réf. docs/REGLES.md § « Structure d'une Boule ». Les coups frichés
+ * configurés à la création, plus le report de la Boule qui s'achève — suivi
+ * friche généralisée par friche généralisée (`enregistrerResultatCoup`). Si ce
+ * total dépasse le nombre de coups de la suivante, elle démarre entièrement
+ * frichée, comme après une friche géante au coup 1, et l'excédent devient son
+ * propre report.
  *
- * Boule de 8 coups configurée à 2, 8 friches généralisées : 2 + 8 = 10, la
- * suivante démarre à 8/8 et en reporte 2.
+ * Report de 6, Boule suivante d'un seul coup, 2 configurés : 8 voulus, 1 coup
+ * friché, 7 reportés.
  */
 export const reportDeFriches = (
   boule: Boule,
   options: {
     /** Coups frichés configurés à la création, transmis de Boule en Boule. */
     readonly coupsFrichesConfigures: number;
-    /** Coups frichés de départ effectifs de la Boule qui s'achève. */
-    readonly coupsFrichesDepart: number;
-    /** L'excédent que la Boule qui s'achève avait reçu. */
-    readonly excedentRecu: number;
     /** Nombre de coups de la Boule suivante. */
     readonly coupsDeLaSuivante: number;
+    /** Pour une Boule enregistrée avant le suivi du report : ses coups frichés de départ. */
+    readonly coupsFrichesDepart?: number;
+    /** Pour une Boule enregistrée avant le suivi du report : l'excédent qu'elle avait reçu. */
+    readonly excedentRecu?: number;
   },
 ): ReportDeFriches => {
-  const total =
-    options.coupsFrichesConfigures + surplusDeCoupsFriches(boule, options.coupsFrichesDepart) + options.excedentRecu;
+  const report = reportEnCours(boule, options.coupsFrichesDepart ?? boule.nombreCoupsFriches, options.excedentRecu ?? 0);
+  const total = options.coupsFrichesConfigures + report;
   return {
     coupsFrichesDepart: Math.min(total, options.coupsDeLaSuivante),
     excedent: Math.max(0, total - options.coupsDeLaSuivante),

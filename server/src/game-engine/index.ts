@@ -67,6 +67,7 @@ export {
   initialiserBoule,
   surplusDeCoupsFriches,
   reportDeFriches,
+  reportEnCours,
   JOUEURS_SUR_LE_COTE,
   numeroCoupCourant,
   rangDeTirage,

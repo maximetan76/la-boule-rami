@@ -131,6 +131,13 @@ export interface Boule {
    * surplus reporté tombait à 0. Absent d'une Boule enregistrée avant.
    */
   frichesGeneralisees?: number;
+  /**
+   * Coups frichés qui partiront vers la Boule suivante si le groupe rejoue :
+   * l'excédent reçu de la précédente au démarrage, puis, à chaque friche
+   * généralisée, ce qui dépasse les coups restant à jouer. Absent d'une Boule
+   * enregistrée avant ce suivi.
+   */
+  reportDeFriches?: number;
   coupEnCours: Coup | null;
   historique: ResultatCoup[];
   /** Somme des scores de chaque joueur sur les coups déjà joués. */

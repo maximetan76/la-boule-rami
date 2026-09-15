@@ -7,7 +7,7 @@
  */
 import { decrireTablePublique } from './game-room-manager.js';
 import { COUPS_PAR_NOMBRE_DE_JOUEURS, NOMBRE_COUPS_MAX, NOMBRE_COUPS_MIN } from '../models/index.js';
-import { calculerFinDeBoule, estBouleTerminee, surplusDeCoupsFriches } from '../game-engine/index.js';
+import { calculerFinDeBoule, estBouleTerminee, reportEnCours } from '../game-engine/index.js';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifierJetonApple, type ConfigApple } from '../auth/apple.js';
@@ -328,8 +328,8 @@ const finDe = (boule: Parameters<typeof estBouleTerminee>[0] | null) =>
 
 /**
  * Ce que le tableau de scores lit en plus des coups : l'ordre des joueurs à la
- * table, la valeur d'un point, et les coups frichés ajoutés en route par les
- * friches généralisées — ceux que la Boule suivante reprendrait.
+ * table, la valeur d'un point, et le report de coups frichés — ceux que la
+ * Boule suivante reprendrait en plus de ses coups frichés configurés.
  */
 const configurationDuTableau = (
   ordreJoueurs: readonly string[],
@@ -339,7 +339,8 @@ const configurationDuTableau = (
 ) => ({
   ordreJoueurs: [...ordreJoueurs],
   coupsFrichesDepart,
-  coupsFrichesEnPlus: boule === null ? null : surplusDeCoupsFriches(boule, coupsFrichesDepart),
+  // Le report tel qu'il est suivi pendant la Boule, pas sa seule croissance.
+  coupsFrichesEnPlus: boule === null ? null : reportEnCours(boule, coupsFrichesDepart),
   valeurPoint,
 });
 
