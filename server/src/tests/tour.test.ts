@@ -857,20 +857,19 @@ describe('recupererJoker', () => {
     expect(apres.mains['j1']).toHaveLength(0);
   });
 
-  it('refuse si le joueur n a pas encore pose son jeu', () => {
+  it('permet de recuperer un joker avant d avoir pose son jeu', () => {
     const sixTrefle = c('trefle', 6);
     const paire = [c('pique', 8), c('coeur', 8)];
     const { jokerPosee, combinaison, depart } = coupAvecJoker([sixTrefle, ...paire], []);
 
-    expect(() =>
-      recupererJoker(
-        depart,
-        'j1',
-        sixTrefle,
-        { combinaisonId: combinaison.id, carteJokerId: jokerPosee.carte.id },
-        ensemble(8, [...paire, jokerPosee.carte], 'j1'),
-      ),
-    ).toThrow(/pose/i);
+    const { coup: apres } = recupererJoker(
+      depart,
+      'j1',
+      sixTrefle,
+      { combinaisonId: combinaison.id, carteJokerId: jokerPosee.carte.id },
+      ensemble(8, [...paire, jokerPosee.carte], 'j1'),
+    );
+    expect(apres.combinaisons).toHaveLength(2);
   });
 
   it('refuse une carte qui ne correspond pas a celle que le joker represente', () => {
@@ -1070,14 +1069,19 @@ describe('echangerJoker — un echange sans replacement immediat', () => {
     expect(toutes.filter((id) => id === vraiValet.id)).toHaveLength(1);
   });
 
-  it('refuse un joueur qui n a pas encore pose', () => {
+  it('accepte un joueur qui n a pas encore pose : l echange se fait a tout moment du tour', () => {
     const { joker, tierceAvecJoker } = table();
     const vraiValet = c('coeur', 'V');
-    const depart = coupJouable([vraiValet], { combinaisons: [tierceAvecJoker] });
+    const depart = coupJouable([vraiValet], {
+      combinaisons: [tierceAvecJoker],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
+    });
 
-    expect(() =>
-      echangerJoker(depart, 'j1', vraiValet, { combinaisonId: tierceAvecJoker.id, carteJokerId: joker.id }),
-    ).toThrow(/pose/);
+    const { joker: repris } = echangerJoker(depart, 'j1', vraiValet, {
+      combinaisonId: tierceAvecJoker.id,
+      carteJokerId: joker.id,
+    });
+    expect(repris.id).toBe(joker.id);
   });
 
   it('refuse une carte qui n est pas celle que le joker represente', () => {
@@ -1455,3 +1459,76 @@ describe('jouerTour — plus qu une carte en main apres avoir pose', () => {
   });
 });
 
+
+describe('joker tout juste recupere et premiere pose', () => {
+  // Réf. docs/REGLES.md § « Récupération d'un joker posé » : l'échange se fait à
+  // tout moment du tour ; le joker repris ne sert pas à ouvrir.
+  const preparer = (main: Carte[]) => {
+    const jokerPosee = jokerPour('trefle', 6);
+    const surLaTable = tierce('trefle', [c('trefle', 5), jokerPosee, c('trefle', 7)], 'j2');
+    const sixTrefle = c('trefle', 6);
+    const depart = coupJouable([sixTrefle, ...main], {
+      combinaisons: [surLaTable],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
+    });
+    const { coup: avecEchange, joker: repris } = echangerJoker(depart, 'j1', sixTrefle, {
+      combinaisonId: surLaTable.id,
+      carteJokerId: jokerPosee.carte.id,
+    });
+    return { avecEchange, repris };
+  };
+
+  it('libre : la pose 10-[coucou]-D-R-A tient seule, le joker repris se place ou l on veut', () => {
+    const coucouEnMain = coucou();
+    const dixCoeur = c('coeur', 10);
+    const dameCoeur = c('coeur', 'D');
+    const roiCoeur = c('coeur', 'R');
+    const asCoeur = c('coeur', 'A');
+    const huitPique = c('pique', 8);
+    const huitCarreau = c('carreau', 8);
+    const aJeter = c('pique', 3);
+    const { avecEchange, repris } = preparer([
+      dixCoeur, coucouEnMain, dameCoeur, roiCoeur, asCoeur, huitPique, huitCarreau, aJeter,
+    ]);
+
+    const { coup: apres } = jouerTour(avecEchange, 'j1', {
+      source: 'pioche',
+      poses: [
+        tierce('coeur', [dixCoeur, { carte: coucouEnMain, remplace: { couleur: 'coeur', valeur: 'V' } }, dameCoeur, roiCoeur, asCoeur]),
+        ensemble(8, [huitPique, huitCarreau, { carte: repris, remplace: { couleur: 'trefle', valeur: 8 } }]),
+      ],
+      carteDefausseeId: aJeter.id,
+      jokersRecuperes: [repris.id],
+    });
+    expect(apres.combinaisons).toHaveLength(3);
+    expect(apres.recapitulatifs['j1']?.toursAvecPose).toHaveLength(1);
+  });
+
+  it('bloque : 10-V-D et un brelan de 8 ne font 51 points que grace au joker repris', () => {
+    const dix = c('coeur', 10);
+    const valet = c('coeur', 'V');
+    const dame = c('coeur', 'D');
+    const huitPique = c('pique', 8);
+    const huitCarreau = c('carreau', 8);
+    const aJeter = c('pique', 3);
+    const { avecEchange, repris } = preparer([dix, valet, dame, huitPique, huitCarreau, aJeter]);
+    const poses = [
+      tierce('coeur', [dix, valet, dame]),
+      ensemble(8, [huitPique, huitCarreau, { carte: repris, remplace: { couleur: 'trefle', valeur: 8 } }]),
+    ];
+
+    expect(() =>
+      jouerTour(avecEchange, 'j1', {
+        source: 'pioche',
+        poses,
+        carteDefausseeId: aJeter.id,
+        jokersRecuperes: [repris.id],
+      }),
+    ).toThrow(/joker tout juste recupere ne peut pas servir a ouvrir/);
+
+    // Le même joker tenu en main depuis la donne ouvre sans difficulté.
+    expect(() =>
+      jouerTour(avecEchange, 'j1', { source: 'pioche', poses, carteDefausseeId: aJeter.id }),
+    ).not.toThrow();
+  });
+});

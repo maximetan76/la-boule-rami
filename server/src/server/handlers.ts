@@ -935,6 +935,7 @@ export const enregistrerHandlers = (
             poses: tour.poses,
             ajouts: tour.ajouts,
             carteDefausseeId: payload.carteId,
+            jokersRecuperes: jokers.map((joker) => joker.id),
           },
           table.alea,
         );

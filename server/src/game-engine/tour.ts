@@ -39,6 +39,12 @@ export interface ActionTour {
   /** Cartes ajoutées aux combinaisons déjà sur la table, la sienne ou celle d'un autre. */
   readonly ajouts?: readonly AjoutCombinaison[];
   readonly carteDefausseeId: CarteId;
+  /**
+   * Jokers repris sur la table ce tour-ci, rangés dans la main avant la pose.
+   * Réf. docs/REGLES.md § « Récupération d'un joker posé » : ils ne servent
+   * pas à ouvrir.
+   */
+  readonly jokersRecuperes?: readonly CarteId[];
 }
 
 export interface NouvelEtatCoup {
@@ -90,6 +96,46 @@ const avecCartes = (combinaison: Combinaison, cartes: readonly CartePosee[]): Co
   combinaison.type === 'tierce'
     ? { ...combinaison, cartes }
     : { ...combinaison, type: cartes.length >= 4 ? 'carre' : 'brelan', cartes };
+
+/**
+ * Les poses privées des jokers repris ce tour-ci : chaque combinaison perd ces
+ * jokers, et disparaît si elle n'est plus valide sans eux.
+ */
+const sansJokersRecuperes = (
+  poses: readonly Combinaison[],
+  jokers: ReadonlySet<CarteId>,
+): Combinaison[] =>
+  poses.flatMap((combinaison) => {
+    if (!combinaison.cartes.some((cp) => jokers.has(cp.carte.id))) return [combinaison];
+    const reduite = avecCartes(
+      combinaison,
+      combinaison.cartes.filter((cp) => !jokers.has(cp.carte.id)),
+    );
+    return estCombinaisonValide(reduite) ? [reduite] : [];
+  });
+
+/**
+ * La première pose tient-elle sans les jokers tout juste repris ?
+ *
+ * Réf. docs/REGLES.md § « Récupération d'un joker posé ». Un joker repris se
+ * place où l'on veut quand la pose remplit déjà seule les deux conditions ; il
+ * ne peut pas être ce qui les remplit. Symétrique de la carte prise en
+ * défausse, qui sert ailleurs mais pas à l'échange qu'elle compléterait.
+ */
+const ouvreSansJokersRecuperes = (
+  main: readonly Carte[],
+  poses: readonly Combinaison[],
+  jokersRecuperes: readonly CarteId[],
+): boolean => {
+  const jokers = new Set(jokersRecuperes);
+  if (!poses.some((combinaison) => combinaison.cartes.some((cp) => jokers.has(cp.carte.id)))) return true;
+  try {
+    return peutPoser(main, sansJokersRecuperes(poses, jokers));
+  } catch {
+    // Une lecture devenue ambiguë sans le joker ne vaut pas pose.
+    return false;
+  }
+};
 
 /** Le moteur signe lui-même les combinaisons posées : ni propriétaire ni tour ne sont déclarés. */
 const attribuer = (combinaison: Combinaison, proprietaireId: JoueurId, tourDePose: number): Combinaison =>
@@ -234,6 +280,11 @@ export const jouerTour = (
         `Premiere pose invalide : il faut au moins ${String(SEUIL_POSE)} points et une tierce franche`,
       );
     }
+    if (poses.length > 0 && !ouvreSansJokersRecuperes(mainApresPioche, poses, action.jokersRecuperes ?? [])) {
+      throw new Error(
+        `Le joker tout juste recupere ne peut pas servir a ouvrir : sans lui, votre premiere pose n atteint pas ${String(SEUIL_POSE)} points avec une tierce franche`,
+      );
+    }
   }
 
   // --- Contraintes propres à la pioche en défausse -------------------------
@@ -322,19 +373,18 @@ export const jouerTour = (
 
 /**
  * Ce qu'un échange de joker exige, qu'il soit replacé dans la foulée ou plus
- * tard dans le tour : un jeu déjà posé, un joker qui déclare ce qu'il
- * représente, et la vraie carte correspondante.
+ * tard dans le tour : un joker qui déclare ce qu'il représente, et la vraie
+ * carte correspondante.
+ *
+ * Réf. docs/REGLES.md § « Récupération d'un joker posé » : l'échange se fait à
+ * tout moment du tour, jeu déjà ouvert ou non. Ce que le joker repris permet
+ * ensuite se juge à la pose (`jouerTour`), pas ici.
  */
 const verifierEchange = (
   coup: Coup,
-  joueurId: JoueurId,
   carteReelle: Carte,
   jokerCible: JokerCible,
 ): { readonly cible: Combinaison; readonly jokerPosee: CartePosee } => {
-  if (!aDejaPose(coup, joueurId)) {
-    throw new Error(`${joueurId} doit avoir pose son jeu avant de recuperer un joker`);
-  }
-
   const cible = coup.combinaisons.find((combinaison) => combinaison.id === jokerCible.combinaisonId);
   if (cible === undefined) {
     throw new Error(`Combinaison ${jokerCible.combinaisonId} introuvable sur la table`);
@@ -397,7 +447,7 @@ export const echangerJoker = (
       'La carte prise dans la defausse ne peut pas reprendre un joker : elle peut servir dans une autre combinaison',
     );
   }
-  const { cible, jokerPosee } = verifierEchange(coup, joueurId, carteReelle, jokerCible);
+  const { cible, jokerPosee } = verifierEchange(coup, carteReelle, jokerCible);
 
   const cibleEchangee = avecCartes(
     cible,
@@ -439,8 +489,7 @@ export const echangerJoker = (
 /**
  * Récupération d'un joker posé.
  *
- * § « Récupération d'un joker posé » : un joueur qui a déjà posé et qui détient
- * la vraie carte représentée par un joker visible peut l'échanger. Le joker
+ * § « Récupération d'un joker posé » : un joueur qui détient la vraie carte représentée par un joker visible peut l'échanger. Le joker
  * récupéré doit être IMMÉDIATEMENT replacé dans une combinaison de sa main, au
  * même tour : c'est l'objet du paramètre `replacement`.
  */
@@ -451,7 +500,7 @@ export const recupererJoker = (
   jokerCible: JokerCible,
   replacement: Combinaison | null,
 ): NouvelEtatCoup => {
-  const { cible, jokerPosee } = verifierEchange(coup, joueurId, carteReelle, jokerCible);
+  const { cible, jokerPosee } = verifierEchange(coup, carteReelle, jokerCible);
 
   const main = coup.mains[joueurId] ?? [];
   if (!main.some((carte) => carte.id === carteReelle.id)) {

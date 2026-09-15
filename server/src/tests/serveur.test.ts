@@ -7,7 +7,7 @@ import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { publierTable } from '../server/handlers.js';
 import { ouvrirTablePleine } from './aide-table.js';
-import { c, coucou, recap, tierce } from './fixtures.js';
+import { c, coucou, joker, recap, tierce } from './fixtures.js';
 import type { DelaisDeJeu, GestionDeconnexion, Minuteur } from '../server/game-room-manager.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS } from '../server/game-room-manager.js';
 import type { Carte, JoueurId } from '../models/index.js';
@@ -753,6 +753,128 @@ describe('serveur socket.io', () => {
 
     expect(refus.ok).toBe(false);
     expect(refus.ok === false && refus.erreur).toContain('Reprenez d abord la pose');
+  });
+
+  /**
+   * Réf. docs/REGLES.md § « Récupération d'un joker posé » : le scénario
+   * rapporté. Le premier joueur n'a pas encore ouvert ; sur la table, le
+   * 5-[joker en 6]-7 de trèfle du second. Il tient de quoi poser la quinte
+   * 10-[coucou]-D-R-A de cœur, le vrai 6 de trèfle, deux 8 et un 3 à jeter.
+   */
+  const tableAvantPremierePose = async (main: (reprise: { jokerId: string }) => Carte[]) => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+
+    const premier = table.coup.ordreJoueurs[0] as JoueurId;
+    const second = table.coup.ordreJoueurs[1] as JoueurId;
+    const jokerEnSix = { carte: joker(), remplace: { couleur: 'trefle' as const, valeur: 6 as const } };
+    const surLaTable = {
+      id: 'comb-du-second',
+      type: 'tierce' as const,
+      proprietaireId: second,
+      tourDePose: 1,
+      couleur: 'trefle' as const,
+      cartes: [{ carte: c('trefle', 5), remplace: null }, jokerEnSix, { carte: c('trefle', 7), remplace: null }],
+      pure: false,
+    };
+    const sixTrefle = c('trefle', 6);
+    table.coup.combinaisons = [surLaTable];
+    table.coup.mains[premier] = [sixTrefle, ...main({ jokerId: jokerEnSix.carte.id })];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [] });
+
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+
+    const recuperer = () =>
+      emettre(joueur.socket, 'recuperer-joker', {
+        carteReelleId: sixTrefle.id,
+        combinaisonId: surLaTable.id,
+        carteJokerId: jokerEnSix.carte.id,
+      });
+    return { table, joueur, jokerId: jokerEnSix.carte.id, recuperer };
+  };
+
+  it('recupere un joker avant la premiere pose, puis pose 10-[coucou]-D-R-A : aucun blocage a aucune etape', async () => {
+    const dix = c('coeur', 10);
+    const coucouEnMain = coucou();
+    const dame = c('coeur', 'D');
+    const roi = c('coeur', 'R');
+    const as = c('coeur', 'A');
+    const huitPique = c('pique', 8);
+    const huitCarreau = c('carreau', 8);
+    const aJeter = c('pique', 3);
+    const t = await tableAvantPremierePose(() => [dix, coucouEnMain, dame, roi, as, huitPique, huitCarreau, aJeter]);
+
+    // La quinte d'abord, encore au brouillon : c'est là que l'échange butait.
+    const quinte = await emettre(t.joueur.socket, 'poser', {
+      poses: [{
+        type: 'tierce',
+        couleur: 'coeur',
+        cartes: [
+          { carteId: dix.id },
+          { carteId: coucouEnMain.id, remplace: { couleur: 'coeur', valeur: 'V' } },
+          { carteId: dame.id },
+          { carteId: roi.id },
+          { carteId: as.id },
+        ],
+      }],
+    });
+    expect(quinte.ok).toBe(true);
+
+    const reprise = await t.recuperer();
+    expect(reprise).toEqual({ ok: true });
+
+    const brelan = await emettre(t.joueur.socket, 'poser', {
+      poses: [{
+        type: 'ensemble',
+        valeur: 8,
+        cartes: [
+          { carteId: huitPique.id },
+          { carteId: huitCarreau.id },
+          { carteId: t.jokerId, remplace: { couleur: 'trefle', valeur: 8 } },
+        ],
+      }],
+    });
+    expect(brelan.ok).toBe(true);
+
+    const clos = await emettre(t.joueur.socket, 'defausser', { carteId: aJeter.id });
+    expect(clos).toEqual({ ok: true });
+    expect(t.table.coup?.combinaisons).toHaveLength(3);
+    expect(t.joueur.dernierEtat?.moi.aPose).toBe(true);
+  });
+
+  it('refuse clairement une premiere pose qui n atteint 51 points que grace au joker repris', async () => {
+    const dix = c('coeur', 10);
+    const valet = c('coeur', 'V');
+    const dame = c('coeur', 'D');
+    const huitPique = c('pique', 8);
+    const huitCarreau = c('carreau', 8);
+    const aJeter = c('pique', 3);
+    const t = await tableAvantPremierePose(() => [dix, valet, dame, huitPique, huitCarreau, aJeter]);
+
+    expect((await t.recuperer()).ok).toBe(true);
+    const pose = await emettre(t.joueur.socket, 'poser', {
+      poses: [
+        { type: 'tierce', couleur: 'coeur', cartes: [{ carteId: dix.id }, { carteId: valet.id }, { carteId: dame.id }] },
+        {
+          type: 'ensemble',
+          valeur: 8,
+          cartes: [
+            { carteId: huitPique.id },
+            { carteId: huitCarreau.id },
+            { carteId: t.jokerId, remplace: { couleur: 'trefle', valeur: 8 } },
+          ],
+        },
+      ],
+    });
+    expect(pose.ok).toBe(true);
+
+    const refus = await emettre(t.joueur.socket, 'defausser', { carteId: aJeter.id });
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false && refus.erreur).toContain('joker tout juste recupere ne peut pas servir a ouvrir');
+    expect(t.table.coup?.combinaisons).toHaveLength(1);
   });
 
   /**
