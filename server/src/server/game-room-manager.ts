@@ -226,6 +226,13 @@ export interface Table {
    * pour qu'il les reconnaisse à la reprise. Vidé à chaque nouvelle donne.
    */
   jokersGardes: Map<JoueurId, Carte[]>;
+  /**
+   * Joueurs tenus par le serveur, qui jouent tout seuls. Une table de
+   * démonstration en compte deux ; une table ordinaire, aucun.
+   */
+  readonly bots: Set<JoueurId>;
+  /** Le geste qu'un joueur automatique s'apprête à faire, s'il y en a un. */
+  actionBot: { readonly cle: string; annuler: () => void } | null;
   /** La table de la Boule rejouée avec ce groupe, une fois qu'elle existe. */
   relanceeVers?: TableId;
 }
@@ -368,6 +375,8 @@ export class GameRoomManager {
       readonly nombreCoups?: number | null;
       /** Valeur d'un point, décimal normalisé ; aucune sans précision. */
       readonly valeurPoint?: string | null;
+      /** Joueurs que le serveur joue lui-même : la table de démonstration. */
+      readonly bots?: readonly JoueurId[];
       readonly alea?: () => number;
     } = {},
   ): Promise<TableCreee> {
@@ -439,6 +448,8 @@ export class GameRoomManager {
       tirageOuverture: null,
       retournementsTirage: new Map(),
       jokersGardes: new Map(),
+      bots: new Set(options.bots ?? []),
+      actionBot: null,
     };
     this.tables.set(tableId, table);
     this.parCode.set(codeInvitation, tableId);
@@ -708,6 +719,10 @@ export class GameRoomManager {
       tirageOuverture: null,
       retournementsTirage: new Map(),
       jokersGardes: new Map(),
+      // Les joueurs automatiques ne survivent pas à un redémarrage : une table
+      // de démonstration ne se reprend pas, elle se recrée.
+      bots: new Set(),
+      actionBot: null,
       };
 
       this.tables.set(table.id, table);
@@ -825,8 +840,12 @@ export class GameRoomManager {
     return table.connexions.get(joueurId) ?? null;
   }
 
+  /**
+   * Tout le monde est là ? Les joueurs automatiques comptent comme présents :
+   * ils n'ont pas de connexion, et la table ne les attend jamais.
+   */
   tousConnectes(table: Table): boolean {
-    return this.joueursConnectes(table).length === table.joueurs.length;
+    return this.joueursConnectes(table).length + table.bots.size === table.joueurs.length;
   }
 }
 

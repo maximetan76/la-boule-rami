@@ -659,6 +659,111 @@ const reevaluerDelaiDeJeu = (io: Server, manager: GameRoomManager, table: Table)
   };
 };
 
+/** Délai entre deux gestes d'un joueur automatique : le temps de les voir venir. */
+export const DELAI_BOT_MS = 1_200;
+
+/**
+ * Le joueur automatique que la table attend, s'il y en a un.
+ *
+ * Pendant le jeu, celui dont c'est le tour ; pendant l'entracte, le premier qui
+ * n'a pas encore demandé la suite. Au dernier coup, rien : « Terminer la
+ * Boule » appartient aux joueurs humains, et un robot ne la clôt pas pour eux.
+ */
+const botAttendu = (table: Table): JoueurId | null => {
+  if (table.bots.size === 0) return null;
+
+  const resultat = table.resultatCoup;
+  if (resultat !== null) {
+    if (resultat.derniereCoup) return null;
+    return table.joueurs
+      .map((joueur) => joueur.id)
+      .find((joueurId) => table.bots.has(joueurId) && !resultat.prets.includes(joueurId)) ?? null;
+  }
+
+  const coup = table.coup;
+  if (coup === null) return null;
+  const attendu = joueurAttendu(coup);
+  return attendu !== null && table.bots.has(attendu) ? attendu : null;
+};
+
+/**
+ * Arme, garde ou désarme le geste du joueur automatique attendu.
+ *
+ * Même principe que le délai de jeu : un même moment d'attente garde son
+ * minuteur d'une publication à l'autre, et tout changement le réarme.
+ */
+const reevaluerLesBots = (io: Server, manager: GameRoomManager, table: Table): void => {
+  const bot = botAttendu(table);
+  const coup = table.coup;
+  const cle =
+    bot === null
+      ? null
+      : [
+          bot,
+          table.resultatCoup === null ? 'jeu' : 'entracte',
+          coup?.numero ?? 0,
+          coup?.phase ?? '-',
+          coup?.numeroTour ?? 0,
+          Object.keys(coup?.annonces ?? {}).length,
+        ].join(':');
+
+  if (table.actionBot !== null && table.actionBot.cle !== cle) {
+    table.actionBot.annuler();
+    table.actionBot = null;
+  }
+  if (cle === null || bot === null || table.actionBot !== null) return;
+
+  table.actionBot = {
+    cle,
+    annuler: manager.minuteur.programmer(() => {
+      table.actionBot = null;
+      jouerPourLeBot(io, manager, table, bot).catch(() => {
+        // Un geste impossible ne doit pas faire tomber le serveur : la table
+        // reste en l'état, et la publication suivante réarmera le robot.
+      });
+    }, DELAI_BOT_MS),
+  };
+};
+
+/**
+ * Ce que fait un joueur automatique : le strict nécessaire pour que la partie
+ * avance sous les yeux d'un joueur humain.
+ *
+ * Il annonce « je joue » pour ouvrir le coup, pioche au talon et défausse à son
+ * tour — le même geste que le serveur joue déjà pour un joueur parti —, et
+ * demande la suite pendant l'entracte. Il ne pose jamais : rien ne l'y oblige,
+ * et cela suffit à faire tourner la table.
+ */
+const jouerPourLeBot = async (
+  io: Server,
+  manager: GameRoomManager,
+  table: Table,
+  botId: JoueurId,
+): Promise<void> => {
+  const resultat = table.resultatCoup;
+  if (resultat !== null) {
+    if (!resultat.prets.includes(botId)) resultat.prets = [...resultat.prets, botId];
+    if (table.joueurs.every((joueur) => resultat.prets.includes(joueur.id))) {
+      await enchainer(io, manager, table);
+    }
+    publier(io, manager, table);
+    return;
+  }
+
+  const coup = table.coup;
+  if (coup === null || joueurAttendu(coup) !== botId) return;
+
+  if (coup.phase === 'annonces') {
+    appliquerAnnonce(table, botId, 'je-joue');
+    publier(io, manager, table);
+    return;
+  }
+
+  const apres = abandonnerTour(table, botId);
+  if (apres !== null && apres.gagnantId !== null) await cloturerCoup(manager, table, apres);
+  publier(io, manager, table);
+};
+
 /**
  * Publie le nouvel état : chacun reçoit sa vue, après réévaluation du sursis.
  * Toute action qui modifie la table passe par ici.
@@ -666,6 +771,7 @@ const reevaluerDelaiDeJeu = (io: Server, manager: GameRoomManager, table: Table)
 const publier = (io: Server, manager: GameRoomManager, table: Table): void => {
   reevaluerSursis(io, manager, table);
   reevaluerDelaiDeJeu(io, manager, table);
+  reevaluerLesBots(io, manager, table);
   diffuserEtat(io, manager, table);
 };
 

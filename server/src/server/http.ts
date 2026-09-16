@@ -155,6 +155,51 @@ const ouvrirSession = async (
   };
 };
 
+/** Pseudo du compte de démonstration servi à la revue Apple. */
+export const PSEUDO_DEMO = 'Testeur';
+/** Ses adversaires, tenus par le serveur. */
+const PSEUDOS_DES_ROBOTS = ['Robot Bo', 'Robot Cy'];
+
+/**
+ * Ouvre une session de démonstration, sans Sign in with Apple, et sert une
+ * table déjà démarrée.
+ *
+ * Destinée à la revue de l'App Store : le compte est créé à la volée — un
+ * compte neuf par appel, pour que deux réviseurs ne se marchent pas dessus —,
+ * assis à une table de trois joueurs dont deux sont tenus par le serveur (voir
+ * `jouerPourLeBot`). La partie démarre dès que le réviseur s'y connecte.
+ */
+const ouvrirSessionDemo = async (deps: DependancesHttp): Promise<unknown> => {
+  const marque = `demo-reviewer:${randomUUID()}`;
+  const testeur = await deps.depot.trouverOuCreerJoueurApple(marque, PSEUDO_DEMO);
+
+  const robots: JoueurEnregistre[] = [];
+  for (const [rang, pseudo] of PSEUDOS_DES_ROBOTS.entries()) {
+    robots.push(await deps.depot.trouverOuCreerJoueurApple(`${marque}:robot-${String(rang)}`, pseudo));
+  }
+
+  const { tableId, codeInvitation } = await deps.manager.creerTable(
+    { id: testeur.id, pseudo: testeur.pseudo },
+    {
+      capacite: PSEUDOS_DES_ROBOTS.length + 1,
+      // Rien ne presse un réviseur : ni délai de jeu, ni sursis d'absence.
+      gestionDeconnexion: { type: 'illimite' },
+      delais: DELAIS_PAR_DEFAUT,
+      bots: robots.map((robot) => robot.id),
+    },
+  );
+  for (const robot of robots) {
+    await deps.manager.rejoindreParCode(codeInvitation, { id: robot.id, pseudo: robot.pseudo });
+  }
+
+  return {
+    jetonSession: await signerJetonSession(testeur.id, deps.session),
+    joueur: { id: testeur.id, pseudo: testeur.pseudo },
+    tableId,
+    codeInvitation,
+  };
+};
+
 /** Lit la configuration de déconnexion envoyée par le client. */
 const lireGestionDeconnexion = (valeur: unknown): GestionDeconnexion | undefined => {
   if (valeur === undefined || valeur === null) return undefined;
@@ -662,6 +707,10 @@ export const gererRequeteHttp =
 
       if (methode === 'POST' && chemin === '/auth/apple') {
         return { code: 200, corps: await ouvrirSession(await lireCorps(requete), deps) };
+      }
+
+      if (methode === 'POST' && chemin === '/auth/demo') {
+        return { code: 200, corps: await ouvrirSessionDemo(deps) };
       }
 
       if (methode === 'POST' && chemin === '/auth/renouveler') {
