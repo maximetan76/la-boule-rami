@@ -902,6 +902,10 @@ export const demarrerCoup = (table: Table): Coup => {
     estFriche: estCoupFriche(boule, numero),
     recapitulatifs,
     gagnantId: null,
+    // La parole commence à la gauche du donneur, comme le jeu.
+    aParler: joueursActifs[0] as JoueurId,
+    enAttente: [],
+    dernierJeJoue: null,
   };
 
   table.coup = coup;
@@ -955,6 +959,9 @@ export const redistribuerCoup = (table: Table): Coup => {
     estFriche: estCoupFriche(boule, coup.numero),
     recapitulatifs,
     gagnantId: null,
+    aParler: coup.ordreJoueurs[0] as JoueurId,
+    enAttente: [],
+    dernierJeJoue: null,
   };
 
   table.jokersGardes = new Map(Object.entries(jokersConserves));

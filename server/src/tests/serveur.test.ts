@@ -724,6 +724,101 @@ describe('serveur socket.io', () => {
     }
   });
 
+  /**
+   * Réf. docs/REGLES.md § « Phase Friche / Je joue » : la parole tourne tant
+   * que personne n'a posé. Trois joueurs, dans l'ordre de la table P1, P2, P3.
+   */
+  const tableDeParole = async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const ordre = [...table.coup.ordreJoueurs] as [JoueurId, JoueurId, JoueurId];
+    const [p1, p2, p3] = ordre.map((id) => espions.find((e) => e.joueurId === id) as Espion) as [Espion, Espion, Espion];
+    const coupReel = (): Coup => {
+      if (table.coup === null) throw new Error('coup absent');
+      return table.coup;
+    };
+    const jouerSonTour = async (espion: Espion) => {
+      expect((await agir(espion, 'piocher', { source: 'pioche' })).ok).toBe(true);
+      const aJeter = espion.dernierEtat?.moi.main.find((carte) => carte.type === 'normale')?.id;
+      expect(await agir(espion, 'defausser', { carteId: aJeter })).toEqual({ ok: true });
+    };
+    return { table, ordre, p1, p2, p3, coupReel, jouerSonTour };
+  };
+
+  it('parole : le friche attend, le je joue le fait jouer, puis toucher la pioche vaut je joue', async () => {
+    const t = await tableDeParole();
+    const entete = () => t.p3.dernierEtat?.coup;
+
+    expect((await agir(t.p1, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+    expect(entete()).toMatchObject({ phase: 'annonces', aParler: t.p2.joueurId, enAttente: [t.p1.joueurId] });
+    // P2 a la parole mais pas la main : toucher la pioche ne vaut rien.
+    expect((await emettre(t.p2.socket, 'piocher', { source: 'pioche' })).ok).toBe(false);
+    // P1 a friché : il attend, il ne peut ni parler ni jouer avant un « je joue ».
+    expect((await emettre(t.p1.socket, 'piocher', { source: 'pioche' })).ok).toBe(false);
+
+    expect((await agir(t.p2, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+    expect(entete()).toMatchObject({ phase: 'jeu', joueurActifId: t.p1.joueurId, dernierJeJoue: t.p2.joueurId });
+    await t.jouerSonTour(t.p1);
+
+    // P2 reparle : il pourrait refricher, mais toucher la pioche vaut « je joue ».
+    expect(entete()).toMatchObject({ phase: 'annonces', aParler: t.p2.joueurId, enAttente: [] });
+    await t.jouerSonTour(t.p2);
+    expect(t.coupReel().dernierJeJoue).toBe(t.p2.joueurId);
+    expect(entete()).toMatchObject({ phase: 'annonces', aParler: t.p3.joueurId });
+  });
+
+  it('parole : trois friches d affilee en cours de coup redistribuent, le joker tire en route reste en main', async () => {
+    const t = await tableDeParole();
+    const numero = t.coupReel().numero;
+    const donneur = t.coupReel().donneurId;
+    const frichesAvant = t.table.boule?.frichesGeneralisees ?? 0;
+    const jokerTire: Carte = { type: 'joker', id: 'joker-tire-en-route' };
+    t.coupReel().pioche.unshift(jokerTire);
+
+    // P1 pioche le joker (« je joue » implicite) et garde en main.
+    await t.jouerSonTour(t.p1);
+    expect(t.p1.dernierEtat?.moi.main.map((carte) => carte.id)).toContain(jokerTire.id);
+
+    expect((await agir(t.p2, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+    expect((await agir(t.p3, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+    expect((await agir(t.p1, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+
+    const coup = t.coupReel();
+    expect(coup.numero).toBe(numero);
+    expect(coup.donneurId).toBe(donneur);
+    expect(coup).toMatchObject({ phase: 'annonces', annonces: {}, aParler: t.p1.joueurId, enAttente: [], dernierJeJoue: null });
+    expect(t.table.boule?.frichesGeneralisees).toBe(frichesAvant + 1);
+    expect(t.p1.dernierEtat?.moi.main.map((carte) => carte.id)).toContain(jokerTire.id);
+    expect(t.p1.dernierEtat?.moi.main).toHaveLength(14);
+  });
+
+  it('parole : une pose pendant le rattrapage clot la friche, les suivants jouent sans rien annoncer', async () => {
+    const t = await tableDeParole();
+    const quinte = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+    const aJeter = c('pique', 3);
+    t.coupReel().mains[t.p1.joueurId] = [...quinte, aJeter, c('carreau', 9)];
+
+    expect((await agir(t.p1, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+    expect((await agir(t.p2, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+
+    // P1 rattrape son tour et ouvre.
+    expect((await agir(t.p1, 'piocher', { source: 'pioche' })).ok).toBe(true);
+    const pose = await emettre(t.p1.socket, 'poser', {
+      poses: [{ type: 'tierce', couleur: 'coeur', cartes: quinte.map((carte) => ({ carteId: carte.id })) }],
+    });
+    expect(pose.ok).toBe(true);
+    expect(await agir(t.p1, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
+
+    expect(t.p3.dernierEtat?.coup).toMatchObject({ phase: 'jeu', aParler: null, enAttente: [], joueurActifId: t.p2.joueurId });
+    expect((await emettre(t.p2.socket, 'annoncer', { annonce: 'friche' })).ok).toBe(false);
+    await t.jouerSonTour(t.p2);
+    expect((await emettre(t.p3.socket, 'annoncer', { annonce: 'friche' })).ok).toBe(false);
+    await t.jouerSonTour(t.p3);
+    expect(t.p1.dernierEtat?.coup).toMatchObject({ phase: 'jeu', joueurActifId: t.p1.joueurId });
+    expect(t.coupReel().dernierJeJoue).toBe(t.p2.joueurId);
+  });
+
   it('signale les jokers gardes d une friche generalisee a celui qui les tient, et a lui seul', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);

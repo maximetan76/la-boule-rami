@@ -72,4 +72,17 @@ export interface Coup {
   readonly estFriche: boolean;
   recapitulatifs: Record<JoueurId, RecapJoueurCoup>;
   gagnantId: JoueurId | null;
+  /**
+   * Pendant les annonces, le joueur dont on attend « friche » ou « je joue ».
+   * Réf. docs/REGLES.md § « Phase Friche / Je joue » : tant que personne n'a
+   * posé, chacun parle à son tour avant de jouer.
+   */
+  aParler?: JoueurId | null;
+  /**
+   * Ceux qui ont friché et n'ont pas encore joué leur tour, dans l'ordre de
+   * la table. Dès qu'un « je joue » est prononcé, ils jouent chacun le leur.
+   */
+  enAttente?: JoueurId[];
+  /** Le dernier « je joue » prononcé : c'est lui qui risque le chocolat. */
+  dernierJeJoue?: JoueurId | null;
 }

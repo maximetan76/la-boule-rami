@@ -53,6 +53,8 @@ export {
   TAILLE_PAQUET,
 } from './distribution.js';
 export { orchestrerPhaseFricheOuJoue } from './annonces.js';
+export { annoncer, apresTour, frichePossible, joueurQuiParle } from './parole.js';
+export type { ResultatAnnonce } from './parole.js';
 export type { ResultatAnnonces } from './annonces.js';
 export { verifierFinDeCoupSpeciale } from './pose.js';
 export { jouerTour, echangerJoker,

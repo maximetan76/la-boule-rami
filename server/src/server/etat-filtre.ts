@@ -14,6 +14,7 @@
  *   sans ordre ni attribution ;
  * - toutes les combinaisons posées, qui sont face visible par définition.
  */
+import { joueurQuiParle } from '../game-engine/parole.js';
 import type {
   Annonce,
   Boule,
@@ -190,6 +191,12 @@ export interface EtatCoupFiltre {
     readonly tourEntame: boolean;
     readonly estFriche: boolean;
     readonly gagnantId: JoueurId | null;
+    /** Pendant les annonces, le joueur qui doit parler. */
+    readonly aParler: JoueurId | null;
+    /** Ceux qui ont friché et attendent de jouer leur tour, dans l'ordre. */
+    readonly enAttente: JoueurId[];
+    /** Le dernier « je joue » prononcé : il risque le chocolat. */
+    readonly dernierJeJoue: JoueurId | null;
   };
   readonly defausse: DefausseVisible;
   readonly combinaisons: Combinaison[];
@@ -330,6 +337,9 @@ export const filtrerEtatPourJoueur = (
       tourEntame: tourEnAttente !== null && tourEnAttente.joueurId === coup.joueurActifId,
       estFriche: coup.estFriche,
       gagnantId: coup.gagnantId,
+      aParler: joueurQuiParle(coup),
+      enAttente: [...(coup.enAttente ?? [])],
+      dernierJeJoue: coup.dernierJeJoue ?? null,
     },
     // Pour qui l'a prise, la carte a quitté la pile : elle est dans son jeu,
     // jusqu'à ce qu'il la pose ou la rende. Sa pile montre la

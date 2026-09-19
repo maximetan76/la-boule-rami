@@ -39,6 +39,9 @@ import {
   jouerTour,
   echangerJoker,
   reformerTalon,
+  annoncer,
+  apresTour,
+  joueurQuiParle,
 } from '../game-engine/index.js';
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
@@ -200,16 +203,12 @@ const coupEnCours = (table: Table): Coup => {
   return table.coup;
 };
 
-/** Le joueur dont c'est le tour de parole, ou `null` si tout le monde a parlé. */
-const prochainAParler = (coup: Coup): JoueurId | null =>
-  coup.ordreJoueurs.find((joueurId) => coup.annonces[joueurId] === undefined) ?? null;
-
 /**
  * Le joueur que la table attend, selon la phase : celui qui doit parler pendant
  * les annonces, celui qui doit jouer ensuite. `null` si rien n'est attendu.
  */
 export const joueurAttendu = (coup: Coup): JoueurId | null => {
-  if (coup.phase === 'annonces') return prochainAParler(coup);
+  if (coup.phase === 'annonces') return joueurQuiParle(coup);
   if (coup.phase === 'jeu') return coup.joueurActifId;
   return null;
 };
@@ -217,22 +216,18 @@ export const joueurAttendu = (coup: Coup): JoueurId | null => {
 /**
  * Enregistre une annonce et fait avancer le coup.
  *
- * § « Dès qu'un joueur annonce "Je joue" : c'est systématiquement le joueur
- * situé à la gauche du DONNEUR qui commence à jouer en premier. » Si tous
- * frichent, le coup est rejoué à la même place, avec le même donneur.
+ * Réf. docs/REGLES.md § « Phase Friche / Je joue » : la parole tourne tant que
+ * personne n'a posé (voir `game-engine/parole.ts`). Si tous frichent d'affilée,
+ * au début du coup comme en cours de coup, le coup est rejoué à la même place,
+ * avec le même donneur, jokers en main conservés.
  */
 const appliquerAnnonce = (table: Table, joueurId: JoueurId, annonce: Annonce): void => {
   const coup = table.coup;
   if (coup === null) return;
 
-  coup.annonces = { ...coup.annonces, [joueurId]: annonce };
-
-  if (annonce === 'je-joue') {
-    coup.phase = 'jeu';
-    coup.joueurActifId = coup.ordreJoueurs[0] as JoueurId;
-    return;
-  }
-  if (prochainAParler(coup) === null) {
+  const { coup: apres, toutLeMondeAFriche } = annoncer(coup, joueurId, annonce);
+  table.coup = apres;
+  if (toutLeMondeAFriche) {
     table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, {
       toutLeMondeAFriche: true,
     });
@@ -520,9 +515,10 @@ const abandonnerTour = (table: Table, joueurId: JoueurId): Coup | null => {
     table.alea,
   );
 
-  table.coup = apres;
+  const suite = apresTour(apres, joueurId);
+  table.coup = suite;
   table.tourEnCours = null;
-  return apres;
+  return suite;
 };
 
 /**
@@ -609,7 +605,14 @@ const reevaluerDelaiDeJeu = (io: Server, manager: GameRoomManager, table: Table)
   const cle =
     coup === null || attendu === null || dureeMs === null
       ? null
-      : [coup.numero, coup.phase, attendu, coup.numeroTour, Object.keys(coup.annonces).length].join(':');
+      : [
+          coup.numero,
+          coup.phase,
+          attendu,
+          coup.numeroTour,
+          Object.keys(coup.annonces).length,
+          (coup.enAttente ?? []).length,
+        ].join(':');
 
   if (table.attenteDeJeu !== null && table.attenteDeJeu.cle !== cle) {
     table.attenteDeJeu.annuler();
@@ -705,6 +708,7 @@ const reevaluerLesBots = (io: Server, manager: GameRoomManager, table: Table): v
           coup?.phase ?? '-',
           coup?.numeroTour ?? 0,
           Object.keys(coup?.annonces ?? {}).length,
+          (coup?.enAttente ?? []).length,
         ].join(':');
 
   if (table.actionBot !== null && table.actionBot.cle !== cle) {
@@ -729,7 +733,7 @@ const reevaluerLesBots = (io: Server, manager: GameRoomManager, table: Table): v
  * Ce que fait un joueur automatique : le strict nécessaire pour que la partie
  * avance sous les yeux d'un joueur humain.
  *
- * Il annonce « je joue » pour ouvrir le coup, pioche au talon et défausse à son
+ * Il annonce « je joue » chaque fois qu'il a la parole, pioche au talon et défausse à son
  * tour — le même geste que le serveur joue déjà pour un joueur parti —, et
  * demande la suite pendant l'entracte. Il ne pose jamais : rien ne l'y oblige,
  * et cela suffit à faire tourner la table.
@@ -833,11 +837,11 @@ export const enregistrerHandlers = (
         const { table, joueurId } = manager.placeDeLaSocket(socket.id);
         const coup = coupEnCours(table);
 
-        if (coup.phase !== 'annonces') throw new Error("La phase d'annonces est close");
+        if (coup.phase !== 'annonces') throw new Error("Ce n'est pas le moment d'annoncer");
         if (payload?.annonce !== 'friche' && payload?.annonce !== 'je-joue') {
           throw new Error('Annonce invalide : « friche » ou « je-joue » attendus');
         }
-        if (prochainAParler(coup) !== joueurId) {
+        if (joueurQuiParle(coup) !== joueurId) {
           throw new Error(`Ce n'est pas a ${joueurId} de parler`);
         }
 
@@ -849,7 +853,20 @@ export const enregistrerHandlers = (
     socket.on('piocher', (payload: { source?: string }, ack: unknown) => {
       repondre(ack, () => {
         const { table, joueurId } = manager.placeDeLaSocket(socket.id);
-        const coup = coupEnCours(table);
+        let coup = coupEnCours(table);
+
+        // Réf. docs/REGLES.md § « Phase Friche / Je joue » : toucher la pioche
+        // ou la défausse quand on doit à la fois parler et jouer vaut « je joue ».
+        if (coup.phase === 'annonces' && joueurQuiParle(coup) === joueurId && coup.joueurActifId === joueurId) {
+          if (payload?.source !== 'pioche' && payload?.source !== 'defausse') {
+            throw new Error('Source invalide : « pioche » ou « defausse » attendus');
+          }
+          if (payload.source === 'defausse' && coup.defausse.length === 0) {
+            throw new Error('Defausse vide : le premier joueur du coup doit piocher au talon');
+          }
+          appliquerAnnonce(table, joueurId, 'je-joue');
+          coup = coupEnCours(table);
+        }
 
         if (coup.phase !== 'jeu') throw new Error("Le coup n'est pas en phase de jeu");
         if (coup.joueurActifId !== joueurId) throw new Error(`Ce n'est pas au tour de ${joueurId}`);
@@ -1055,7 +1072,9 @@ export const enregistrerHandlers = (
           }
         }
 
-        table.coup = apres;
+        // Après un tour sans pose, le suivant doit d'abord parler : la parole
+        // tourne tant que personne n'a posé.
+        table.coup = apresTour(apres, joueurId);
         table.tourEnCours = null;
         if (apres.gagnantId !== null) {
           // Ce que le gagnant vient d'engager pour finir : c'est ce que chacun
