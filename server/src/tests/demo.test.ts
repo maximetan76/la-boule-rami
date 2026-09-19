@@ -100,7 +100,8 @@ describe('mode demonstration', () => {
     expect(table.statut).toBe('en-cours');
     expect(table.joueurs).toHaveLength(3);
     expect(table.bots.size).toBe(2);
-    expect(table.joueurs.filter((joueur) => table.bots.has(joueur.id)).map((joueur) => joueur.nom))
+    // L'ordre de la table sort du tirage d'ouverture, aléatoire : seuls les noms comptent.
+    expect(table.joueurs.filter((joueur) => table.bots.has(joueur.id)).map((joueur) => joueur.nom).sort())
       .toEqual(['Robot Bo', 'Robot Cy']);
     // Le compte du réviseur n'est pas un robot, et la table l'attend, lui seul.
     expect(table.bots.has(demo.joueur.id)).toBe(false);
