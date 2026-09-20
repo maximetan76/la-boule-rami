@@ -1813,3 +1813,113 @@ describe('joker non declare dans un brelan : deduit par elimination des couleurs
     ).toThrow(/plusieurs couleurs restent possibles/);
   });
 });
+
+describe('un ajout qui rend le joker inutile le rend a celui qui complete', () => {
+  // Réf. docs/REGLES.md § « Récupération d'un joker posé » : une carte ajoutée
+  // qui est exactement celle que le joker représente prend sa place.
+  const ouvert = (main: Carte[], combinaison: Combinaison) =>
+    coupJouable(main, {
+      combinaisons: [combinaison],
+      recapitulatifs: { j1: recap({ toursAvecPose: [1] }) },
+    });
+  const idsDe = (combinaison: Combinaison | undefined) => combinaison?.cartes.map((cp) => cp.carte.id) ?? [];
+
+  it('3♦ 3♥ [joker] : le 3♣ et le 3♠ ajoutes ensemble font le carre, et le joker revient en main', () => {
+    const jokerNu = joker();
+    const troisTrefle = c('trefle', 3);
+    const troisPique = c('pique', 3);
+    const aJeter = c('carreau', 9);
+    const brelan = ensemble(3, [c('carreau', 3), c('coeur', 3), jokerNu], 'j2', 1);
+
+    const { coup: apres } = jouerTour(ouvert([troisTrefle, troisPique, aJeter], brelan), 'j1', {
+      source: 'pioche',
+      ajouts: [
+        {
+          combinaisonId: brelan.id,
+          cartes: [
+            { carte: troisTrefle, remplace: null },
+            { carte: troisPique, remplace: null },
+          ],
+        },
+      ],
+      carteDefausseeId: aJeter.id,
+    });
+
+    const carre = apres.combinaisons[0];
+    expect(carre?.type).toBe('carre');
+    expect(carre?.cartes).toHaveLength(4);
+    // Quatre cartes réelles : plus aucun joker sur la table.
+    expect(carre?.cartes.some((cp) => cp.carte.type !== 'normale')).toBe(false);
+    expect(idsDe(carre)).toContain(troisTrefle.id);
+    expect(idsDe(carre)).toContain(troisPique.id);
+    // Le joker est rendu à celui qui vient de compléter.
+    expect(apres.mains['j1']?.map((carte) => carte.id)).toContain(jokerNu.id);
+  });
+
+  it('5♥ [joker=6♥] 7♥ : le 6♥ et le 8♥ ajoutes ensemble allongent la suite, et le joker revient en main', () => {
+    const jokerEnSix = jokerPour('coeur', 6);
+    const sixCoeur = c('coeur', 6);
+    const huitCoeur = c('coeur', 8);
+    const aJeter = c('pique', 2);
+    const suite = tierce('coeur', [c('coeur', 5), jokerEnSix, c('coeur', 7)], 'j2', 1);
+
+    const { coup: apres } = jouerTour(ouvert([sixCoeur, huitCoeur, aJeter], suite), 'j1', {
+      source: 'pioche',
+      ajouts: [
+        {
+          combinaisonId: suite.id,
+          cartes: [
+            { carte: sixCoeur, remplace: null },
+            { carte: huitCoeur, remplace: null },
+          ],
+        },
+      ],
+      carteDefausseeId: aJeter.id,
+    });
+
+    const allongee = apres.combinaisons[0];
+    expect(allongee?.cartes).toHaveLength(4);
+    expect(allongee?.cartes.some((cp) => cp.carte.type !== 'normale')).toBe(false);
+    expect(idsDe(allongee)).toContain(sixCoeur.id);
+    expect(idsDe(allongee)).toContain(huitCoeur.id);
+    expect(apres.mains['j1']?.map((carte) => carte.id)).toContain(jokerEnSix.carte.id);
+  });
+
+  it('une seule des deux cartes manquantes : le joker reste en place, le brelan devient un carre', () => {
+    const jokerNu = joker();
+    const troisTrefle = c('trefle', 3);
+    const aJeter = c('carreau', 9);
+    const brelan = ensemble(3, [c('carreau', 3), c('coeur', 3), jokerNu], 'j2', 1);
+
+    const { coup: apres } = jouerTour(ouvert([troisTrefle, aJeter], brelan), 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: brelan.id, cartes: [{ carte: troisTrefle, remplace: null }] }],
+      carteDefausseeId: aJeter.id,
+    });
+
+    const carre = apres.combinaisons[0];
+    expect(carre?.type).toBe('carre');
+    // Le joker tient toujours le 3♠ manquant : il ne revient pas en main.
+    expect(idsDe(carre)).toContain(jokerNu.id);
+    expect(apres.mains['j1']?.map((carte) => carte.id)).not.toContain(jokerNu.id);
+  });
+
+  it('la carte prise dans la defausse ne reprend pas un joker par un ajout', () => {
+    const jokerEnSix = jokerPour('coeur', 6);
+    const sixCoeur = c('coeur', 6);
+    const aJeter = c('pique', 2);
+    const suite = tierce('coeur', [c('coeur', 5), jokerEnSix, c('coeur', 7)], 'j2', 1);
+    // Deux cartes en main : la règle « une seule carte après avoir posé » ne
+    // s'en mêle pas, c'est bien la reprise qui doit être refusée.
+    const depart = ouvert([aJeter, c('trefle', 4)], suite);
+    depart.defausse = [sixCoeur];
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'defausse',
+        ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: sixCoeur, remplace: null }] }],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(/ne peut pas reprendre un joker/);
+  });
+});

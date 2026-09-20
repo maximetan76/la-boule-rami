@@ -137,6 +137,52 @@ const ouvreSansJokersRecuperes = (
   }
 };
 
+/**
+ * Ce que contient un ajout : les cartes qui reprennent un joker, et celles qui
+ * allongent la combinaison.
+ *
+ * Réf. docs/REGLES.md § « Récupération d'un joker posé » : une carte ajoutée
+ * qui est exactement celle qu'un joker représente prend sa place, et le joker
+ * revient dans la main de celui qui complète. Le joker n'a plus rien à tenir.
+ *
+ * La carte représentée se lit comme partout ailleurs — déclarée, ou déduite
+ * d'un brelan ou d'un carré qui ne laisse qu'une couleur — mais en comptant
+ * d'abord les autres cartes du même ajout : c'est ce qui permet de compléter
+ * 3♦ 3♥ [joker] avec le 3♣ et le 3♠ d'un seul geste. Le 3♣ allonge, et le 3♠,
+ * seule couleur qui reste, reprend le joker.
+ *
+ * Sans correspondance, rien ne bouge : le joker reste en place et les cartes
+ * allongent, comme un ajout ordinaire.
+ */
+const partagerAjout = (
+  cible: Combinaison,
+  cartes: readonly CartePosee[],
+): {
+  readonly reprises: readonly { readonly jokerPosee: CartePosee; readonly reelle: CartePosee }[];
+  readonly allongent: readonly CartePosee[];
+} => {
+  const reprises: { readonly jokerPosee: CartePosee; readonly reelle: CartePosee }[] = [];
+  let restantes = [...cartes];
+
+  for (const jokerPosee of cible.cartes.filter((cp) => estJoker(cp.carte))) {
+    const reelle = restantes.find((cp) => {
+      if (cp.carte.type !== 'normale') return false;
+      const autres = restantes.filter((candidate) => candidate !== cp);
+      const representee = carteRepresentee(avecCartes(cible, [...cible.cartes, ...autres]), jokerPosee);
+      return (
+        representee !== null &&
+        representee.couleur === cp.carte.couleur &&
+        representee.valeur === cp.carte.valeur
+      );
+    });
+    if (reelle === undefined) continue;
+    reprises.push({ jokerPosee, reelle });
+    restantes = restantes.filter((cp) => cp !== reelle);
+  }
+
+  return { reprises, allongent: restantes };
+};
+
 /** Le moteur signe lui-même les combinaisons posées : ni propriétaire ni tour ne sont déclarés. */
 const attribuer = (combinaison: Combinaison, proprietaireId: JoueurId, tourDePose: number): Combinaison =>
   combinaison.type === 'tierce'
@@ -248,18 +294,47 @@ export const jouerTour = (
     }
   }
 
+  // Les jokers que les ajouts rendent inutiles : ils rejoignent la main.
+  const jokersReprisParAjout: Carte[] = [];
+
   const combinaisonsMisesAJour = coup.combinaisons.map((combinaison) => {
     const ajout = ajouts.find((candidat) => candidat.combinaisonId === combinaison.id);
     if (ajout === undefined) return combinaison;
 
     verifierDeclarationsAjout(combinaison, ajout.cartes);
-    const enrichie = avecCartes(combinaison, [...combinaison.cartes, ...ajout.cartes]);
+    const { reprises, allongent } = partagerAjout(combinaison, ajout.cartes);
+    // Réf. § « Récupération d'un joker posé » : la carte prise dans la
+    // défausse ne reprend jamais un joker, ici pas davantage qu'ailleurs.
+    if (
+      action.source === 'defausse' &&
+      reprises.some(({ reelle }) => reelle.carte.id === cartePiochee.id)
+    ) {
+      throw new Error(
+        'La carte prise dans la defausse ne peut pas reprendre un joker : elle peut servir dans une autre combinaison',
+      );
+    }
+
+    // La vraie carte prend la place du joker, là où il était ; les autres
+    // allongent la combinaison.
+    const aLaPlaceDesJokers = combinaison.cartes.map((cp) => {
+      const reprise = reprises.find(({ jokerPosee }) => jokerPosee.carte.id === cp.carte.id);
+      return reprise === undefined ? cp : { carte: reprise.reelle.carte, remplace: null };
+    });
+    const enrichie = avecCartes(combinaison, [...aLaPlaceDesJokers, ...allongent]);
     // Une combinaison qui grandit n'est pas une pose : elle n'a pas de plafond.
     if (!estCombinaisonProlongeeValide(enrichie)) {
       throw new Error(`Ajout invalide sur la combinaison ${combinaison.id}`);
     }
+    for (const { jokerPosee } of reprises) jokersReprisParAjout.push(jokerPosee.carte);
     return enrichie;
   });
+
+  // Réf. § « Récupération d'un joker posé » : repris par la main tendue ou par
+  // un ajout, un joker frais ne sert pas à ouvrir.
+  const jokersRecuperes = [
+    ...(action.jokersRecuperes ?? []),
+    ...jokersReprisParAjout.map((joker) => joker.id),
+  ];
 
   // --- Droit de poser -----------------------------------------------------
   const dejaPose = aDejaPose(coup, joueurActifId);
@@ -281,7 +356,7 @@ export const jouerTour = (
         `Premiere pose invalide : il faut au moins ${String(SEUIL_POSE)} points et une tierce franche`,
       );
     }
-    if (poses.length > 0 && !ouvreSansJokersRecuperes(mainApresPioche, poses, action.jokersRecuperes ?? [])) {
+    if (poses.length > 0 && !ouvreSansJokersRecuperes(mainApresPioche, poses, jokersRecuperes)) {
       throw new Error(
         `Le joker tout juste recupere ne peut pas servir a ouvrir : sans lui, votre premiere pose n atteint pas ${String(SEUIL_POSE)} points avec une tierce franche`,
       );
@@ -312,7 +387,7 @@ export const jouerTour = (
     }
     // Réf. § « Bonus quinte flush royale » : les croix s'arrêtent ici, à la
     // pose, et nulle part ailleurs.
-    return { ...signee, croix: croixALaPose(signee, action.jokersRecuperes ?? []) };
+    return { ...signee, croix: croixALaPose(signee, jokersRecuperes) };
   });
 
   // --- Défausse -----------------------------------------------------------
@@ -330,7 +405,12 @@ export const jouerTour = (
         : 'Un joker ne se defausse jamais : il ne quitte la main que pour une combinaison',
     );
   }
-  const mainFinale = mainApresPose.filter((carte) => carte.id !== carteDefaussee.id);
+  // Les jokers repris par un ajout rejoignent la main, une fois la défausse
+  // faite : ils ne pouvaient donc pas être jetés ce tour-ci.
+  const mainFinale = [
+    ...mainApresPose.filter((carte) => carte.id !== carteDefaussee.id),
+    ...jokersReprisParAjout,
+  ];
   defausse.push(carteDefaussee);
 
   // --- Récapitulatif, tour suivant ----------------------------------------
