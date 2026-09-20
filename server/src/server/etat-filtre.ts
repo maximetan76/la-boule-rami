@@ -195,7 +195,12 @@ export interface EtatCoupFiltre {
     readonly aParler: JoueurId | null;
     /** Ceux qui ont friché et attendent de jouer leur tour, dans l'ordre. */
     readonly enAttente: JoueurId[];
-    /** Le dernier « je joue » prononcé : il risque le chocolat. */
+    /**
+     * L'engagé : le dernier à avoir dit « je joue ». Lui seul est encore
+     * interrogé quand son tour revient, et il risque le chocolat.
+     */
+    readonly engageId: JoueurId | null;
+    /** Ancien nom de `engageId`, pour les versions antérieures de l'app. */
     readonly dernierJeJoue: JoueurId | null;
   };
   readonly defausse: DefausseVisible;
@@ -339,7 +344,8 @@ export const filtrerEtatPourJoueur = (
       gagnantId: coup.gagnantId,
       aParler: joueurQuiParle(coup),
       enAttente: [...(coup.enAttente ?? [])],
-      dernierJeJoue: coup.dernierJeJoue ?? null,
+      engageId: coup.engageId ?? null,
+      dernierJeJoue: coup.engageId ?? null,
     },
     // Pour qui l'a prise, la carte a quitté la pile : elle est dans son jeu,
     // jusqu'à ce qu'il la pose ou la rende. Sa pile montre la

@@ -83,6 +83,9 @@ export interface Coup {
    * la table. Dès qu'un « je joue » est prononcé, ils jouent chacun le leur.
    */
   enAttente?: JoueurId[];
-  /** Le dernier « je joue » prononcé : c'est lui qui risque le chocolat. */
-  dernierJeJoue?: JoueurId | null;
+  /**
+   * Le joueur « engagé » : le dernier à avoir dit « je joue », et le seul que
+   * l'on interroge encore quand son tour revient. Il risque le chocolat.
+   */
+  engageId?: JoueurId | null;
 }

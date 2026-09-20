@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { annoncer, apresTour } from '../game-engine/parole.js';
+import { annoncer, apresTour, engageInterroge } from '../game-engine/parole.js';
 import { calculerScoreCoup } from '../game-engine/scoring.js';
 import { jouerTour } from '../game-engine/tour.js';
 import type { Carte, Coup, Couleur, JoueurId } from '../models/index.js';
@@ -38,7 +38,7 @@ const debut = (mains: Partial<Record<JoueurId, Carte[]>> = {}): Coup => {
     gagnantId: null,
     aParler: 'B',
     enAttente: [],
-    dernierJeJoue: null,
+    engageId: null,
   };
 };
 
@@ -63,6 +63,104 @@ const ouEnEst = (coup: Coup) => ({
   parle: coup.phase === 'annonces' ? coup.aParler : null,
   joue: coup.phase === 'jeu' ? coup.joueurActifId : null,
   attente: coup.enAttente ?? [],
+});
+
+/** La même chose, avec l'engagé et la nature de l'interrogation. */
+const ouEnEstAvecEngage = (coup: Coup) => ({
+  ...ouEnEst(coup),
+  engage: coup.engageId ?? null,
+  interrogeEngage: engageInterroge(coup),
+});
+
+describe('friche / je joue, les deux exemples de la regle corrigee', () => {
+  it('exemple 1 : B dit je joue et pioche directement ; C, D, A ne sont pas interroges ; au tour de B, il choisit', () => {
+    // A distribue : B parle et joue le premier.
+    let coup = dire(debut(), 'B', 'je-joue');
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'jeu', parle: null, joue: 'B', attente: [], engage: 'B', interrogeEngage: false,
+    });
+
+    // Il pioche directement, sans être re-interrogé.
+    coup = piocherEtDefausser(coup);
+    // C, D, A jouent sans être interrogés.
+    for (const joueur of ['C', 'D', 'A'] as JoueurId[]) {
+      expect(ouEnEst(coup)).toEqual({ phase: 'jeu', parle: null, joue: joueur, attente: [] });
+      expect(() => annoncer(coup, joueur, 'friche')).toThrow(/pas le moment d'annoncer/);
+      coup = piocherEtDefausser(coup);
+    }
+
+    // Au tour de B, il peut fricher ou continuer.
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'annonces', parle: 'B', joue: null, attente: [], engage: 'B', interrogeEngage: true,
+    });
+    expect(ouEnEst(dire(coup, 'B', 'je-joue'))).toEqual({ phase: 'jeu', parle: null, joue: 'B', attente: [] });
+    expect(ouEnEstAvecEngage(dire(coup, 'B', 'friche'))).toEqual({
+      phase: 'annonces', parle: 'C', joue: null, attente: ['B'], engage: null, interrogeEngage: false,
+    });
+  });
+
+  it('exemple 2 : la parole rebondit d un engage a l autre, et seul l engage est interroge', () => {
+    // B friche. C dit je joue. B joue forcé.
+    let coup = dire(debut(), 'B', 'friche');
+    coup = dire(coup, 'C', 'je-joue');
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'jeu', parle: null, joue: 'B', attente: ['B'], engage: 'C', interrogeEngage: false,
+    });
+    coup = piocherEtDefausser(coup);
+
+    // C est re-interrogé : il continue et joue.
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'annonces', parle: 'C', joue: null, attente: [], engage: 'C', interrogeEngage: true,
+    });
+    coup = dire(coup, 'C', 'je-joue');
+    coup = piocherEtDefausser(coup);
+
+    // D joue, A joue, B joue : aucun des trois n'est interrogé.
+    for (const joueur of ['D', 'A', 'B'] as JoueurId[]) {
+      expect(ouEnEst(coup)).toEqual({ phase: 'jeu', parle: null, joue: joueur, attente: [] });
+      coup = piocherEtDefausser(coup);
+    }
+
+    // Au tour de C, il friche.
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'annonces', parle: 'C', joue: null, attente: [], engage: 'C', interrogeEngage: true,
+    });
+    coup = dire(coup, 'C', 'friche');
+    // D est interrogé : friche. A est interrogé : je joue.
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'annonces', parle: 'D', joue: null, attente: ['C'], engage: null, interrogeEngage: false,
+    });
+    coup = dire(coup, 'D', 'friche');
+    expect(ouEnEst(coup)).toEqual({ phase: 'annonces', parle: 'A', joue: null, attente: ['C', 'D'] });
+    coup = dire(coup, 'A', 'je-joue');
+
+    // C joue forcé, D joue forcé.
+    expect(ouEnEst(coup)).toEqual({ phase: 'jeu', parle: null, joue: 'C', attente: ['C', 'D'] });
+    coup = piocherEtDefausser(coup);
+    expect(ouEnEst(coup)).toEqual({ phase: 'jeu', parle: null, joue: 'D', attente: ['D'] });
+    coup = piocherEtDefausser(coup);
+
+    // A est re-interrogé : il continue et joue.
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'annonces', parle: 'A', joue: null, attente: [], engage: 'A', interrogeEngage: true,
+    });
+    coup = dire(coup, 'A', 'je-joue');
+    coup = piocherEtDefausser(coup);
+
+    // B, C, D jouent sans être interrogés.
+    for (const joueur of ['B', 'C', 'D'] as JoueurId[]) {
+      expect(ouEnEst(coup)).toEqual({ phase: 'jeu', parle: null, joue: joueur, attente: [] });
+      coup = piocherEtDefausser(coup);
+    }
+
+    // Et au tour de A, il peut de nouveau fricher.
+    expect(ouEnEstAvecEngage(coup)).toEqual({
+      phase: 'annonces', parle: 'A', joue: null, attente: [], engage: 'A', interrogeEngage: true,
+    });
+    expect(ouEnEstAvecEngage(dire(coup, 'A', 'friche'))).toEqual({
+      phase: 'annonces', parle: 'B', joue: null, attente: ['A'], engage: null, interrogeEngage: false,
+    });
+  });
 });
 
 describe('friche / je joue, les trois exemples donnes mot pour mot', () => {
@@ -171,7 +269,7 @@ describe('friche / je joue, les regles confirmees', () => {
     coup = piocherEtDefausser(coup);
     coup = dire(coup, 'C', 'friche');
     coup = dire(coup, 'D', 'je-joue');
-    expect(coup.dernierJeJoue).toBe('D');
+    expect(coup.engageId).toBe('D');
 
     // C, dans la file, pose au tour qu'il doit jouer : la friche est close.
     const { coup: apresPose } = jouerTour(coup, 'C', {

@@ -50,15 +50,16 @@ export const FACTEUR_CHOCOLAT = 2;
 /**
  * Le joueur « chocolat » du coup, ou `null`.
  *
- * Réf. docs/REGLES.md § « Fin d'un coup et scoring » : celui qui a dit le
- * dernier « Je joue » avant la première pose du coup, sans avoir réussi sa
- * propre première pose à aucun moment, quand un autre joueur termine. Une
+ * Réf. docs/REGLES.md § « Fin d'un coup et scoring » : l'engagé au moment de
+ * la première pose du coup — le dernier à avoir dit « Je joue » —, s'il n'a
+ * réussi sa propre première pose à aucun moment, quand un autre joueur
+ * termine. Une
  * première pose laisse une trace dans le récapitulatif, qui ne s'efface pas :
  * avoir posé une fois suffit à y échapper, même avec des cartes en main.
  */
 export const joueurChocolat = (coup: Coup, gagnantId: JoueurId): JoueurId | null => {
   const annonceur =
-    coup.dernierJeJoue ?? coup.ordreJoueurs.find((joueurId) => coup.annonces[joueurId] === 'je-joue');
+    coup.engageId ?? coup.ordreJoueurs.find((joueurId) => coup.annonces[joueurId] === 'je-joue');
   if (annonceur === undefined || annonceur === gagnantId) return null;
   return aPoseAuMoinsUneCarte(coup, annonceur) ? null : annonceur;
 };
