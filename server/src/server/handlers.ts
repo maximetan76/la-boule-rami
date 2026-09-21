@@ -282,6 +282,7 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
       filtrerEtatPourJoueur(coup, bouleEnCours(table), joueurId, {
         tableId: table.id,
         connectes,
+        pseudos: Object.fromEntries(table.joueurs.map((joueur) => [joueur.id, joueur.nom])),
         tourEnAttente: table.tourEnCours,
         resultat: resultatFiltre(table),
         echangesDuTour: echanges,

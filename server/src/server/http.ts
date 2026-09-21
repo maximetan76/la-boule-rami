@@ -511,8 +511,11 @@ const changerPseudo = async (
   }
 
   const renomme = await deps.depot.renommerJoueur(joueur.id, pseudo);
-  // Le nouveau pseudo vaut aussi pour les tables déjà en mémoire.
+  // Le nouveau pseudo vaut aussi pour les tables déjà en mémoire, et part
+  // aussitôt vers les joueurs qui y sont connectés : sans cela, ils
+  // garderaient l'ancien jusqu'à leur prochaine entrée dans la table.
   deps.manager.renommerDansLesTables(joueur.id, pseudo);
+  for (const table of deps.manager.tablesDuJoueur(joueur.id)) deps.notifier?.(table);
 
   return { joueur: { id: renomme.id, pseudo: renomme.pseudo } };
 };
@@ -590,6 +593,7 @@ const situationDuJoueur = async (
           : filtrerEtatPourJoueur(table.coup, table.boule as NonNullable<typeof table.boule>, joueur.id, {
               tableId: table.id,
               connectes: deps.manager.joueursConnectes(table),
+              pseudos: Object.fromEntries(table.joueurs.map((assis) => [assis.id, assis.nom])),
               tourEnAttente: table.tourEnCours,
             }),
     };

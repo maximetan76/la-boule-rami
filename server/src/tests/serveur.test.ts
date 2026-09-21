@@ -108,14 +108,16 @@ describe('serveur socket.io', () => {
   let port: number;
   let espions: Espion[];
   let horloge: ReturnType<typeof minuteurFactice>;
+  let depot: DepotMemoire;
 
   beforeEach(async () => {
     horloge = minuteurFactice();
+    depot = new DepotMemoire();
     serveur = creerServeur({
       minuteur: horloge.minuteur,
       session: SESSION,
       apple: APPLE,
-      depot: new DepotMemoire(),
+      depot,
     });
     await new Promise<void>((resolve) => {
       serveur.httpServer.listen(0, resolve);
@@ -833,6 +835,60 @@ describe('serveur socket.io', () => {
     await t.jouerSonTour(t.p3);
     expect(t.p1.dernierEtat?.coup).toMatchObject({ phase: 'jeu', joueurActifId: t.p1.joueurId, aParler: null });
     expect(t.coupReel().engageId).toBe(t.p2.joueurId);
+  });
+
+  it('le dernier arrive au salon : ceux qui attendaient recoivent son pseudo avec le premier etat', async () => {
+    // Le salon se remplit : Ana et Bo attendent, connectés.
+    const { tableId, codeInvitation } = await serveur.manager.creerTable(
+      { id: 'p-ana', pseudo: 'Ana' },
+      { capacite: 3, alea: aleaFixe() },
+    );
+    await serveur.manager.rejoindreParCode(codeInvitation, { id: 'p-bo', pseudo: 'Bo' });
+    const ana = await connecter(tableId, 'p-ana');
+    await connecter(tableId, 'p-bo');
+
+    // Cy prend la dernière place. La table pleine ne se décrit plus par
+    // l'événement « salon » : l'app d'Ana passe à la partie avec la liste du
+    // salon, où Cy manquait, et affichait son identifiant technique.
+    await serveur.manager.rejoindreParCode(codeInvitation, { id: 'p-cy', pseudo: 'Cy' });
+    publierTable(serveur.io, serveur.manager, serveur.manager.table(tableId));
+    await connecter(tableId, 'p-cy');
+
+    for (let essai = 0; essai < 100 && ana.dernierEtat === null; essai += 1) await patienter(5);
+    // L'état porte désormais la liste complète : Cy a son pseudo chez Ana.
+    expect(ana.dernierEtat?.pseudos).toEqual({ 'p-ana': 'Ana', 'p-bo': 'Bo', 'p-cy': 'Cy' });
+  });
+
+  it('un pseudo change en pleine partie arrive aussitot a tous les joueurs de la table', async () => {
+    const { tableId } = await ouvrirTable();
+    for (const joueur of JOUEURS) depot.inscrire(joueur.id, joueur.pseudo);
+    const table = serveur.manager.table(tableId);
+
+    // Le pseudo part avec chaque état, pour chacun : personne n'attend d'être
+    // ressorti de la table pour le lire.
+    for (const espion of espions) {
+      expect(espion.dernierEtat?.pseudos).toEqual({ 'p-ana': 'Ana', 'p-bo': 'Bo', 'p-cy': 'Cy' });
+    }
+
+    const avant = espions.map((espion) => espion.etatsRecus);
+    const jeton = await signerJetonSession('p-bo', SESSION);
+    const reponse = await fetch(`http://localhost:${String(port)}/joueur/pseudo`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${jeton}` },
+      body: JSON.stringify({ pseudo: 'Bobinette' }),
+    });
+    expect(reponse.status).toBe(200);
+
+    // Chacun reçoit un état neuf, sans avoir rien fait.
+    for (let essai = 0; essai < 100; essai += 1) {
+      if (espions.every((espion, rang) => espion.etatsRecus > (avant[rang] as number))) break;
+      await patienter(5);
+    }
+    for (const espion of espions) {
+      expect(espion.dernierEtat?.pseudos['p-bo']).toBe('Bobinette');
+    }
+    // La table elle-même le retient, pour les prochains états comme pour l'API.
+    expect(table.joueurs.find((joueur) => joueur.id === 'p-bo')?.nom).toBe('Bobinette');
   });
 
   it('signale les jokers gardes d une friche generalisee a celui qui les tient, et a lui seul', async () => {

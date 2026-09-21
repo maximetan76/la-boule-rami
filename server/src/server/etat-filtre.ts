@@ -174,6 +174,12 @@ export interface EtatCoupFiltre {
     readonly jokersGardes: string[];
   };
   readonly adversaires: MainAdversaire[];
+  /**
+   * Le pseudo de chacun, celui du lecteur compris, relu à chaque état : un
+   * joueur qui se renomme en cours de partie se voit renommé tout de suite
+   * chez tous les autres.
+   */
+  readonly pseudos: Record<JoueurId, string>;
   readonly coup: {
     readonly numero: number;
     readonly donneurId: JoueurId;
@@ -259,6 +265,11 @@ export const filtrerEtatPourJoueur = (
   options: {
     readonly tableId?: string;
     readonly connectes?: readonly JoueurId[];
+    /**
+     * Le pseudo de chacun, relu à chaque état : un joueur qui se renomme en
+     * cours de partie se voit renommé tout de suite chez les autres.
+     */
+    readonly pseudos?: Readonly<Record<JoueurId, string>>;
     readonly tourEnAttente?: TourEnAttente | null;
     readonly resultat?: ResultatCoupFiltre | null;
     readonly echangesDuTour?: VueEchanges | null;
@@ -274,6 +285,7 @@ export const filtrerEtatPourJoueur = (
   const {
     tableId = '',
     connectes = [],
+    pseudos = {},
     tourEnAttente = null,
     resultat = null,
     echangesDuTour = null,
@@ -330,6 +342,7 @@ export const filtrerEtatPourJoueur = (
       jokersGardes: jokersGardes.filter((id) => (coup.mains[joueurId] ?? []).some((carte) => carte.id === id)),
     },
     adversaires,
+    pseudos: { ...pseudos },
     coup: {
       numero: coup.numero,
       donneurId: coup.donneurId,
