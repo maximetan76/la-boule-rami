@@ -900,6 +900,22 @@ describe('serveur socket.io', () => {
     expect(nom('p-trois')).toBe('Maxime');
   });
 
+  it('le temps de jeu suit le joueur attendu, annonces comprises', async () => {
+    const t = await tableDeParole();
+    // P1 parle (friche), P2 parle (je joue), P1 joue son tour forcé.
+    expect((await agir(t.p1, 'annoncer', { annonce: 'friche' })).ok).toBe(true);
+    expect((await agir(t.p2, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+    await t.jouerSonTour(t.p1);
+
+    // Chacun a été attendu au moins une fois : chacun a son temps, crédité à
+    // chaque changement de joueur attendu.
+    const temps = t.table.boule?.tempsDeJeu ?? {};
+    expect(Object.keys(temps).sort()).toEqual([t.p1.joueurId, t.p2.joueurId].sort());
+    for (const ms of Object.values(temps)) expect(ms).toBeGreaterThanOrEqual(0);
+    // P2, engagé, est attendu à cet instant : son chronomètre tourne.
+    expect(t.table.chronometre?.joueurId).toBe(t.p2.joueurId);
+  });
+
   it('le dernier arrive au salon : ceux qui attendaient recoivent son pseudo avec le premier etat', async () => {
     // Le salon se remplit : Ana et Bo attendent, connectés.
     const { tableId, codeInvitation } = await serveur.manager.creerTable(

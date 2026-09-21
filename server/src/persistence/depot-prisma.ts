@@ -180,6 +180,28 @@ export class DepotPrisma implements Depot {
     return ligne === null ? null : versPartie(ligne as LignePartie);
   }
 
+  async tempsDeJeuDesParties(
+    partieIds: readonly string[],
+  ): Promise<Record<string, Record<JoueurId, number>>> {
+    if (partieIds.length === 0) return {};
+    const lignes = await this.prisma.boule.findMany({
+      where: { partieId: { in: [...partieIds] } },
+      select: { partieId: true, etat: true },
+    });
+    const resultat: Record<string, Record<JoueurId, number>> = {};
+    for (const ligne of lignes) {
+      // L'état relu repasse par la validation : un état illisible est ignoré,
+      // il ne prive pas les autres parties de leur temps.
+      try {
+        const temps = deserialiserBoule(ligne.etat).tempsDeJeu;
+        if (temps !== undefined) resultat[ligne.partieId] = temps;
+      } catch {
+        continue;
+      }
+    }
+    return resultat;
+  }
+
   async partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]> {
     const lignes = await this.prisma.partie.findMany({
       where: { joueurs: { some: { joueurId } } },

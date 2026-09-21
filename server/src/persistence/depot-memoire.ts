@@ -113,6 +113,15 @@ export class DepotMemoire implements Depot {
     return Promise.resolve(candidates.at(-1) ?? null);
   }
 
+  tempsDeJeuDesParties(partieIds: readonly string[]): Promise<Record<string, Record<JoueurId, number>>> {
+    const resultat: Record<string, Record<JoueurId, number>> = {};
+    for (const id of partieIds) {
+      const temps = this.boules.get(id)?.tempsDeJeu;
+      if (temps !== undefined) resultat[id] = { ...temps };
+    }
+    return Promise.resolve(resultat);
+  }
+
   partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]> {
     return Promise.resolve(
       [...this.parties.values()].filter((partie) => partie.joueursIds.includes(joueurId)).reverse(),

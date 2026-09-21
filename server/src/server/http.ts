@@ -671,6 +671,11 @@ type StatutDePartie = 'salon' | 'en-cours' | 'terminee' | 'abandonnee';
  */
 const mesParties = async (deps: DependancesHttp, joueur: JoueurEnregistre): Promise<unknown> => {
   const parties = await deps.depot.partiesDuJoueur(joueur.id);
+  // Le temps de jeu des parties closes, lu en une fois ; une table vivante le
+  // porte en mémoire.
+  const archives = await deps.depot.tempsDeJeuDesParties(
+    parties.filter((partie) => deps.manager.tableVivante(partie.id) === null).map((partie) => partie.id),
+  );
   return {
     parties: await Promise.all(
       parties.map(async (partie) => {
@@ -694,6 +699,8 @@ const mesParties = async (deps: DependancesHttp, joueur: JoueurEnregistre): Prom
           statut,
           creeeLe: partie.creeeLe.toISOString(),
           termineeLe: partie.termineeLe?.toISOString() ?? null,
+          // Millisecondes passées à être attendu par la table, par joueur.
+          tempsDeJeu: vivante?.boule?.tempsDeJeu ?? archives[partie.id] ?? {},
           abandonneParId: partie.abandon?.parJoueurId ?? null,
           // La table attend-elle ce joueur, là, maintenant ?
           aMoiDAgir:

@@ -329,6 +329,27 @@ describe('API des tables', () => {
       expect(deBo.map((partie) => partie.tableId)).toEqual([abandonnee.corps['tableId'], enCours.corps['tableId']]);
     });
 
+    it('porte la date et le temps de jeu de chacun, pour une partie close', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const table = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2 } });
+      const tableId = table.corps['tableId'] as string;
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: table.corps['codeInvitation'] } });
+      // Le temps mesuré pendant la partie, tel que la Boule le porte ; il part
+      // en base avec elle quand la partie se clôt.
+      const vivante = serveur.manager.table(tableId);
+      if (vivante.boule === null) throw new Error('Boule absente');
+      vivante.boule = { ...vivante.boule, tempsDeJeu: { [ana.id]: 125_000, [bo.id]: 98_000 } };
+      await appeler('POST', `/tables/${tableId}/abandonner`, { compte: bo });
+
+      const parties = (await appeler('GET', '/tables', { compte: ana })).corps['parties'] as {
+        creeeLe: string;
+        tempsDeJeu: Record<string, number>;
+      }[];
+      expect(Number.isNaN(Date.parse(parties[0]?.creeeLe ?? ''))).toBe(false);
+      expect(parties[0]?.tempsDeJeu).toEqual({ [ana.id]: 125_000, [bo.id]: 98_000 });
+    });
+
     it('exige un jeton de session', async () => {
       expect((await appeler('GET', '/tables')).statut).toBe(401);
     });

@@ -15,6 +15,7 @@
  * Sans cela, un client pourrait déclarer un 7 de cœur porteur de l'identifiant
  * d'un 2 de pique qu'il détient.
  */
+import { avancerLeChronometre } from './temps-de-jeu.js';
 import { COUPS_PAR_NOMBRE_DE_JOUEURS } from '../models/index.js';
 import type { Server, Socket } from 'socket.io';
 import type {
@@ -380,6 +381,8 @@ const cloturerCoup = async (
     poseFinale: [...poseFinale],
   });
 
+  // Le coup est fini : le dernier temps de jeu part avec la Boule enregistrée.
+  mesurerLeTempsDeJeu(table);
   await manager.persister(table);
 
   // Le coup suivant n'est pas distribué ici : la donne effacerait le décompte
@@ -773,7 +776,20 @@ const jouerPourLeBot = async (
  * Publie le nouvel état : chacun reçoit sa vue, après réévaluation du sursis.
  * Toute action qui modifie la table passe par ici.
  */
+/**
+ * Crédite le temps écoulé au joueur que la table attendait, s'il a changé.
+ * Voir `temps-de-jeu.ts`.
+ */
+const mesurerLeTempsDeJeu = (table: Table): void => {
+  const coup = table.coup;
+  const attendu = coup === null || table.resultatCoup !== null ? null : joueurAttendu(coup);
+  const { boule, chronometre } = avancerLeChronometre(table.boule, table.chronometre ?? null, attendu, Date.now());
+  table.boule = boule;
+  table.chronometre = chronometre;
+};
+
 const publier = (io: Server, manager: GameRoomManager, table: Table): void => {
+  mesurerLeTempsDeJeu(table);
   reevaluerSursis(io, manager, table);
   reevaluerDelaiDeJeu(io, manager, table);
   reevaluerLesBots(io, manager, table);

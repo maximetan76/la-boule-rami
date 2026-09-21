@@ -24,6 +24,8 @@ export interface EtatBoulePersiste {
   readonly frichesGeneralisees?: number;
   /** Absent d'un état écrit avant le suivi du report. */
   readonly reportDeFriches?: number;
+  /** Absent d'un état écrit avant qu'on mesure le temps de jeu. */
+  readonly tempsDeJeu?: Record<JoueurId, number>;
   readonly scoresCumules: Record<JoueurId, number>;
   readonly croix: Record<JoueurId, number>;
   readonly historique: ResultatCoup[];
@@ -36,6 +38,7 @@ export const serialiserBoule = (boule: Boule): EtatBoulePersiste => ({
   nombreCoupsFriches: boule.nombreCoupsFriches,
   ...(boule.frichesGeneralisees === undefined ? {} : { frichesGeneralisees: boule.frichesGeneralisees }),
   ...(boule.reportDeFriches === undefined ? {} : { reportDeFriches: boule.reportDeFriches }),
+  ...(boule.tempsDeJeu === undefined ? {} : { tempsDeJeu: { ...boule.tempsDeJeu } }),
   scoresCumules: { ...boule.scoresCumules },
   croix: { ...boule.croix },
   historique: boule.historique.map((resultat) => ({ ...resultat })),
@@ -144,6 +147,7 @@ export const deserialiserBoule = (valeur: unknown): Boule => {
     ...(brut['reportDeFriches'] === undefined
       ? {}
       : { reportDeFriches: entier(brut['reportDeFriches'], 'etat.reportDeFriches') }),
+    ...(brut['tempsDeJeu'] === undefined ? {} : { tempsDeJeu: scores(brut['tempsDeJeu'], 'etat.tempsDeJeu') }),
     // Le coup en cours n'est pas persisté : il sera redistribué au redémarrage.
     coupEnCours: null,
     historique: historiqueBrut.map((resultat, index) =>

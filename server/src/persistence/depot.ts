@@ -167,6 +167,11 @@ export interface Depot {
   dernierePartieDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null>;
   /** Toutes les parties du joueur, en cours ou terminées, la plus récente d'abord. */
   partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]>;
+  /**
+   * Le temps de jeu de chacun, partie par partie, lu dans l'état des Boules
+   * en une seule fois. Une partie sans mesure n'y figure pas.
+   */
+  tempsDeJeuDesParties(partieIds: readonly string[]): Promise<Record<string, Record<JoueurId, number>>>;
   asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void>;
   /**
    * Libère la place d'un joueur et renumérote celles qui restent, pour que la

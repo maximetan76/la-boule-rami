@@ -13,6 +13,7 @@
  * qui désigne le joueur, et non un jeton propre à la table. C'est ce qui permet
  * de retrouver sa place après un redémarrage du serveur.
  */
+import type { Chronometre } from './temps-de-jeu.js';
 import {
   COUPS_FRICHES_PAR_DEFAUT,
   COUPS_PAR_NOMBRE_DE_JOUEURS,
@@ -206,6 +207,8 @@ export interface Table {
   readonly valeurPoint: string | null;
   /** Le délai qui court pour le joueur attendu, s'il y en a un. */
   attenteDeJeu: AttenteDeJeu | null;
+  /** Qui la table attend, et depuis quand : le temps de jeu en découle. */
+  chronometre?: Chronometre | null;
   /** Annulation du minuteur d'abandon de tour en cours, s'il y en a un. */
   annulerMinuteur: (() => void) | null;
   /** Joueur dont le tour expirera si le minuteur va au bout. */

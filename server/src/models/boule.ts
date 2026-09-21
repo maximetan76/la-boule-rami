@@ -132,6 +132,12 @@ export interface Boule {
    */
   frichesGeneralisees?: number;
   /**
+   * Temps de jeu de chacun, en millisecondes : le temps passé à être attendu
+   * par la table — à parler pendant les annonces comme à jouer son tour.
+   * Absent d'une Boule enregistrée avant qu'on le mesure.
+   */
+  tempsDeJeu?: Record<JoueurId, number>;
+  /**
    * Coups frichés qui partiront vers la Boule suivante si le groupe rejoue :
    * l'excédent reçu de la précédente au démarrage, puis, à chaque friche
    * généralisée, ce qui dépasse les coups restant à jouer. Absent d'une Boule
