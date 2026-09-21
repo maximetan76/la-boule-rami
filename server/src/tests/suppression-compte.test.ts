@@ -82,7 +82,10 @@ describe('suppression de compte', () => {
     const { corps } = await requete('POST', '/auth/apple', {
       corps: { jetonIdentite: await signerApple(sujet), pseudo },
     });
-    return { jeton: corps['jetonSession'] as string, joueur: corps['joueur'] as { id: string; pseudo: string } };
+    const jeton = corps['jetonSession'] as string;
+    // Comme dans l'app : le joueur choisit son pseudo avant d'aller plus loin.
+    await requete('PATCH', '/joueur/pseudo', { jeton, corps: { pseudo } });
+    return { jeton, joueur: corps['joueur'] as { id: string; pseudo: string } };
   };
 
   const rejoindre = async (jeton: string, tableId: string) => {

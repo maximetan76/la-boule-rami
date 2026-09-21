@@ -44,6 +44,11 @@ export interface JoueurEnregistre {
   readonly id: JoueurId;
   readonly identifiantApple: string;
   readonly pseudo: string;
+  /**
+   * Le joueur a choisi lui-même son pseudo. Absent d'un compte d'avant ce
+   * champ : il vaut alors comme choisi.
+   */
+  readonly pseudoChoisi?: boolean;
   readonly creeLe: Date;
   /** Renseignée pour un compte supprimé : plus aucune session ne l'ouvre. */
   readonly supprimeLe?: Date | null;
@@ -126,13 +131,21 @@ export interface NouvellePartie {
 export interface PartieRechargee {
   readonly partie: PartieEnregistree;
   /** Joueurs assis, dans l'ordre de la table figé au tirage d'ouverture. */
-  readonly joueurs: { readonly id: JoueurId; readonly pseudo: string }[];
+  readonly joueurs: { readonly id: JoueurId; readonly pseudo: string; readonly pseudoChoisi?: boolean }[];
   readonly etatBoule: EtatBoulePersiste | null;
 }
 
 export interface Depot {
   /** Retrouve le joueur derrière un identifiant Apple, ou l'inscrit. */
-  trouverOuCreerJoueurApple(identifiantApple: string, pseudo: string): Promise<JoueurEnregistre>;
+  /**
+   * `pseudoChoisi` : vrai pour un compte dont le nom est déjà fixé à la
+   * création — le compte de démonstration et ses robots.
+   */
+  trouverOuCreerJoueurApple(
+    identifiantApple: string,
+    pseudo: string,
+    options?: { readonly pseudoChoisi?: boolean },
+  ): Promise<JoueurEnregistre>;
   trouverJoueur(id: JoueurId): Promise<JoueurEnregistre | null>;
   renommerJoueur(id: JoueurId, pseudo: string): Promise<JoueurEnregistre>;
   /**

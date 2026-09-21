@@ -18,6 +18,9 @@ model Joueur {
   /// Identifiant stable fourni par Sign in with Apple (claim `sub`).
   identifiantApple String   @unique
   pseudo           String
+  /// Le joueur a choisi lui-même son pseudo. Tant que ce n'est pas fait,
+  /// l'app lui demande d'en choisir un avant de le laisser entrer.
+  pseudoChoisi     Boolean  @default(false)
   creeLe           DateTime @default(now())
   /// Compte supprimé à la demande du joueur : identifiant Apple détaché,
   /// pseudo anonymisé, sessions refusées. Ses parties archivées restent.

@@ -880,6 +880,26 @@ describe('serveur socket.io', () => {
     expect(table.coup?.mains[premier]).toEqual([]);
   });
 
+  it('un joueur sans pseudo choisi s assoit sous « Joueur N », selon son rang d arrivee, jamais sous son identifiant', async () => {
+    const sansPseudo = (id: string) => ({
+      id,
+      identifiantApple: `local:${id}`,
+      pseudo: 'Joueur',
+      pseudoChoisi: false,
+      creeLe: new Date(),
+    });
+    const { tableId, codeInvitation } = await serveur.manager.creerTable(sansPseudo('p-un'), { capacite: 3 });
+    await serveur.manager.rejoindreParCode(codeInvitation, { id: 'p-ana', pseudo: 'Ana' });
+    await serveur.manager.rejoindreParCode(codeInvitation, sansPseudo('p-trois'));
+    const nom = (id: string) => serveur.manager.table(tableId).joueurs.find((joueur) => joueur.id === id)?.nom;
+
+    // Deux joueurs sans pseudo ne se confondent pas ; Ana garde le sien.
+    expect([nom('p-un'), nom('p-ana'), nom('p-trois')]).toEqual(['Joueur 1', 'Ana', 'Joueur 3']);
+    // Dès qu'il en choisit un, il remplace le défaut.
+    serveur.manager.renommerDansLesTables('p-trois', 'Maxime');
+    expect(nom('p-trois')).toBe('Maxime');
+  });
+
   it('le dernier arrive au salon : ceux qui attendaient recoivent son pseudo avec le premier etat', async () => {
     // Le salon se remplit : Ana et Bo attendent, connectés.
     const { tableId, codeInvitation } = await serveur.manager.creerTable(

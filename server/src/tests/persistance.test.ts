@@ -274,7 +274,8 @@ describe('DepotPrisma', () => {
     expect(appels[0]?.operation).toBe('joueur.findUnique');
     expect(appels[1]).toEqual({
       operation: 'joueur.create',
-      args: { data: { identifiantApple: '001.abc', pseudo: 'Ana' } },
+      // Un compte neuf n'a pas encore choisi son pseudo.
+      args: { data: { identifiantApple: '001.abc', pseudo: 'Ana', pseudoChoisi: false } },
     });
     expect(joueurCree.pseudo).toBe('Ana');
   });

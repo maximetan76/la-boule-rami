@@ -24,7 +24,11 @@ export class DepotMemoire implements Depot {
   /** Compteur d'écritures de Boule, pour vérifier en test qu'on ne sauvegarde pas trop. */
   ecritures = 0;
 
-  trouverOuCreerJoueurApple(identifiantApple: string, pseudo: string): Promise<JoueurEnregistre> {
+  trouverOuCreerJoueurApple(
+    identifiantApple: string,
+    pseudo: string,
+    options: { readonly pseudoChoisi?: boolean } = {},
+  ): Promise<JoueurEnregistre> {
     const existant = this.parApple.get(identifiantApple);
     if (existant !== undefined) {
       return Promise.resolve(this.joueurs.get(existant) as JoueurEnregistre);
@@ -34,6 +38,7 @@ export class DepotMemoire implements Depot {
       id: randomUUID(),
       identifiantApple,
       pseudo,
+      pseudoChoisi: options.pseudoChoisi ?? false,
       creeLe: new Date(),
     };
     this.joueurs.set(joueur.id, joueur);
@@ -49,7 +54,8 @@ export class DepotMemoire implements Depot {
     const joueur = this.joueurs.get(id);
     if (joueur === undefined) throw new Error(`Joueur ${id} introuvable`);
 
-    const renomme: JoueurEnregistre = { ...joueur, pseudo };
+    // Se renommer, c'est choisir son pseudo.
+    const renomme: JoueurEnregistre = { ...joueur, pseudo, pseudoChoisi: true };
     this.joueurs.set(id, renomme);
     return Promise.resolve(renomme);
   }
@@ -63,6 +69,8 @@ export class DepotMemoire implements Depot {
       ...joueur,
       identifiantApple: identifiantRemplacant,
       pseudo: PSEUDO_COMPTE_SUPPRIME,
+      // Un nom fixé, pas un pseudo en attente de choix : jamais « Joueur N ».
+      pseudoChoisi: true,
       supprimeLe: new Date(),
     };
     this.joueurs.set(id, anonyme);
@@ -170,6 +178,7 @@ export class DepotMemoire implements Depot {
         joueurs: partie.joueursIds.map((id) => ({
           id,
           pseudo: this.joueurs.get(id)?.pseudo ?? id,
+          pseudoChoisi: this.joueurs.get(id)?.pseudoChoisi ?? true,
         })),
         etatBoule: this.boules.get(partie.id) ?? null,
       }));
@@ -181,7 +190,11 @@ export class DepotMemoire implements Depot {
     if (partie === undefined) return Promise.resolve(null);
     return Promise.resolve({
       partie,
-      joueurs: partie.joueursIds.map((id) => ({ id, pseudo: this.joueurs.get(id)?.pseudo ?? id })),
+      joueurs: partie.joueursIds.map((id) => ({
+        id,
+        pseudo: this.joueurs.get(id)?.pseudo ?? id,
+        pseudoChoisi: this.joueurs.get(id)?.pseudoChoisi ?? true,
+      })),
       etatBoule: this.boules.get(partie.id) ?? null,
     });
   }
@@ -192,6 +205,7 @@ export class DepotMemoire implements Depot {
       id,
       identifiantApple: `local:${id}`,
       pseudo,
+      pseudoChoisi: true,
       creeLe: new Date(),
     };
     this.joueurs.set(id, joueur);

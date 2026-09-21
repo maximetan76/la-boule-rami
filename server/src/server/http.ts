@@ -5,7 +5,7 @@
  * fait hors table — s'authentifier, ouvrir un salon, le rejoindre par code,
  * abandonner une partie, changer de pseudo, supprimer son compte.
  */
-import { decrireTablePublique } from './game-room-manager.js';
+import { decrireTablePublique, nomALaTable } from './game-room-manager.js';
 import { COUPS_PAR_NOMBRE_DE_JOUEURS, NOMBRE_COUPS_MAX, NOMBRE_COUPS_MIN } from '../models/index.js';
 import { calculerFinDeBoule, estBouleTerminee, reportEnCours } from '../game-engine/index.js';
 import { randomUUID } from 'node:crypto';
@@ -53,6 +53,16 @@ export interface DependancesHttp {
   /** Coupe toutes les connexions encore ouvertes d'un joueur : son compte vient d'être supprimé. */
   readonly deconnecterJoueur?: (joueurId: string) => void;
 }
+
+/**
+ * Le compte tel que l'API le rend. `pseudoChoisi` absent d'un compte d'avant
+ * ce champ : il vaut comme choisi, pour ne jamais bloquer un ancien joueur.
+ */
+const decrireJoueur = (joueur: JoueurEnregistre) => ({
+  id: joueur.id,
+  pseudo: joueur.pseudo,
+  pseudoChoisi: joueur.pseudoChoisi ?? true,
+});
 
 /** Erreur destinée au client, avec le code HTTP qui va avec. */
 class ErreurHttp extends Error {
@@ -151,7 +161,7 @@ const ouvrirSession = async (
 
   return {
     jetonSession: await signerJetonSession(joueur.id, deps.session),
-    joueur: { id: joueur.id, pseudo: joueur.pseudo },
+    joueur: decrireJoueur(joueur),
   };
 };
 
@@ -171,11 +181,13 @@ const PSEUDOS_DES_ROBOTS = ['Robot Bo', 'Robot Cy'];
  */
 const ouvrirSessionDemo = async (deps: DependancesHttp): Promise<unknown> => {
   const marque = `demo-reviewer:${randomUUID()}`;
-  const testeur = await deps.depot.trouverOuCreerJoueurApple(marque, PSEUDO_DEMO);
+  const testeur = await deps.depot.trouverOuCreerJoueurApple(marque, PSEUDO_DEMO, { pseudoChoisi: true });
 
   const robots: JoueurEnregistre[] = [];
   for (const [rang, pseudo] of PSEUDOS_DES_ROBOTS.entries()) {
-    robots.push(await deps.depot.trouverOuCreerJoueurApple(`${marque}:robot-${String(rang)}`, pseudo));
+    robots.push(
+      await deps.depot.trouverOuCreerJoueurApple(`${marque}:robot-${String(rang)}`, pseudo, { pseudoChoisi: true }),
+    );
   }
 
   const { tableId, codeInvitation } = await deps.manager.creerTable(
@@ -194,7 +206,7 @@ const ouvrirSessionDemo = async (deps: DependancesHttp): Promise<unknown> => {
 
   return {
     jetonSession: await signerJetonSession(testeur.id, deps.session),
-    joueur: { id: testeur.id, pseudo: testeur.pseudo },
+    joueur: decrireJoueur(testeur),
     tableId,
     codeInvitation,
   };
@@ -517,7 +529,7 @@ const changerPseudo = async (
   deps.manager.renommerDansLesTables(joueur.id, pseudo);
   for (const table of deps.manager.tablesDuJoueur(joueur.id)) deps.notifier?.(table);
 
-  return { joueur: { id: renomme.id, pseudo: renomme.pseudo } };
+  return { joueur: decrireJoueur(renomme) };
 };
 
 /**
@@ -626,10 +638,11 @@ const situationDuJoueur = async (
 
 const decrirePartie = async (partie: PartieEnregistree, depot: Depot) => {
   const joueurs = await Promise.all(
-    partie.joueursIds.map(async (joueurId) => ({
-      joueurId,
-      pseudo: (await depot.trouverJoueur(joueurId))?.pseudo ?? joueurId,
-    })),
+    partie.joueursIds.map(async (joueurId, rang) => {
+      const joueur = await depot.trouverJoueur(joueurId);
+      // Jamais d'identifiant technique à l'écran, même pour un compte introuvable.
+      return { joueurId, pseudo: joueur === null ? `Joueur ${String(rang + 1)}` : nomALaTable(joueur, rang + 1) };
+    }),
   );
   return {
     tableId: partie.id,
@@ -774,6 +787,10 @@ export const gererRequeteHttp =
 
       if (methode === 'DELETE' && chemin === '/joueur/compte') {
         return { code: 200, corps: await supprimerCompte(deps, await authentifier(requete, deps)) };
+      }
+
+      if (methode === 'GET' && chemin === '/joueur/moi') {
+        return { code: 200, corps: { joueur: decrireJoueur(await authentifier(requete, deps)) } };
       }
 
       if (methode === 'PATCH' && chemin === '/joueur/pseudo') {

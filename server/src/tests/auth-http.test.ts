@@ -88,6 +88,43 @@ describe('authentification HTTP', () => {
     expect(secondJoueur.pseudo).toBe('Ana');
   });
 
+  it('un compte neuf n a pas encore choisi son pseudo ; le choisir leve le drapeau', async () => {
+    const jetonIdentite = await signerApple('001.sans-nom');
+    // Apple n'a pas transmis de nom : le serveur applique son défaut.
+    const { corps } = await poster('/auth/apple', { jetonIdentite });
+    const jeton = corps['jetonSession'] as string;
+    expect(corps['joueur']).toMatchObject({ pseudo: 'Joueur', pseudoChoisi: false });
+
+    const lire = async () => {
+      const reponse = await fetch(`${base}/joueur/moi`, { headers: { authorization: `Bearer ${jeton}` } });
+      expect(reponse.status).toBe(200);
+      return ((await reponse.json()) as { joueur: Record<string, unknown> }).joueur;
+    };
+    // Relu à chaque lancement : tant qu'il n'a pas choisi, l'app le lui demande.
+    expect(await lire()).toMatchObject({ pseudoChoisi: false });
+
+    const renomme = await fetch(`${base}/joueur/pseudo`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${jeton}` },
+      body: JSON.stringify({ pseudo: 'Maxime' }),
+    });
+    expect(((await renomme.json()) as { joueur: Record<string, unknown> }).joueur).toMatchObject({
+      pseudo: 'Maxime',
+      pseudoChoisi: true,
+    });
+    expect(await lire()).toMatchObject({ pseudo: 'Maxime', pseudoChoisi: true });
+  });
+
+  it('un nom venu d Apple ne dispense pas du choix : il ne sert qu a pre-remplir', async () => {
+    const { corps } = await poster('/auth/apple', { jetonIdentite: await signerApple('001.ana'), pseudo: 'Ana' });
+    expect(corps['joueur']).toMatchObject({ pseudo: 'Ana', pseudoChoisi: false });
+  });
+
+  it('le compte de demonstration a son nom d office, sans rien a choisir', async () => {
+    const { corps } = await poster('/auth/demo', {});
+    expect(corps['joueur']).toMatchObject({ pseudoChoisi: true });
+  });
+
   it('refuse un jeton Apple destine a une autre application', async () => {
     const jetonIdentite = await signerApple('001.ana', { audience: 'fr.autre.app' });
     const { statut, corps } = await poster('/auth/apple', { jetonIdentite, pseudo: 'Ana' });

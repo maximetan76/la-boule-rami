@@ -99,11 +99,14 @@ export class DepotPrisma implements Depot {
   async trouverOuCreerJoueurApple(
     identifiantApple: string,
     pseudo: string,
+    options: { readonly pseudoChoisi?: boolean } = {},
   ): Promise<JoueurEnregistre> {
     const existant = await this.prisma.joueur.findUnique({ where: { identifiantApple } });
     if (existant !== null) return existant;
 
-    return this.prisma.joueur.create({ data: { identifiantApple, pseudo } });
+    return this.prisma.joueur.create({
+      data: { identifiantApple, pseudo, pseudoChoisi: options.pseudoChoisi ?? false },
+    });
   }
 
   async trouverJoueur(id: JoueurId): Promise<JoueurEnregistre | null> {
@@ -111,13 +114,20 @@ export class DepotPrisma implements Depot {
   }
 
   async renommerJoueur(id: JoueurId, pseudo: string): Promise<JoueurEnregistre> {
-    return this.prisma.joueur.update({ where: { id }, data: { pseudo } });
+    // Se renommer, c'est choisir son pseudo.
+    return this.prisma.joueur.update({ where: { id }, data: { pseudo, pseudoChoisi: true } });
   }
 
   async anonymiserJoueur(id: JoueurId, identifiantRemplacant: string): Promise<JoueurEnregistre> {
     return this.prisma.joueur.update({
       where: { id },
-      data: { identifiantApple: identifiantRemplacant, pseudo: PSEUDO_COMPTE_SUPPRIME, supprimeLe: new Date() },
+      // Un nom fixé, pas un pseudo en attente de choix : jamais « Joueur N ».
+      data: {
+        identifiantApple: identifiantRemplacant,
+        pseudo: PSEUDO_COMPTE_SUPPRIME,
+        pseudoChoisi: true,
+        supprimeLe: new Date(),
+      },
     });
   }
 
@@ -274,6 +284,7 @@ export class DepotPrisma implements Depot {
       joueurs: partie.joueurs.map((place) => ({
         id: place.joueur.id,
         pseudo: place.joueur.pseudo,
+        pseudoChoisi: place.joueur.pseudoChoisi,
       })),
       // L'état relu de la base repasse par la validation avant d'être utilisé.
       etatBoule:

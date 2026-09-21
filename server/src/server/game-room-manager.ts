@@ -243,6 +243,19 @@ export interface TableCreee {
   readonly capacite: number;
 }
 
+/**
+ * Le nom sous lequel un joueur s'assoit à une table.
+ *
+ * Qui n'a pas encore choisi son pseudo s'affiche « Joueur N », N étant son
+ * rang d'arrivée à la table : deux joueurs sans pseudo ne se confondent
+ * jamais, et personne ne s'affiche sous un identifiant technique. Dès qu'il
+ * en choisit un, `renommerDansLesTables` le remplace.
+ */
+export const nomALaTable = (
+  joueur: { readonly pseudo: string; readonly pseudoChoisi?: boolean },
+  rang: number,
+): string => (joueur.pseudoChoisi === false ? `Joueur ${String(rang)}` : joueur.pseudo);
+
 /** Une table telle que la décrivent l'API et l'annonce d'une nouvelle table. */
 export const decrireTablePublique = (table: Table) => ({
   tableId: table.id,
@@ -427,7 +440,7 @@ export class GameRoomManager {
       statut: 'salon',
       creeeLe: new Date(),
       demarreeLe: null,
-      joueurs: [{ id: createur.id, nom: createur.pseudo, croix: 0 }],
+      joueurs: [{ id: createur.id, nom: nomALaTable(createur, 1), croix: 0 }],
       boule: null,
       coup: null,
       tourEnCours: null,
@@ -489,7 +502,7 @@ export class GameRoomManager {
     if (table.joueurs.length >= table.capacite) throw new Error('La table est complete');
 
     const position = table.joueurs.length;
-    table.joueurs = [...table.joueurs, { id: joueur.id, nom: joueur.pseudo, croix: 0 }];
+    table.joueurs = [...table.joueurs, { id: joueur.id, nom: nomALaTable(joueur, position + 1), croix: 0 }];
     table.connexions.set(joueur.id, null);
     await this.depot?.asseoirJoueur(table.id, joueur.id, position);
 
@@ -670,9 +683,9 @@ export class GameRoomManager {
     for (const { partie, joueurs, etatBoule } of actives) {
       if (joueurs.length === 0) continue;
 
-      const assis: Joueur[] = joueurs.map((joueur) => ({
+      const assis: Joueur[] = joueurs.map((joueur, rang) => ({
         id: joueur.id,
-        nom: joueur.pseudo,
+        nom: nomALaTable(joueur, rang + 1),
         croix: 0,
       }));
 

@@ -57,6 +57,12 @@ describe('API des tables', () => {
         jetonSession: string;
         joueur: { id: string; pseudo: string };
       };
+      // Comme dans l'app : le joueur choisit son pseudo avant d'aller plus loin.
+      await fetch(`${base}/joueur/pseudo`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${corps.jetonSession}` },
+        body: JSON.stringify({ pseudo }),
+      });
       return { id: corps.joueur.id, pseudo: corps.joueur.pseudo, jeton: corps.jetonSession };
     };
   });
@@ -1080,7 +1086,8 @@ describe('API des tables', () => {
       });
 
       expect(statut).toBe(200);
-      expect(corps['joueur']).toEqual({ id: ana.id, pseudo: 'Anaïs' });
+      // Se renommer, c'est choisir son pseudo.
+      expect(corps['joueur']).toEqual({ id: ana.id, pseudo: 'Anaïs', pseudoChoisi: true });
       // La table deja en memoire porte le nouveau pseudo.
       expect(serveur.manager.table(tableId).joueurs[0]?.nom).toBe('Anaïs');
       // Et la base aussi.
