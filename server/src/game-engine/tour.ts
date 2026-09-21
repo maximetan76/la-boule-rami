@@ -183,6 +183,23 @@ const partagerAjout = (
   return { reprises, allongent: restantes };
 };
 
+/**
+ * Les ajouts d'un tour, un seul par combinaison.
+ *
+ * Un tour se compose geste par geste, et le brouillon garde chaque geste à
+ * part : le 9♦ puis le 10♦ posés sur la même suite arrivent en deux ajouts.
+ * Sans regroupement, seul le premier s'appliquait — le second quittait la main
+ * sans atteindre la table, et une fin de coup à 14 cartes n'en comptait que 13.
+ * L'ordre des gestes est gardé, combinaison par combinaison.
+ */
+const regrouperAjouts = (ajouts: readonly AjoutCombinaison[]): AjoutCombinaison[] => {
+  const parCombinaison = new Map<CombinaisonId, CartePosee[]>();
+  for (const { combinaisonId, cartes } of ajouts) {
+    parCombinaison.set(combinaisonId, [...(parCombinaison.get(combinaisonId) ?? []), ...cartes]);
+  }
+  return [...parCombinaison].map(([combinaisonId, cartes]) => ({ combinaisonId, cartes }));
+};
+
 /** Le moteur signe lui-même les combinaisons posées : ni propriétaire ni tour ne sont déclarés. */
 const attribuer = (combinaison: Combinaison, proprietaireId: JoueurId, tourDePose: number): Combinaison =>
   combinaison.type === 'tierce'
@@ -209,7 +226,7 @@ export const jouerTour = (
   }
 
   const poses = action.poses ?? [];
-  const ajouts = action.ajouts ?? [];
+  const ajouts = regrouperAjouts(action.ajouts ?? []);
   verifierDeclarationsJokers(poses);
 
   // --- Pioche -------------------------------------------------------------

@@ -1923,3 +1923,52 @@ describe('un ajout qui rend le joker inutile le rend a celui qui complete', () =
     ).toThrow(/ne peut pas reprendre un joker/);
   });
 });
+
+describe('fin de coup construite geste par geste', () => {
+  // Réf. docs/REGLES.md § « Fin de coup automatique sans les conditions
+  // normales » : le brouillon garde chaque geste à part, et le moteur ne
+  // tranche qu'à la défausse.
+  it('deux gestes sur la meme suite adverse comptent tous les deux : les 14 cartes sont posees', () => {
+    const brelans = [
+      [c('pique', 2), c('coeur', 2), c('trefle', 2)],
+      [c('pique', 3), c('coeur', 3), c('trefle', 3)],
+      [c('pique', 4), c('coeur', 4), c('trefle', 4)],
+      [c('pique', 5), c('coeur', 5), c('trefle', 5)],
+    ];
+    const neuf = c('carreau', 9);
+    const dix = c('carreau', 10);
+    const suite = tierce('carreau', [c('carreau', 6), c('carreau', 7), c('carreau', 8)], 'j2');
+    const depart = coupJouable([...brelans.flat(), neuf, dix], { combinaisons: [suite] });
+
+    const { coup: apres, coupTermine } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: brelans.map((brelan, rang) => ensemble((rang + 2) as 2 | 3 | 4 | 5, brelan)),
+      // Deux gestes séparés sur la même suite, dans l'ordre où ils ont été faits.
+      ajouts: [
+        { combinaisonId: suite.id, cartes: [{ carte: neuf, remplace: null }] },
+        { combinaisonId: suite.id, cartes: [{ carte: dix, remplace: null }] },
+      ],
+      carteDefausseeId: depart.pioche[0]!.id,
+    });
+
+    expect(coupTermine).toBe(true);
+    expect(apres.gagnantId).toBe('j1');
+    // Les deux cartes sont bien arrivées sur la suite, dans l'ordre des gestes.
+    expect(apres.combinaisons.find((combinaison) => combinaison.id === suite.id)?.cartes.map((cp) => cp.carte.id))
+      .toEqual([...suite.cartes.map((cp) => cp.carte.id), neuf.id, dix.id]);
+  });
+
+  it('sans les 14 cartes, un ajout sans jeu ouvert reste refuse a la defausse', () => {
+    const neuf = c('carreau', 9);
+    const suite = tierce('carreau', [c('carreau', 6), c('carreau', 7), c('carreau', 8)], 'j2');
+    const depart = coupJouable([neuf, c('pique', 'R'), c('coeur', 'D')], { combinaisons: [suite] });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: neuf, remplace: null }] }],
+        carteDefausseeId: depart.pioche[0]!.id,
+      }),
+    ).toThrow(/avoir pose son jeu avant d'ajouter/);
+  });
+});

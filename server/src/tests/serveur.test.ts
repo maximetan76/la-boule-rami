@@ -837,6 +837,49 @@ describe('serveur socket.io', () => {
     expect(t.coupReel().engageId).toBe(t.p2.joueurId);
   });
 
+  it('fin de coup geste par geste : un ajout chez un adversaire en premier, puis le reste, tout passe a la defausse', async () => {
+    // Réf. docs/REGLES.md § « Fin de coup automatique sans les conditions
+    // normales ». Le premier joueur n'a jamais ouvert ; il tient quatre
+    // brelans (42 points, aucune tierce) et le 9♦ et le 10♦ d'une suite adverse.
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId];
+    const brelans = [
+      [c('pique', 2), c('coeur', 2), c('trefle', 2)],
+      [c('pique', 3), c('coeur', 3), c('trefle', 3)],
+      [c('pique', 4), c('coeur', 4), c('trefle', 4)],
+      [c('pique', 5), c('coeur', 5), c('trefle', 5)],
+    ];
+    const neuf = c('carreau', 9);
+    const dix = c('carreau', 10);
+    const suite = tierce('carreau', [c('carreau', 6), c('carreau', 7), c('carreau', 8)], second);
+    table.coup.combinaisons = [suite];
+    table.coup.mains[premier] = [...brelans.flat(), neuf, dix];
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [] });
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+    expect((await agir(joueur, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+    expect((await agir(joueur, 'piocher', { source: 'pioche' })).ok).toBe(true);
+    const quinzieme = table.tourEnCours?.cartePiochee;
+    if (quinzieme === undefined) throw new Error('carte piochee absente');
+
+    // Premier geste : un ajout chez l'adversaire, sans jeu ouvert. Accepté en brouillon.
+    const ajout = (carte: Carte) => ({ ajouts: [{ combinaisonId: suite.id, cartes: [{ carteId: carte.id }] }] });
+    expect((await emettre(joueur.socket, 'poser', ajout(neuf))).ok).toBe(true);
+    // Second geste sur la même suite, puis les quatre brelans.
+    expect((await emettre(joueur.socket, 'poser', ajout(dix))).ok).toBe(true);
+    for (const [rang, brelan] of brelans.entries()) {
+      const pose = { poses: [{ type: 'ensemble', valeur: rang + 2, cartes: brelan.map((carte) => ({ carteId: carte.id })) }] };
+      expect((await emettre(joueur.socket, 'poser', pose)).ok).toBe(true);
+    }
+
+    // La défausse de la 15e carte tranche : 14 cartes posées, le coup est fini.
+    expect(await agir(joueur, 'defausser', { carteId: quinzieme.id })).toEqual({ ok: true });
+    expect(table.resultatCoup?.score.gagnantId).toBe(premier);
+    expect(table.coup?.mains[premier]).toEqual([]);
+  });
+
   it('le dernier arrive au salon : ceux qui attendaient recoivent son pseudo avec le premier etat', async () => {
     // Le salon se remplit : Ana et Bo attendent, connectés.
     const { tableId, codeInvitation } = await serveur.manager.creerTable(
