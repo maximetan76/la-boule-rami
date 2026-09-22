@@ -259,6 +259,20 @@ export const nomALaTable = (
   rang: number,
 ): string => (joueur.pseudoChoisi === false ? `Joueur ${String(rang)}` : joueur.pseudo);
 
+/**
+ * Une action arrive sur une connexion qui n'a rejoint aucune table : une
+ * connexion neuve après une coupure, un retour de veille ou un redémarrage du
+ * serveur. Le code stable dit à l'app de rejoindre sa table et de rejouer
+ * l'action, sans rien montrer au joueur.
+ */
+export class ErreurNonRattachee extends Error {
+  readonly code = 'non-rattachee';
+
+  constructor() {
+    super('Socket non rattachee a une table');
+  }
+}
+
 /** Une table telle que la décrivent l'API et l'annonce d'une nouvelle table. */
 export const decrireTablePublique = (table: Table) => ({
   tableId: table.id,
@@ -842,7 +856,7 @@ export class GameRoomManager {
 
   placeDeLaSocket(socketId: string): { table: Table; joueurId: JoueurId } {
     const place = this.sockets.get(socketId);
-    if (place === undefined) throw new Error('Socket non rattachee a une table');
+    if (place === undefined) throw new ErreurNonRattachee();
     return { table: this.table(place.tableId), joueurId: place.joueurId };
   }
 

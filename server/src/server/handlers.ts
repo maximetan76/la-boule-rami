@@ -51,6 +51,7 @@ import type { AttenteDeJeu, TourEnCours } from './game-room-manager.js';
 import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
 import {
   bouleEnCours,
+  ErreurNonRattachee,
   decrireTablePublique,
   demarrerCoup,
   GameRoomManager,
@@ -59,7 +60,7 @@ import {
 } from './game-room-manager.js';
 
 /** Réponse d'acquittement renvoyée à l'émetteur de chaque action. */
-export type Acquittement = (reponse: { ok: true } | { ok: false; erreur: string }) => void;
+export type Acquittement = (reponse: { ok: true } | { ok: false; erreur: string; code?: string }) => void;
 
 interface CartePoseeProposee {
   readonly carteId: CarteId;
@@ -802,6 +803,8 @@ const repondre = (ack: unknown, action: () => void | Promise<void>): void => {
     acquitter?.({
       ok: false,
       erreur: erreur instanceof Error ? erreur.message : 'Erreur inconnue',
+      // Un code stable quand l'app doit réagir, pas seulement afficher.
+      ...(erreur instanceof ErreurNonRattachee ? { code: erreur.code } : {}),
     });
   };
 

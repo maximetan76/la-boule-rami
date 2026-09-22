@@ -916,6 +916,22 @@ describe('serveur socket.io', () => {
     expect(t.table.chronometre?.joueurId).toBe(t.p2.joueurId);
   });
 
+  it('une action sur une connexion qui n a rejoint aucune table est refusee avec un code stable', async () => {
+    const { tableId } = await ouvrirTable();
+    // Une connexion neuve, comme après une coupure ou un redémarrage du
+    // serveur : ouverte, mais liée à aucune table.
+    const neuve = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
+    await new Promise<void>((resolve) => neuve.on('connect', () => resolve()));
+    const refus = await emettre(neuve, 'pret-pour-suivant', {});
+    expect(refus).toMatchObject({ ok: false, code: 'non-rattachee' });
+
+    // Rejoindre suffit : l'action suivante passe.
+    const jeton = await signerJetonSession('p-ana', SESSION);
+    expect((await emettre(neuve, 'rejoindre-table', { jeton, tableId })).ok).toBe(true);
+    expect((await emettre(neuve, 'piocher', { source: 'pioche' })).erreur).not.toBe('Socket non rattachee a une table');
+    neuve.disconnect();
+  });
+
   it('le dernier arrive au salon : ceux qui attendaient recoivent son pseudo avec le premier etat', async () => {
     // Le salon se remplit : Ana et Bo attendent, connectés.
     const { tableId, codeInvitation } = await serveur.manager.creerTable(
