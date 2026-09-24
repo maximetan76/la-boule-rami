@@ -869,6 +869,18 @@ const jouerPourLeBot = async (
 const mesurerLeTempsDeJeu = (table: Table): void => {
   const coup = table.coup;
   const attendu = coup === null || table.resultatCoup !== null ? null : joueurAttendu(coup);
+  // Le même chronomètre sert les deux variantes : seul le porteur du cumul change.
+  if (table.variante === 'panier') {
+    const { boule: panier, chronometre } = avancerLeChronometre(
+      table.panier,
+      table.chronometre ?? null,
+      attendu,
+      Date.now(),
+    );
+    table.panier = panier;
+    table.chronometre = chronometre;
+    return;
+  }
   const { boule, chronometre } = avancerLeChronometre(table.boule, table.chronometre ?? null, attendu, Date.now());
   table.boule = boule;
   table.chronometre = chronometre;

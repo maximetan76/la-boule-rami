@@ -37,4 +37,10 @@ export interface MatchPanier {
   readonly historique: readonly ResultatManche[];
   /** Le premier à avoir atteint `manchesAGagner`, ou `null` en cours de match. */
   readonly vainqueurId: JoueurId | null;
+  /**
+   * Millisecondes passées à être attendu par la table, par joueur, annonces
+   * comprises : le même décompte que celui de La Boule. Absent d'un match
+   * antérieur à la mesure.
+   */
+  readonly tempsDeJeu?: Record<JoueurId, number>;
 }

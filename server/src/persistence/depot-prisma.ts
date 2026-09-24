@@ -25,7 +25,7 @@ import {
   type EtatPanierPersiste,
 } from './serialisation.js';
 import { PSEUDO_COMPTE_SUPPRIME } from './depot.js';
-import type { JoueurId, Variante } from '../models/index.js';
+import type { JoueurId, MatchPanier, Variante } from '../models/index.js';
 
 /** Forme d'une partie telle que Prisma la rend, places comprises. */
 interface LignePartie {
@@ -211,6 +211,29 @@ export class DepotPrisma implements Depot {
       try {
         const temps = deserialiserBoule(ligne.etat).tempsDeJeu;
         if (temps !== undefined) resultat[ligne.partieId] = temps;
+      } catch {
+        // Pas une Boule : peut-être un match du panier, qui porte le même cumul.
+        try {
+          const temps = deserialiserMatchPanier(ligne.etat).tempsDeJeu;
+          if (temps !== undefined) resultat[ligne.partieId] = temps;
+        } catch {
+          continue;
+        }
+      }
+    }
+    return resultat;
+  }
+
+  async matchsDesPaniers(partieIds: readonly string[]): Promise<Record<string, MatchPanier>> {
+    if (partieIds.length === 0) return {};
+    const lignes = await this.prisma.boule.findMany({
+      where: { partieId: { in: [...partieIds] }, partie: { variante: 'panier' } },
+      select: { partieId: true, etat: true },
+    });
+    const resultat: Record<string, MatchPanier> = {};
+    for (const ligne of lignes) {
+      try {
+        resultat[ligne.partieId] = deserialiserMatchPanier(ligne.etat);
       } catch {
         continue;
       }

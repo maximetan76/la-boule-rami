@@ -182,6 +182,7 @@ export interface EtatPanierPersiste {
   readonly manchesGagnees: Record<JoueurId, number>;
   readonly historique: ResultatManche[];
   readonly vainqueurId: JoueurId | null;
+  readonly tempsDeJeu?: Record<JoueurId, number>;
 }
 
 export const serialiserMatchPanier = (match: MatchPanier): EtatPanierPersiste => ({
@@ -192,6 +193,7 @@ export const serialiserMatchPanier = (match: MatchPanier): EtatPanierPersiste =>
   manchesGagnees: { ...match.manchesGagnees },
   historique: match.historique.map((manche) => ({ ...manche })),
   vainqueurId: match.vainqueurId,
+  ...(match.tempsDeJeu === undefined ? {} : { tempsDeJeu: { ...match.tempsDeJeu } }),
 });
 
 const resultatManche = (valeur: unknown, chemin: string): ResultatManche => {
@@ -241,6 +243,7 @@ export const deserialiserMatchPanier = (valeur: unknown): MatchPanier => {
     manchesGagnees: scores(brut['manchesGagnees'], 'etat.manchesGagnees'),
     historique: historiqueBrut.map((manche, index) => resultatManche(manche, `etat.historique[${String(index)}]`)),
     vainqueurId,
+    ...(brut['tempsDeJeu'] === undefined ? {} : { tempsDeJeu: scores(brut['tempsDeJeu'], 'etat.tempsDeJeu') }),
   };
 };
 

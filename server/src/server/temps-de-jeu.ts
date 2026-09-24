@@ -10,7 +10,12 @@
  * Le chronomètre lui-même ne vit qu'en mémoire : un redémarrage du serveur
  * perd au plus le segment en cours, jamais ce qui est déjà crédité.
  */
-import type { Boule, JoueurId } from '../models/index.js';
+import type { JoueurId } from '../models/index.js';
+
+/** Ce qui porte un temps de jeu : une Boule, ou un match du panier. */
+interface PorteurDeTemps {
+  readonly tempsDeJeu?: Record<JoueurId, number>;
+}
 
 export interface Chronometre {
   readonly joueurId: JoueurId;
@@ -18,12 +23,12 @@ export interface Chronometre {
   readonly depuis: number;
 }
 
-export const avancerLeChronometre = (
-  boule: Boule | null,
+export const avancerLeChronometre = <T extends PorteurDeTemps>(
+  boule: T | null,
   chronometre: Chronometre | null,
   attendu: JoueurId | null,
   maintenant: number,
-): { readonly boule: Boule | null; readonly chronometre: Chronometre | null } => {
+): { readonly boule: T | null; readonly chronometre: Chronometre | null } => {
   // Toujours le même joueur attendu : le chronomètre continue de tourner.
   if (chronometre !== null && chronometre.joueurId === attendu) return { boule, chronometre };
 
@@ -32,7 +37,7 @@ export const avancerLeChronometre = (
     const ecoule = Math.max(0, maintenant - chronometre.depuis);
     const tempsDeJeu = { ...(boule.tempsDeJeu ?? {}) };
     tempsDeJeu[chronometre.joueurId] = (tempsDeJeu[chronometre.joueurId] ?? 0) + ecoule;
-    suite = { ...boule, tempsDeJeu };
+    suite = { ...boule, tempsDeJeu } as T;
   }
   return { boule: suite, chronometre: attendu === null ? null : { joueurId: attendu, depuis: maintenant } };
 };

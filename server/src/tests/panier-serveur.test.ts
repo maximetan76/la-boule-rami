@@ -398,5 +398,46 @@ describe('le panier, par la socket', () => {
     const resultat = espion('p-bo').dernierEtat?.resultat;
     expect(resultat?.derniereCoup).toBe(true);
     expect(resultat?.matchPanier).toMatchObject({ vainqueurId: 'p-ana', montant: 10, manchesAGagner: 2 });
+
+    // Les archives : la partie figure dans « Mes parties » avec son score et le
+    // temps de chacun, et son historique donne les manches une à une.
+    // L'API des parties ne connaît que les comptes inscrits.
+    for (const joueur of JOUEURS) (serveur.depot as DepotMemoire).inscrire(joueur.id, joueur.pseudo);
+    const jeton = await signerJetonSession('p-ana', SESSION);
+    const lire = async (chemin: string) =>
+      (await (
+        await fetch(`http://localhost:${String(port)}${chemin}`, { headers: { authorization: `Bearer ${jeton}` } })
+      ).json()) as Record<string, unknown>;
+    const ligneDeLaListe = async () => {
+      const liste = (await lire('/tables'))['parties'] as Record<string, unknown>[];
+      return liste.find((partie) => partie['tableId'] === table.id) as Record<string, unknown>;
+    };
+
+    // Encore vivante, en entracte : le score du match est déjà là.
+    expect((await ligneDeLaListe())['panier']).toMatchObject({
+      manchesGagnees: { 'p-ana': 2, 'p-bo': 1 },
+      vainqueurId: 'p-ana',
+    });
+
+    // Le dernier « Continuer » clôt la partie : elle passe aux archives.
+    expect((await agir(espion('p-bo'), 'pret-pour-suivant', { numero: 3 })).ok).toBe(true);
+    for (let essai = 0; essai < 200 && (await ligneDeLaListe())['statut'] !== 'terminee'; essai += 1) {
+      await patienter(5);
+    }
+    const archivee = await ligneDeLaListe();
+    expect(archivee['statut']).toBe('terminee');
+    expect(archivee).toMatchObject({ variante: 'panier', manchesAGagner: 2, montant: 10 });
+    expect(archivee['panier']).toMatchObject({
+      manchesGagnees: { 'p-ana': 2, 'p-bo': 1 },
+      manchesAGagner: 2,
+      montant: 10,
+      vainqueurId: 'p-ana',
+    });
+    expect(Object.keys(archivee['tempsDeJeu'] as object).length).toBeGreaterThan(0);
+
+    const historique = await lire(`/tables/${table.id}/historique`);
+    expect(historique['variante']).toBe('panier');
+    const manches = (historique['panier'] as { manches: { gagnantId: string }[] }).manches;
+    expect(manches.map((manche) => manche.gagnantId)).toEqual(['p-ana', 'p-bo', 'p-ana']);
   });
 });

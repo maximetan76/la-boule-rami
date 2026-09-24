@@ -664,16 +664,18 @@ const resumerBoule = (table: Table) =>
       };
 
 /** Résumé d'un match du panier, pour un client qui reprend sans coup distribué. */
-const resumerPanier = (table: Table) =>
-  table.panier === null
+const resumerMatch = (match: MatchPanier | null) =>
+  match === null
     ? null
     : {
-        manche: table.panier.historique.length + 1,
-        manchesGagnees: { ...table.panier.manchesGagnees },
-        manchesAGagner: table.panier.manchesAGagner,
-        montant: table.panier.montant,
-        vainqueurId: table.panier.vainqueurId,
+        manche: match.historique.length + 1,
+        manchesGagnees: { ...match.manchesGagnees },
+        manchesAGagner: match.manchesAGagner,
+        montant: match.montant,
+        vainqueurId: match.vainqueurId,
       };
+
+const resumerPanier = (table: Table) => resumerMatch(table.panier);
 
 /**
  * Où en est le joueur : c'est le point d'entrée d'un client qui n'a gardé que
@@ -785,7 +787,18 @@ const mesParties = async (deps: DependancesHttp, joueur: JoueurEnregistre): Prom
   // Le temps de jeu des parties closes, lu en une fois ; une table vivante le
   // porte en mémoire.
   const archives = await deps.depot.tempsDeJeuDesParties(
-    parties.filter((partie) => deps.manager.tableVivante(partie.id) === null).map((partie) => partie.id),
+    parties
+      .filter((partie) => partie.termineeLe !== null || deps.manager.tableVivante(partie.id) === null)
+      .map((partie) => partie.id),
+  );
+  // Le match des paniers clos, lu en une fois ; une table vivante le porte.
+  const matchs = await deps.depot.matchsDesPaniers(
+    parties
+      .filter(
+        (partie) =>
+          partie.variante === 'panier' && (partie.termineeLe !== null || deps.manager.tableVivante(partie.id) === null),
+      )
+      .map((partie) => partie.id),
   );
   return {
     parties: await Promise.all(
@@ -811,7 +824,12 @@ const mesParties = async (deps: DependancesHttp, joueur: JoueurEnregistre): Prom
           creeeLe: partie.creeeLe.toISOString(),
           termineeLe: partie.termineeLe?.toISOString() ?? null,
           // Millisecondes passées à être attendu par la table, par joueur.
-          tempsDeJeu: vivante?.boule?.tempsDeJeu ?? archives[partie.id] ?? {},
+          tempsDeJeu: vivante?.boule?.tempsDeJeu ?? vivante?.panier?.tempsDeJeu ?? archives[partie.id] ?? {},
+          variante: description.variante,
+          manchesAGagner: description.manchesAGagner,
+          montant: description.montant,
+          // Panier seulement : où en est le match, ou comment il s'est fini.
+          panier: resumerMatch(vivante?.panier ?? matchs[partie.id] ?? null),
           abandonneParId: partie.abandon?.parJoueurId ?? null,
           // La table attend-elle ce joueur, là, maintenant ?
           aMoiDAgir:

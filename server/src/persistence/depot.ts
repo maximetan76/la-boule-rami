@@ -5,7 +5,7 @@
  * celle en mémoire sont interchangeables, ce qui permet de tester la logique de
  * sauvegarde et de rechargement sans base.
  */
-import type { Carte, Combinaison, JoueurId, Variante } from '../models/index.js';
+import type { Carte, Combinaison, JoueurId, MatchPanier, Variante } from '../models/index.js';
 import type { EtatBoulePersiste, EtatPanierPersiste } from './serialisation.js';
 
 /** Sort d'un tour entamé par un joueur qui se déconnecte. */
@@ -182,6 +182,11 @@ export interface Depot {
    * en une seule fois. Une partie sans mesure n'y figure pas.
    */
   tempsDeJeuDesParties(partieIds: readonly string[]): Promise<Record<string, Record<JoueurId, number>>>;
+  /**
+   * Le match des parties du panier données : manches gagnées, cible, montant,
+   * vainqueur. Une partie de La Boule n'y figure pas.
+   */
+  matchsDesPaniers(partieIds: readonly string[]): Promise<Record<string, MatchPanier>>;
   asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void>;
   /**
    * Libère la place d'un joueur et renumérote celles qui restent, pour que la

@@ -3,7 +3,7 @@
  * développement lancé sans base.
  */
 import { randomUUID } from 'node:crypto';
-import type { JoueurId } from '../models/index.js';
+import type { JoueurId, MatchPanier } from '../models/index.js';
 import {
   PSEUDO_COMPTE_SUPPRIME,
   type AbandonEnregistre,
@@ -14,7 +14,7 @@ import {
   type PartieEnregistree,
   type PartieRechargee,
 } from './depot.js';
-import type { EtatBoulePersiste, EtatPanierPersiste } from './serialisation.js';
+import { deserialiserMatchPanier, type EtatBoulePersiste, type EtatPanierPersiste } from './serialisation.js';
 
 export class DepotMemoire implements Depot {
   private readonly joueurs = new Map<JoueurId, JoueurEnregistre>();
@@ -114,10 +114,19 @@ export class DepotMemoire implements Depot {
     return Promise.resolve(candidates.at(-1) ?? null);
   }
 
+  matchsDesPaniers(partieIds: readonly string[]): Promise<Record<string, MatchPanier>> {
+    const resultat: Record<string, MatchPanier> = {};
+    for (const id of partieIds) {
+      const etat = this.paniers.get(id);
+      if (etat !== undefined) resultat[id] = deserialiserMatchPanier(etat);
+    }
+    return Promise.resolve(resultat);
+  }
+
   tempsDeJeuDesParties(partieIds: readonly string[]): Promise<Record<string, Record<JoueurId, number>>> {
     const resultat: Record<string, Record<JoueurId, number>> = {};
     for (const id of partieIds) {
-      const temps = this.boules.get(id)?.tempsDeJeu;
+      const temps = this.boules.get(id)?.tempsDeJeu ?? this.paniers.get(id)?.tempsDeJeu;
       if (temps !== undefined) resultat[id] = { ...temps };
     }
     return Promise.resolve(resultat);
