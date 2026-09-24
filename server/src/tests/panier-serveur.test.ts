@@ -128,6 +128,30 @@ describe('le panier, par la socket', () => {
     expect(table.panier?.manchesGagnees).toEqual({ 'p-ana': 0, 'p-bo': 0 });
   });
 
+  it('le salon annonce la variante : la description qu il remplace ne doit pas la perdre', async () => {
+    const createur = { id: 'p-ana', pseudo: 'Ana' };
+    const { tableId } = await serveur.manager.creerTable(createur, {
+      variante: 'panier',
+      manchesAGagner: 2,
+      montant: 15,
+    });
+    const socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
+    espions.push({ socket, joueurId: 'p-ana', dernierEtat: null, etatsRecus: 0 });
+    const salon = new Promise<Record<string, unknown>>((resolve) => {
+      socket.on('salon', (donnees: Record<string, unknown>) => {
+        resolve(donnees);
+      });
+    });
+    await new Promise<void>((resolve) => {
+      socket.on('connect', () => {
+        resolve();
+      });
+    });
+    const jeton = await signerJetonSession('p-ana', SESSION);
+    expect((await emettre(socket, 'rejoindre-table', { jeton, tableId })).ok).toBe(true);
+    expect(await salon).toMatchObject({ variante: 'panier', manchesAGagner: 2, montant: 15 });
+  });
+
   it('refuse un panier a trois joueurs, des manches hors bornes et un montant nul', async () => {
     const createur = { id: 'p-cy', pseudo: 'Cy' };
     await expect(serveur.manager.creerTable(createur, { variante: 'panier', capacite: 3 })).rejects.toThrow(/deux/);

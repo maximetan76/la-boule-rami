@@ -268,6 +268,10 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         pseudo: joueur.nom,
         connecte: connectes.includes(joueur.id),
       })),
+      // Le salon ne remplace pas la description : il doit porter la variante.
+      variante: table.variante,
+      manchesAGagner: table.variante === 'panier' ? table.manchesAGagner : null,
+      montant: table.variante === 'panier' ? table.montant : null,
     };
     for (const joueurId of connectes) {
       const socketId = manager.socketDe(table, joueurId);
