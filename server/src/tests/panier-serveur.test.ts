@@ -281,6 +281,31 @@ describe('le panier, par la socket', () => {
     expect(table.panier?.historique).toHaveLength(1);
   });
 
+  it('en fin de manche, la main du perdant se montre dans le rangement qu il lui avait donne', async () => {
+    const { coupReel, espion, table } = await ouvrirPanier();
+    const coup = coupReel();
+    const [premier, second] = coup.ordreJoueurs as [JoueurId, JoueurId];
+    const gagnante = mainGagnante();
+    coup.mains[premier] = gagnante.main;
+
+    // Le perdant range sa main a l envers, en ne citant que la moitie des cartes.
+    const sesCartes = (coup.mains[second] ?? []).map((carte) => carte.id);
+    const cite = [...sesCartes].reverse().slice(0, 7);
+    expect((await emettre(espion(second).socket, 'ordre-main', { ordre: [...cite, 'inconnue'] })).ok).toBe(true);
+    const attendu = [...cite, ...sesCartes.filter((id) => !cite.includes(id))];
+
+    expect((await agir(espion(premier), 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+    expect((await agir(espion(premier), 'piocher', { source: 'pioche' })).ok).toBe(true);
+    const piochee = table.tourEnCours?.cartePiochee;
+    if (piochee === undefined) throw new Error('carte piochee absente');
+    expect((await emettre(espion(premier).socket, 'poser', { poses: gagnante.poses })).ok).toBe(true);
+    expect(await agir(espion(premier), 'defausser', { carteId: piochee.id })).toEqual({ ok: true });
+
+    await attendreLeDecompte(espion(premier));
+    const revelees = espion(premier).dernierEtat?.resultat?.mainsRevelees[second] ?? [];
+    expect(revelees.map((carte) => carte.id)).toEqual(attendu);
+  });
+
   it('une pose partielle est refusee : on ne pose qu en finissant', async () => {
     const { coupReel, espion, table } = await ouvrirPanier();
     const coup = coupReel();

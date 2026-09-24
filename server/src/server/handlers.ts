@@ -1290,6 +1290,37 @@ export const enregistrerHandlers = (
      * seulement au serveur que le joueur y travaille, pour qu'il reçoive, une
      * fois, la prolongation prévue par la table.
      */
+    /**
+     * Le rangement que le joueur a donné à sa main, pour l'entracte : ses
+     * cartes sont alors montrées à l'autre dans cet ordre, pas dans un ordre
+     * que le serveur inventerait.
+     *
+     * Les cartes citées passent devant, dans l'ordre reçu ; celles que le
+     * client ne connaît pas (ou n'a pas citées) suivent, dans leur ordre. On
+     * n'ajoute, ne retire ni ne change aucune carte : seul l'ordre bouge.
+     */
+    socket.on('ordre-main', (payload: { ordre?: unknown } | undefined, ack: unknown) => {
+      repondre(ack, () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const coup = coupEnCours(table);
+        if (coup.phase === 'termine' || table.resultatCoup !== null) return;
+        const ordre = payload?.ordre;
+        if (!Array.isArray(ordre) || ordre.length > 30) return;
+        const main = coup.mains[joueurId];
+        if (main === undefined) return;
+        const parId = new Map(main.map((carte) => [carte.id, carte]));
+        const rangee: Carte[] = [];
+        for (const id of ordre) {
+          const carte = typeof id === 'string' ? parId.get(id) : undefined;
+          if (carte !== undefined) {
+            rangee.push(carte);
+            parId.delete(carte.id);
+          }
+        }
+        coup.mains[joueurId] = [...rangee, ...parId.values()];
+      });
+    });
+
     socket.on('composition-commencee', (_payload: unknown, ack: unknown) => {
       repondre(ack, () => {
         const { table, joueurId } = manager.placeDeLaSocket(socket.id);
