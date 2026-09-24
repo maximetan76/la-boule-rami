@@ -5,6 +5,7 @@
  * § « Déroulement d'un tour de jeu » et § « Règle spéciale : piocher la carte
  * de la défausse ».
  */
+import type { Variante } from './variante.js';
 import type { Carte } from './carte.js';
 import type { Combinaison } from './combinaison.js';
 import type { JoueurId } from './joueur.js';
@@ -83,6 +84,8 @@ export interface Coup {
    * la table. Dès qu'un « je joue » est prononcé, ils jouent chacun le leur.
    */
   enAttente?: JoueurId[];
+  /** La variante jouée. Absente : La Boule, comme avant. */
+  variante?: Variante;
   /**
    * Le joueur « engagé » : le dernier à avoir dit « je joue », et le seul que
    * l'on interroge encore quand son tour revient. Il risque le chocolat.

@@ -26,6 +26,7 @@ import {
   verifierDeclarationsJokers,
 } from './combinaisons.js';
 import { peutPoser, SEUIL_POSE, verifierFinDeCoupSpeciale } from './pose.js';
+import { reglesDe } from './variantes.js';
 import { melangerPaquet } from './distribution.js';
 
 /** Cartes ajoutées à une combinaison déjà visible. */
@@ -225,6 +226,7 @@ export const jouerTour = (
     throw new Error(`Ce n'est pas au tour de ${joueurActifId} mais de ${coup.joueurActifId}`);
   }
 
+  const regles = reglesDe(coup.variante);
   const poses = action.poses ?? [];
   const ajouts = regrouperAjouts(action.ajouts ?? []);
   verifierDeclarationsJokers(poses);
@@ -286,7 +288,7 @@ export const jouerTour = (
   //   comprise.
   // Une carte qui ne touche pas la suite reste permise : 6-7-8 posé, le 4
   // ramassé et le 5 de la main complètent 4-5-6-7-8.
-  if (action.source === 'defausse') {
+  if (action.source === 'defausse' && !regles.priseDefausseLibre) {
     for (const ajout of ajouts) {
       if (!ajout.cartes.some((cp) => cp.carte.id === cartePiochee.id)) continue;
       const cible = coup.combinaisons.find((combinaison) => combinaison.id === ajout.combinaisonId);
@@ -362,7 +364,13 @@ export const jouerTour = (
   );
   const finSpeciale = verifierFinDeCoupSpeciale(mainApresPioche, [...poses, ...enrichies]);
 
-  if (!dejaPose && !finSpeciale) {
+  // Réf. § « Le panier » : là-bas, on ne pose jamais qu'en finissant le coup
+  // d'un seul coup — pas de première pose à 51 points, pas d'ajout séparé.
+  if (regles.poseSeulementPourFinir && (poses.length > 0 || ajouts.length > 0) && !finSpeciale) {
+    throw new Error('Au panier, on ne pose qu en placant toute sa main pour finir le coup');
+  }
+
+  if (!regles.poseSeulementPourFinir && !dejaPose && !finSpeciale) {
     if (poses.length === 0 && ajouts.length > 0) {
       throw new Error(
         "Il faut avoir pose son jeu avant d'ajouter des cartes sur les combinaisons en place",
@@ -381,7 +389,8 @@ export const jouerTour = (
   }
 
   // --- Contraintes propres à la pioche en défausse -------------------------
-  if (action.source === 'defausse') {
+  // Réf. § « Le panier » : là-bas, la carte prise se garde librement.
+  if (action.source === 'defausse' && !regles.priseDefausseLibre) {
     if (!utilisees.has(cartePiochee.id)) {
       throw new Error(
         'La carte prise dans la defausse doit etre utilisee immediatement dans une combinaison posee',

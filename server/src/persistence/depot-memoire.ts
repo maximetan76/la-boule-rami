@@ -14,13 +14,14 @@ import {
   type PartieEnregistree,
   type PartieRechargee,
 } from './depot.js';
-import type { EtatBoulePersiste } from './serialisation.js';
+import type { EtatBoulePersiste, EtatPanierPersiste } from './serialisation.js';
 
 export class DepotMemoire implements Depot {
   private readonly joueurs = new Map<JoueurId, JoueurEnregistre>();
   private readonly parApple = new Map<string, JoueurId>();
   private readonly parties = new Map<string, PartieEnregistree>();
   private readonly boules = new Map<string, EtatBoulePersiste>();
+  private readonly paniers = new Map<string, EtatPanierPersiste>();
   /** Compteur d'écritures de Boule, pour vérifier en test qu'on ne sauvegarde pas trop. */
   ecritures = 0;
 
@@ -179,6 +180,12 @@ export class DepotMemoire implements Depot {
     return Promise.resolve();
   }
 
+  enregistrerMatchPanier(partieId: string, etat: EtatPanierPersiste): Promise<void> {
+    this.ecritures += 1;
+    this.paniers.set(partieId, etat);
+    return Promise.resolve();
+  }
+
   chargerPartiesActives(): Promise<PartieRechargee[]> {
     const actives = [...this.parties.values()]
       .filter((partie) => partie.termineeLe === null)
@@ -190,6 +197,7 @@ export class DepotMemoire implements Depot {
           pseudoChoisi: this.joueurs.get(id)?.pseudoChoisi ?? true,
         })),
         etatBoule: this.boules.get(partie.id) ?? null,
+        etatPanier: this.paniers.get(partie.id) ?? null,
       }));
     return Promise.resolve(actives);
   }
@@ -205,6 +213,7 @@ export class DepotMemoire implements Depot {
         pseudoChoisi: this.joueurs.get(id)?.pseudoChoisi ?? true,
       })),
       etatBoule: this.boules.get(partie.id) ?? null,
+      etatPanier: this.paniers.get(partie.id) ?? null,
     });
   }
 

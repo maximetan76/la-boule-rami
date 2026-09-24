@@ -6,7 +6,16 @@
  * abandonner une partie, changer de pseudo, supprimer son compte.
  */
 import { decrireTablePublique, nomALaTable } from './game-room-manager.js';
-import { COUPS_PAR_NOMBRE_DE_JOUEURS, NOMBRE_COUPS_MAX, NOMBRE_COUPS_MIN } from '../models/index.js';
+import {
+  COUPS_PAR_NOMBRE_DE_JOUEURS,
+  estVariante,
+  MANCHES_A_GAGNER_MAX,
+  MANCHES_A_GAGNER_MIN,
+  MONTANT_MAX,
+  MONTANT_MIN,
+  NOMBRE_COUPS_MAX,
+  NOMBRE_COUPS_MIN,
+} from '../models/index.js';
 import { calculerFinDeBoule, estBouleTerminee, reportEnCours } from '../game-engine/index.js';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -26,8 +35,8 @@ import type {
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_PAR_DEFAUT } from '../persistence/depot.js';
 import type { DelaisDeJeu } from '../persistence/depot.js';
 import { joueurAttendu } from './handlers.js';
-import { deserialiserBoule } from '../persistence/serialisation.js';
-import type { ResultatCoup } from '../models/index.js';
+import { deserialiserBoule, deserialiserMatchPanier } from '../persistence/serialisation.js';
+import type { MatchPanier, ResultatCoup, Variante } from '../models/index.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { GameRoomManager, Table } from './game-room-manager.js';
 
@@ -298,6 +307,39 @@ const lireValeurPoint = (valeur: unknown): string | null => {
   return normalise;
 };
 
+/** La variante demandée : absente, La Boule. */
+const lireVariante = (valeur: unknown): Variante => {
+  if (valeur === undefined || valeur === null) return 'boule';
+  if (!estVariante(valeur)) throw new ErreurHttp(400, 'Variante inconnue (boule ou panier)');
+  return valeur;
+};
+
+/** Manches à gagner du panier : absent, 3 ; sinon un entier dans les bornes. */
+const lireManchesAGagner = (valeur: unknown): number | undefined => {
+  if (valeur === undefined || valeur === null) return undefined;
+  if (
+    typeof valeur !== 'number' ||
+    !Number.isInteger(valeur) ||
+    valeur < MANCHES_A_GAGNER_MIN ||
+    valeur > MANCHES_A_GAGNER_MAX
+  ) {
+    throw new ErreurHttp(
+      400,
+      `Nombre de manches a gagner invalide (${String(MANCHES_A_GAGNER_MIN)} a ${String(MANCHES_A_GAGNER_MAX)})`,
+    );
+  }
+  return valeur;
+};
+
+/** Montant du panier : absent, 10 ; sinon un nombre positif dans les bornes. */
+const lireMontant = (valeur: unknown): number | undefined => {
+  if (valeur === undefined || valeur === null) return undefined;
+  if (typeof valeur !== 'number' || !Number.isFinite(valeur) || valeur < MONTANT_MIN || valeur > MONTANT_MAX) {
+    throw new ErreurHttp(400, `Montant invalide (${String(MONTANT_MIN)} a ${String(MONTANT_MAX)})`);
+  }
+  return valeur;
+};
+
 const decrireTable = decrireTablePublique;
 
 const creerTable = async (
@@ -305,6 +347,25 @@ const creerTable = async (
   deps: DependancesHttp,
   joueur: JoueurEnregistre,
 ): Promise<unknown> => {
+  const variante = lireVariante(corps['variante']);
+  if (variante === 'panier') {
+    // Réf. § « Le panier » : deux joueurs, ni coups frichés ni valeur du point.
+    const manchesAGagner = lireManchesAGagner(corps['manchesAGagner']);
+    const montant = lireMontant(corps['montant']);
+    const creee = await deps.manager.creerTable(joueur, {
+      variante: 'panier',
+      capacite: 2,
+      ...(manchesAGagner === undefined ? {} : { manchesAGagner }),
+      ...(montant === undefined ? {} : { montant }),
+      delais: lireDelais(corps['delais']),
+      ...(() => {
+        const gestion = lireGestionDeconnexion(corps['gestionDeconnexion']);
+        return gestion === undefined ? {} : { gestionDeconnexion: gestion };
+      })(),
+    });
+    return decrireTable(deps.manager.table(creee.tableId));
+  }
+
   const capacite = corps['nombreJoueurs'];
   if (capacite !== undefined && typeof capacite !== 'number') {
     throw new ErreurHttp(400, 'Nombre de joueurs invalide');
@@ -425,6 +486,28 @@ const decrireCoups = (historique: readonly ResultatCoup[]) =>
  * décidé, quand, et le coup interrompu, mains de tous comprises. Seuls les
  * joueurs de la partie y ont accès.
  */
+/**
+ * Le match du panier tel que l'API le raconte : où il en est, et chaque manche
+ * jouée. `null` pour une partie de La Boule.
+ */
+const decrirePanier = (match: MatchPanier | null) =>
+  match === null
+    ? null
+    : {
+        manchesAGagner: match.manchesAGagner,
+        montant: match.montant,
+        manchesGagnees: { ...match.manchesGagnees },
+        vainqueurId: match.vainqueurId,
+        manches: match.historique.map((manche) => ({
+          numero: manche.numero,
+          gagnantId: manche.gagnantId,
+          combinaisons: manche.combinaisons.map((combinaison) => ({ ...combinaison })),
+          mainsRevelees: Object.fromEntries(
+            Object.entries(manche.mainsRevelees).map(([joueurId, cartes]) => [joueurId, [...cartes]]),
+          ),
+        })),
+      };
+
 const historiqueDeLaBoule = async (
   tableId: string,
   deps: DependancesHttp,
@@ -437,6 +520,8 @@ const historiqueDeLaBoule = async (
     }
     return {
       tableId,
+      variante: vivante.variante,
+      panier: decrirePanier(vivante.panier),
       statut: vivante.statut,
       coups: decrireCoups(vivante.boule?.historique ?? []),
       finDeBoule: finDe(vivante.boule),
@@ -454,12 +539,15 @@ const historiqueDeLaBoule = async (
   if (archive === null) throw new ErreurHttp(404, 'Table introuvable');
   const { partie } = archive;
   const bouleArchivee = archive.etatBoule === null ? null : deserialiserBoule(archive.etatBoule);
+  const panierArchive = archive.etatPanier === null ? null : deserialiserMatchPanier(archive.etatPanier);
   if (!partie.joueursIds.includes(joueur.id)) {
     throw new ErreurHttp(403, "Vous n'etes pas a cette table");
   }
 
   return {
     tableId,
+    variante: partie.variante ?? 'boule',
+    panier: decrirePanier(panierArchive),
     statut:
       partie.termineeLe === null
         ? partie.demarree
@@ -575,6 +663,18 @@ const resumerBoule = (table: Table) =>
         croix: { ...table.boule.croix },
       };
 
+/** Résumé d'un match du panier, pour un client qui reprend sans coup distribué. */
+const resumerPanier = (table: Table) =>
+  table.panier === null
+    ? null
+    : {
+        manche: table.panier.historique.length + 1,
+        manchesGagnees: { ...table.panier.manchesGagnees },
+        manchesAGagner: table.panier.manchesAGagner,
+        montant: table.panier.montant,
+        vainqueurId: table.panier.vainqueurId,
+      };
+
 /**
  * Où en est le joueur : c'est le point d'entrée d'un client qui n'a gardé que
  * son jeton de session — après un redémarrage du serveur, ou une réinstallation
@@ -597,17 +697,25 @@ const situationDuJoueur = async (
       statut: 'en-cours',
       table: decrireTable(table),
       boule: resumerBoule(table),
+      panier: resumerPanier(table),
       // Le coup en cours n'est pas persisté : après un redémarrage, il n'y a
       // rien à filtrer tant que la donne n'a pas été refaite.
       etat:
         table.coup === null
           ? null
-          : filtrerEtatPourJoueur(table.coup, table.boule as NonNullable<typeof table.boule>, joueur.id, {
-              tableId: table.id,
-              connectes: deps.manager.joueursConnectes(table),
-              pseudos: Object.fromEntries(table.joueurs.map((assis) => [assis.id, assis.nom])),
-              tourEnAttente: table.tourEnCours,
-            }),
+          : filtrerEtatPourJoueur(
+              table.coup,
+              table.variante === 'panier'
+                ? { panier: table.panier as NonNullable<typeof table.panier> }
+                : { boule: table.boule as NonNullable<typeof table.boule> },
+              joueur.id,
+              {
+                tableId: table.id,
+                connectes: deps.manager.joueursConnectes(table),
+                pseudos: Object.fromEntries(table.joueurs.map((assis) => [assis.id, assis.nom])),
+                tourEnAttente: table.tourEnCours,
+              },
+            ),
     };
   }
 
@@ -656,6 +764,9 @@ const decrirePartie = async (partie: PartieEnregistree, depot: Depot) => {
     excedentDeFriches: partie.excedentDeFriches ?? 0,
     nombreCoups: partie.nombreCoups,
     valeurPoint: partie.valeurPoint,
+    variante: partie.variante ?? 'boule',
+    manchesAGagner: partie.variante === 'panier' ? (partie.manchesAGagner ?? null) : null,
+    montant: partie.variante === 'panier' ? (partie.montant ?? null) : null,
   };
 };
 

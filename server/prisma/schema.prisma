@@ -41,6 +41,14 @@ model Partie {
   capacite       Int
   demarree       Boolean @default(false)
 
+  /// Le jeu joué à cette table : « boule » ou « panier ». Voir docs/REGLES.md
+  /// § « Le panier ». Les parties d'avant la variante valent « boule ».
+  variante String @default("boule")
+  /// Panier seulement : manches à gagner pour empocher le montant.
+  manchesAGagner Int?
+  /// Panier seulement : ce que le vainqueur du match empoche.
+  montant        Float?
+
   /// Sort d'un tour entamé par un joueur qui se déconnecte : « delai » ou
   /// « illimite ». Voir GestionDeconnexion côté serveur.
   gestionDeconnexionType    String @default("delai")

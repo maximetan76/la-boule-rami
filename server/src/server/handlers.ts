@@ -27,6 +27,7 @@ import type {
   Couleur,
   Coup,
   JoueurId,
+  ScoreCoup,
   Valeur,
 } from '../models/index.js';
 import {
@@ -43,14 +44,17 @@ import {
   annoncer,
   apresTour,
   joueurQuiParle,
+  enregistrerResultatManche,
+  estMatchTermine,
 } from '../game-engine/index.js';
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { EcheanceFiltree, ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
-import type { AttenteDeJeu, TourEnCours } from './game-room-manager.js';
+import type { AttenteDeJeu, ResultatCoupEnAttente, TourEnCours } from './game-room-manager.js';
 import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
 import {
   bouleEnCours,
+  panierEnCours,
   ErreurNonRattachee,
   decrireTablePublique,
   demarrerCoup,
@@ -230,9 +234,15 @@ const appliquerAnnonce = (table: Table, joueurId: JoueurId, annonce: Annonce): v
   const { coup: apres, toutLeMondeAFriche } = annoncer(coup, joueurId, annonce);
   table.coup = apres;
   if (toutLeMondeAFriche) {
-    table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, {
-      toutLeMondeAFriche: true,
-    });
+    if (table.variante === 'panier') {
+      table.panier = enregistrerResultatManche(panierEnCours(table), coup.numero, {
+        toutLeMondeAFriche: true,
+      });
+    } else {
+      table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, {
+        toutLeMondeAFriche: true,
+      });
+    }
     redistribuerCoup(table);
   }
 };
@@ -281,7 +291,11 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
 
     io.to(socketId).emit(
       'etat',
-      filtrerEtatPourJoueur(coup, bouleEnCours(table), joueurId, {
+      filtrerEtatPourJoueur(
+        coup,
+        table.variante === 'panier' ? { panier: panierEnCours(table) } : { boule: bouleEnCours(table) },
+        joueurId,
+        {
         tableId: table.id,
         connectes,
         pseudos: Object.fromEntries(table.joueurs.map((joueur) => [joueur.id, joueur.nom])),
@@ -293,7 +307,8 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         jokersConserves: Object.fromEntries(table.jokersGardes),
         finDeBoule,
         echeance,
-      }),
+      },
+      ),
     );
   }
 };
@@ -354,6 +369,16 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
     carteDefaussee: resultat.carteDefaussee ?? null,
     rejouer: [...resultat.rejouer],
     rejouerAnnulePar: resultat.rejouerAnnulePar,
+    ...(resultat.matchPanier === undefined
+      ? {}
+      : {
+          matchPanier: {
+            manchesGagnees: { ...resultat.matchPanier.manchesGagnees },
+            manchesAGagner: resultat.matchPanier.manchesAGagner,
+            montant: resultat.matchPanier.montant,
+            vainqueurId: resultat.matchPanier.vainqueurId,
+          },
+        }),
   };
 };
 
@@ -364,6 +389,21 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
  * Boule. Entre deux, tout vit en mémoire : un redémarrage ne coûte que le coup
  * en cours, qui sera redistribué.
  */
+/**
+ * Un score de coup vide, honnête : au panier, il n'y a ni points, ni croix,
+ * ni double ou triple — seule la manche gagnée compte, portée à part dans
+ * `table.resultatCoup.matchPanier`.
+ */
+const scoreDeMancheVide = (coup: Coup, gagnantId: JoueurId): ScoreCoup => ({
+  gagnantId,
+  typeVictoire: 'simple',
+  estFriche: false,
+  multiplicateur: 1,
+  scores: Object.fromEntries(coup.ordreJoueurs.map((id) => [id, 0])),
+  croixGagnees: Object.fromEntries(coup.ordreJoueurs.map((id) => [id, 0])),
+  chocolatId: null,
+});
+
 const cloturerCoup = async (
   manager: GameRoomManager,
   table: Table,
@@ -374,13 +414,35 @@ const cloturerCoup = async (
   const gagnantId = coup.gagnantId;
   if (gagnantId === null) return;
 
-  const typeVictoire = detecterDoubleOuTriple(coup, gagnantId);
-  const scoreCoup = calculerScoreCoup(coup, gagnantId, typeVictoire, coup.estFriche);
-  table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, scoreCoup, {
-    combinaisons: coup.combinaisons,
-    mainsRevelees: coup.mains,
-    poseFinale: [...poseFinale],
-  });
+  let scoreCoup: ScoreCoup;
+  let derniereCoup: boolean;
+  let matchPanier: ResultatCoupEnAttente['matchPanier'];
+
+  if (table.variante === 'panier') {
+    scoreCoup = scoreDeMancheVide(coup, gagnantId);
+    table.panier = enregistrerResultatManche(panierEnCours(table), coup.numero, {
+      gagnantId,
+      combinaisons: coup.combinaisons,
+      mainsRevelees: coup.mains,
+    });
+    derniereCoup = estMatchTermine(table.panier);
+    matchPanier = {
+      manchesGagnees: { ...table.panier.manchesGagnees },
+      manchesAGagner: table.panier.manchesAGagner,
+      montant: table.panier.montant,
+      vainqueurId: table.panier.vainqueurId,
+    };
+  } else {
+    const typeVictoire = detecterDoubleOuTriple(coup, gagnantId);
+    scoreCoup = calculerScoreCoup(coup, gagnantId, typeVictoire, coup.estFriche);
+    table.boule = enregistrerResultatCoup(bouleEnCours(table), coup.numero, scoreCoup, {
+      combinaisons: coup.combinaisons,
+      mainsRevelees: coup.mains,
+      poseFinale: [...poseFinale],
+    });
+    derniereCoup = estBouleTerminee(bouleEnCours(table));
+    matchPanier = undefined;
+  }
 
   // Le coup est fini : le dernier temps de jeu part avec la Boule enregistrée.
   mesurerLeTempsDeJeu(table);
@@ -392,11 +454,12 @@ const cloturerCoup = async (
   table.resultatCoup = {
     numero: coup.numero,
     score: scoreCoup,
+    ...(matchPanier === undefined ? {} : { matchPanier }),
     mains: Object.fromEntries(
       Object.entries(coup.mains).map(([joueurId, cartes]) => [joueurId, [...cartes]]),
     ),
     prets: [],
-    derniereCoup: estBouleTerminee(bouleEnCours(table)),
+    derniereCoup,
     poseFinale: [...poseFinale],
     // La défausse qui a clos le coup : la carte du dessus est la sienne.
     carteDefaussee: poseFinale.length === 0 && coup.defausse.length === 0 ? null : (coup.defausse.at(-1) ?? null),
@@ -443,26 +506,44 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
   const createur = table.joueurs.find((joueur) => joueur.id === table.createurId) ?? table.joueurs[0];
   if (createur === undefined) return;
 
-  const report = reportDeFriches(bouleEnCours(table), {
-    coupsFrichesConfigures: table.coupsFrichesConfigures,
-    coupsFrichesDepart: table.coupsFrichesDepart,
-    excedentRecu: table.excedentDeFriches,
-    coupsDeLaSuivante: table.nombreCoups ?? COUPS_PAR_NOMBRE_DE_JOUEURS[table.capacite] ?? 0,
-  });
-  const creee = await manager.creerTable(
-    { id: createur.id, pseudo: createur.nom },
-    {
-      capacite: table.capacite,
-      gestionDeconnexion: table.gestionDeconnexion,
-      delais: table.delais,
-      coupsFrichesDepart: report.coupsFrichesDepart,
+  // Réf. § « Le panier » : un nouveau match repart de zéro, sans report — la
+  // notion de coups frichés ne lui appartient pas.
+  let creee: Awaited<ReturnType<typeof manager.creerTable>>;
+  if (table.variante === 'panier') {
+    creee = await manager.creerTable(
+      { id: createur.id, pseudo: createur.nom },
+      {
+        variante: 'panier',
+        capacite: table.capacite,
+        gestionDeconnexion: table.gestionDeconnexion,
+        delais: table.delais,
+        manchesAGagner: table.manchesAGagner,
+        montant: table.montant,
+        alea: table.alea,
+      },
+    );
+  } else {
+    const report = reportDeFriches(bouleEnCours(table), {
       coupsFrichesConfigures: table.coupsFrichesConfigures,
-      excedentDeFriches: report.excedent,
-      nombreCoups: table.nombreCoups,
-      valeurPoint: table.valeurPoint,
-      alea: table.alea,
-    },
-  );
+      coupsFrichesDepart: table.coupsFrichesDepart,
+      excedentRecu: table.excedentDeFriches,
+      coupsDeLaSuivante: table.nombreCoups ?? COUPS_PAR_NOMBRE_DE_JOUEURS[table.capacite] ?? 0,
+    });
+    creee = await manager.creerTable(
+      { id: createur.id, pseudo: createur.nom },
+      {
+        capacite: table.capacite,
+        gestionDeconnexion: table.gestionDeconnexion,
+        delais: table.delais,
+        coupsFrichesDepart: report.coupsFrichesDepart,
+        coupsFrichesConfigures: table.coupsFrichesConfigures,
+        excedentDeFriches: report.excedent,
+        nombreCoups: table.nombreCoups,
+        valeurPoint: table.valeurPoint,
+        alea: table.alea,
+      },
+    );
+  }
   // La dernière place prise démarre la partie, comme dans un salon ordinaire.
   for (const joueur of table.joueurs) {
     if (joueur.id === createur.id) continue;
@@ -1251,7 +1332,9 @@ export const enregistrerHandlers = (
           // Une confirmation en double — second appui, renvoi après une
           // coupure — peut arriver après le départ du coup suivant : elle est
           // sans objet, pas en faute. Le client dit pour quel coup il confirme.
-          if (numero !== null && (table.boule?.historique.length ?? 0) >= numero) return;
+          const dejaJoues =
+            table.variante === 'panier' ? (table.panier?.historique.length ?? 0) : (table.boule?.historique.length ?? 0);
+          if (numero !== null && dejaJoues >= numero) return;
           throw new Error('Aucun coup termine a enchainer');
         }
         // Une confirmation pour un coup déjà passé ne vaut rien pour celui-ci.

@@ -100,7 +100,10 @@ export const initialiserBoule = (
  * se lit elle aussi sur les numéros de coups et non sur les donneurs passés.
  * Utiliser `numeroCoupCourant` évite au appelant de se tromper de numéro.
  */
-export const determinerJoueursAssis = (boule: Boule, numeroCoup: number): CompositionCoup => {
+export const determinerJoueursAssis = (
+  boule: { readonly ordreTable: readonly JoueurId[] },
+  numeroCoup: number,
+): CompositionCoup => {
   const taille = boule.ordreTable.length;
   if (taille === 0) {
     throw new Error('Boule sans joueur');

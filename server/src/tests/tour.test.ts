@@ -1972,3 +1972,65 @@ describe('fin de coup construite geste par geste', () => {
     ).toThrow(/avoir pose son jeu avant d'ajouter/);
   });
 });
+
+describe('le panier : prise en defausse libre, pose seulement pour finir', () => {
+  const coupPanier = (main: Carte[], partiel: Parameters<typeof coup>[0] = {}) =>
+    coup({
+      variante: 'panier',
+      mains: { j1: main, j2: [] },
+      ordreJoueurs: ['j1', 'j2'],
+      pioche: [c('carreau', 2), c('carreau', 3)],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }), j2: recap({ toursAvecPose: [] }) },
+      ...partiel,
+    });
+
+  it('prend la defausse sans etre oblige de la poser dans la foulee', () => {
+    const cinq = c('coeur', 5);
+    const neuf = c('pique', 9);
+    const depart = coupPanier([neuf, c('trefle', 'V')]);
+    depart.defausse = [cinq];
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'defausse',
+      // La carte prise ne sert a rien : ni pose, ni ajout. A La Boule, ce
+      // serait refuse ; au panier, c est permis.
+      carteDefausseeId: neuf.id,
+    });
+    expect(apres.mains['j1']?.some((carte) => carte.id === cinq.id)).toBe(true);
+  });
+
+  it('refuse toute pose qui ne place pas la main entiere', () => {
+    const brelan = ensemble(7, [c('pique', 7), c('coeur', 7), c('trefle', 7)]);
+    const depart = coupPanier([...brelan.cartes.map((cp) => cp.carte), c('carreau', 9), c('carreau', 10)]);
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        poses: [brelan],
+        carteDefausseeId: c('carreau', 9).id,
+      }),
+    ).toThrow(/toute sa main pour finir/);
+  });
+
+  it('accepte de finir en placant les 14 cartes en combinaisons valides, sans 51 points ni tierce franche', () => {
+    // Trois brelans (27 points, aucune tierce franche parmi eux) et une suite
+    // de 5 : 14 cartes en main. Refuse a La Boule (pas de tierce franche a
+    // elle seule aux 51 points), accepte au panier des lors que ca place
+    // toute la main.
+    const brelans = [
+      [c('pique', 2), c('coeur', 2), c('trefle', 2)],
+      [c('pique', 3), c('coeur', 3), c('trefle', 3)],
+      [c('pique', 4), c('coeur', 4), c('trefle', 4)],
+    ];
+    const suiteDeCinq = [c('coeur', 5), c('coeur', 6), c('coeur', 7), c('coeur', 8), c('coeur', 9)];
+    const depart = coupPanier([...brelans.flat(), ...suiteDeCinq]);
+
+    const { coup: apres, coupTermine } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: [...brelans.map((brelan, rang) => ensemble((rang + 2) as 2 | 3 | 4, brelan)), tierce('coeur', suiteDeCinq)],
+      carteDefausseeId: depart.pioche[0]!.id,
+    });
+    expect(coupTermine).toBe(true);
+    expect(apres.gagnantId).toBe('j1');
+  });
+});

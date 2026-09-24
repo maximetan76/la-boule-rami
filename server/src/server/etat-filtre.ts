@@ -86,6 +86,16 @@ export interface ResultatCoupFiltre {
   readonly poseFinale: string[];
   /** La carte qu'il a jetée pour finir ; `null` s'il n'en a pas jeté. */
   readonly carteDefaussee: Carte | null;
+  /**
+   * Panier seulement : où en est le match après cette manche. Absent pour un
+   * coup de La Boule.
+   */
+  readonly matchPanier?: {
+    readonly manchesGagnees: Readonly<Record<JoueurId, number>>;
+    readonly manchesAGagner: number;
+    readonly montant: number;
+    readonly vainqueurId: JoueurId | null;
+  };
 }
 
 /**
@@ -140,7 +150,7 @@ export interface EcheanceFiltree {
   readonly dureeMs: number;
 }
 
-import type { ResultatBoule } from '../models/index.js';
+import type { MatchPanier, ResultatBoule } from '../models/index.js';
 
 /** Ce qu'un joueur a gardé d'une friche généralisée : combien, jamais lesquels. */
 export interface JokersConservesFiltres {
@@ -231,13 +241,22 @@ export interface EtatCoupFiltre {
    * entre joueurs. Réf. docs/REGLES.md § « Fin de la Boule ». `null` avant.
    */
   readonly finDeBoule: ResultatBoule | null;
+  /** `null` pour une table du panier : voir `matchPanier`. */
   readonly boule: {
     readonly nombreCoupsTotal: number;
     readonly nombreCoupsFriches: number;
     readonly coupsJoues: number;
     readonly scoresCumules: Record<JoueurId, number>;
     readonly croix: Record<JoueurId, number>;
-  };
+  } | null;
+  /** `null` hors du panier. */
+  readonly matchPanier: {
+    readonly manche: number;
+    readonly manchesGagnees: Readonly<Record<JoueurId, number>>;
+    readonly manchesAGagner: number;
+    readonly montant: number;
+    readonly vainqueurId: JoueurId | null;
+  } | null;
 }
 
 const aPose = (coup: Coup, joueurId: JoueurId): boolean =>
@@ -260,7 +279,7 @@ const parIdentifiant = (a: Carte, b: Carte): number => (a.id < b.id ? -1 : a.id 
  */
 export const filtrerEtatPourJoueur = (
   coup: Coup,
-  boule: Boule,
+  contexte: { readonly boule: Boule } | { readonly panier: MatchPanier },
   joueurId: JoueurId,
   options: {
     readonly tableId?: string;
@@ -376,13 +395,26 @@ export const filtrerEtatPourJoueur = (
     echeance,
     jokersConserves: conserves,
     finDeBoule,
-    boule: {
-      nombreCoupsTotal: boule.nombreCoupsTotal,
-      nombreCoupsFriches: boule.nombreCoupsFriches,
-      coupsJoues: boule.historique.length,
-      scoresCumules: { ...boule.scoresCumules },
-      croix: { ...boule.croix },
-    },
+    boule:
+      'boule' in contexte
+        ? {
+            nombreCoupsTotal: contexte.boule.nombreCoupsTotal,
+            nombreCoupsFriches: contexte.boule.nombreCoupsFriches,
+            coupsJoues: contexte.boule.historique.length,
+            scoresCumules: { ...contexte.boule.scoresCumules },
+            croix: { ...contexte.boule.croix },
+          }
+        : null,
+    matchPanier:
+      'panier' in contexte
+        ? {
+            manche: contexte.panier.historique.length + 1,
+            manchesGagnees: { ...contexte.panier.manchesGagnees },
+            manchesAGagner: contexte.panier.manchesAGagner,
+            montant: contexte.panier.montant,
+            vainqueurId: contexte.panier.vainqueurId,
+          }
+        : null,
     // Le talon n'apparaît nulle part : ni son contenu, ni sa taille.
   };
 };

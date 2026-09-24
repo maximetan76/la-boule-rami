@@ -5,8 +5,8 @@
  * celle en mémoire sont interchangeables, ce qui permet de tester la logique de
  * sauvegarde et de rechargement sans base.
  */
-import type { Carte, Combinaison, JoueurId } from '../models/index.js';
-import type { EtatBoulePersiste } from './serialisation.js';
+import type { Carte, Combinaison, JoueurId, Variante } from '../models/index.js';
+import type { EtatBoulePersiste, EtatPanierPersiste } from './serialisation.js';
 
 /** Sort d'un tour entamé par un joueur qui se déconnecte. */
 export type GestionDeconnexion =
@@ -93,6 +93,11 @@ export interface PartieEnregistree {
   readonly demarree: boolean;
   readonly gestionDeconnexion: GestionDeconnexion;
   readonly delais: DelaisDeJeu;
+  /** Le jeu joué à cette table ; absente d'une partie antérieure : La Boule. */
+  readonly variante?: Variante;
+  /** Panier seulement : manches à gagner et montant empoché par le vainqueur. */
+  readonly manchesAGagner?: number | null;
+  readonly montant?: number | null;
   /** Coups frichés choisis à la création. */
   readonly coupsFrichesDepart: number;
   /** Base du report en cascade, transmise de Boule rejouée en Boule rejouée ; absente : le départ. */
@@ -125,6 +130,9 @@ export interface NouvellePartie {
   readonly excedentDeFriches?: number;
   readonly valeurPoint: string | null;
   readonly nombreCoups: number | null;
+  readonly variante: Variante;
+  readonly manchesAGagner?: number;
+  readonly montant?: number;
 }
 
 /** Une partie en cours, avec l'état de sa Boule, tel qu'il revient de la base. */
@@ -133,6 +141,8 @@ export interface PartieRechargee {
   /** Joueurs assis, dans l'ordre de la table figé au tirage d'ouverture. */
   readonly joueurs: { readonly id: JoueurId; readonly pseudo: string; readonly pseudoChoisi?: boolean }[];
   readonly etatBoule: EtatBoulePersiste | null;
+  /** Panier seulement. */
+  readonly etatPanier: EtatPanierPersiste | null;
 }
 
 export interface Depot {
@@ -195,6 +205,8 @@ export interface Depot {
 
   /** Écrit l'état de la Boule d'une partie, en écrasant le précédent. */
   enregistrerBoule(partieId: string, etat: EtatBoulePersiste): Promise<void>;
+  /** Panier seulement. */
+  enregistrerMatchPanier(partieId: string, etat: EtatPanierPersiste): Promise<void>;
 
   /** Parties non terminées, avec leur Boule, pour la reprise au démarrage. */
   chargerPartiesActives(): Promise<PartieRechargee[]>;

@@ -28,17 +28,29 @@ import type {
   Coup,
   Joueur,
   JoueurId,
+  MatchPanier,
   ScoreCoup,
+  Variante,
 } from '../models/index.js';
 import {
+  MANCHES_A_GAGNER_MAX,
+  MANCHES_A_GAGNER_MIN,
+  MONTANT_MAX,
+  MONTANT_MIN,
+} from '../models/index.js';
+import {
+  composerManche,
   construirePaquet,
   determinerJoueursAssis,
   distribuerAvecCartesConservees,
   distribuerCartes,
+  distribuerLePanier,
   estCoupFriche,
   initialiserBoule,
+  initialiserMatchPanier,
   melangerPaquet,
   numeroCoupCourant,
+  numeroMancheCourant,
   redistribuerApresFricheGeneralisee,
   tirerSiegesEtDonneurInitial,
 } from '../game-engine/index.js';
@@ -51,7 +63,12 @@ import type {
   JoueurEnregistre,
 } from '../persistence/depot.js';
 import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_ILLIMITES } from '../persistence/depot.js';
-import { deserialiserBoule, serialiserBoule } from '../persistence/serialisation.js';
+import {
+  deserialiserBoule,
+  deserialiserMatchPanier,
+  serialiserBoule,
+  serialiserMatchPanier,
+} from '../persistence/serialisation.js';
 import type { TourEnAttente } from './etat-filtre.js';
 
 export type TableId = string;
@@ -139,6 +156,16 @@ export interface ResultatCoupEnAttente {
   rejouer: JoueurId[];
   /** Dernier coup : qui a choisi de terminer — plus de nouvelle Boule pour personne. */
   rejouerAnnulePar: JoueurId | null;
+  /**
+   * Panier seulement : où en est le match après cette manche. `score` reste
+   * présent, vide et honnête — voir `scoreDeMancheVide` dans handlers.ts.
+   */
+  readonly matchPanier?: {
+    readonly manchesGagnees: Readonly<Record<JoueurId, number>>;
+    readonly manchesAGagner: number;
+    readonly montant: number;
+    readonly vainqueurId: JoueurId | null;
+  };
 }
 
 /** Le délai de jeu qui court pour le joueur attendu. */
@@ -170,8 +197,18 @@ export interface Table {
   demarreeLe: Date | null;
   /** Joueurs assis. En salon, dans l'ordre d'arrivée ; ensuite, celui du tirage. */
   joueurs: Joueur[];
-  /** `null` tant que la partie n'a pas démarré. */
+  /**
+   * Le jeu joué à cette table. Réf. docs/REGLES.md § « Le panier ». Absente
+   * d'une table antérieure à la variante : c'est alors La Boule.
+   */
+  readonly variante: Variante;
+  /** `null` tant que la partie n'a pas démarré, ou pour une table du panier. */
   boule: Boule | null;
+  /** `null` hors du panier, ou tant que la partie n'a pas démarré. */
+  panier: MatchPanier | null;
+  /** Panier seulement : manches à gagner et montant empoché par le vainqueur. */
+  readonly manchesAGagner: number;
+  readonly montant: number;
   coup: Coup | null;
   tourEnCours: TourEnCours | null;
   /** Socket courante de chaque joueur, `null` s'il est déconnecté. */
@@ -287,12 +324,22 @@ export const decrireTablePublique = (table: Table) => ({
   excedentDeFriches: table.excedentDeFriches,
   nombreCoups: table.nombreCoups,
   valeurPoint: table.valeurPoint,
+  // Réf. § « Le panier » : le jeu joué, et pour le panier ses deux réglages.
+  variante: table.variante,
+  manchesAGagner: table.variante === 'panier' ? table.manchesAGagner : null,
+  montant: table.variante === 'panier' ? table.montant : null,
 });
 
 /** La Boule d'une table dont la partie a démarré. */
 export const bouleEnCours = (table: Table): Boule => {
   if (table.boule === null) throw new Error("La partie n'a pas encore demarre");
   return table.boule;
+};
+
+/** Le match du panier d'une table dont la partie a démarré. */
+export const panierEnCours = (table: Table): MatchPanier => {
+  if (table.panier === null) throw new Error("La partie n'a pas encore demarre");
+  return table.panier;
 };
 
 /**
@@ -319,7 +366,7 @@ const photographierAbandon = (table: Table, parJoueurId: JoueurId): AbandonEnreg
     le: new Date(),
     coupInterrompu: {
       numero: coup?.numero ?? null,
-      coupsJoues: boule?.historique.length ?? 0,
+      coupsJoues: boule?.historique.length ?? table.panier?.historique.length ?? 0,
       nombreCoupsTotal: boule?.nombreCoupsTotal ?? 0,
       nombreCoupsFriches: boule?.nombreCoupsFriches ?? 0,
       scoresCumules: { ...(boule?.scoresCumules ?? {}) },
@@ -345,6 +392,8 @@ export const DELAI_INACTIVITE_MS = 3 * 60 * 60 * 1000;
 const sansActionDeJeu = (table: Table): boolean => {
   const boule = table.boule;
   if (boule !== null && (boule.historique.length > 0 || (boule.frichesGeneralisees ?? 0) > 0)) return false;
+  // Un match du panier déjà entamé — une manche terminée — n'est pas inactif.
+  if (table.panier !== null && table.panier.historique.length > 0) return false;
   if (table.tourEnCours !== null || table.resultatCoup !== null) return false;
   return table.coup === null || table.coup.defausse.length === 0;
 };
@@ -408,13 +457,41 @@ export class GameRoomManager {
       /** Joueurs que le serveur joue lui-même : la table de démonstration. */
       readonly bots?: readonly JoueurId[];
       readonly alea?: () => number;
+      /** Le jeu joué à cette table ; sans précision, La Boule. */
+      readonly variante?: Variante;
+      /** Panier seulement : nombre de manches à gagner pour empocher le montant. */
+      readonly manchesAGagner?: number;
+      /** Panier seulement : ce que le vainqueur empoche. */
+      readonly montant?: number;
     } = {},
   ): Promise<TableCreee> {
-    const capacite = options.capacite ?? 4;
+    const variante = options.variante ?? 'boule';
+    const capacite = options.capacite ?? (variante === 'panier' ? 2 : 4);
     if (!Number.isInteger(capacite) || capacite < CAPACITE_MIN || capacite > CAPACITE_MAX) {
       throw new Error(
         `Nombre de joueurs hors limites : ${String(capacite)} (attendu ${String(CAPACITE_MIN)} a ${String(CAPACITE_MAX)})`,
       );
+    }
+    if (variante === 'panier' && capacite !== 2) {
+      throw new Error(`Le panier se joue a deux : ${String(capacite)} demandes`);
+    }
+    const manchesAGagner = options.manchesAGagner ?? 3;
+    const montant = options.montant ?? 10;
+    if (variante === 'panier') {
+      if (
+        !Number.isInteger(manchesAGagner) ||
+        manchesAGagner < MANCHES_A_GAGNER_MIN ||
+        manchesAGagner > MANCHES_A_GAGNER_MAX
+      ) {
+        throw new Error(
+          `Nombre de manches a gagner hors limites : ${String(manchesAGagner)} (attendu ${String(MANCHES_A_GAGNER_MIN)} a ${String(MANCHES_A_GAGNER_MAX)})`,
+        );
+      }
+      if (!Number.isFinite(montant) || montant < MONTANT_MIN || montant > MONTANT_MAX) {
+        throw new Error(
+          `Montant hors limites : ${String(montant)} (attendu ${String(MONTANT_MIN)} a ${String(MONTANT_MAX)})`,
+        );
+      }
     }
     const nombreCoups = options.nombreCoups ?? null;
     if (
@@ -458,7 +535,11 @@ export class GameRoomManager {
       creeeLe: new Date(),
       demarreeLe: null,
       joueurs: [{ id: createur.id, nom: nomALaTable(createur, 1), croix: 0 }],
+      variante,
       boule: null,
+      panier: null,
+      manchesAGagner,
+      montant,
       coup: null,
       tourEnCours: null,
       connexions: new Map([[createur.id, null]]),
@@ -496,6 +577,8 @@ export class GameRoomManager {
       excedentDeFriches,
       nombreCoups,
       valeurPoint: options.valeurPoint ?? null,
+      variante,
+      ...(variante === 'panier' ? { manchesAGagner, montant } : {}),
     });
     await this.depot?.asseoirJoueur(tableId, createur.id, 0);
 
@@ -531,18 +614,25 @@ export class GameRoomManager {
   async demarrerPartie(table: Table): Promise<void> {
     const tirage = tirerSiegesEtDonneurInitial(
       table.joueurs,
-      melangerPaquet(construirePaquet(), table.alea),
+      melangerPaquet(construirePaquet(table.variante), table.alea),
     );
     table.joueurs = tirage.ordreTable.map(
       (joueurId) => table.joueurs.find((joueur) => joueur.id === joueurId) as Joueur,
     );
-    table.boule = initialiserBoule(
-      table.joueurs,
-      table.coupsFrichesDepart,
-      table.nombreCoups ?? undefined,
-      table.excedentDeFriches,
-    );
-    table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
+    if (table.variante === 'panier') {
+      // Réf. § « Le panier » : le joker est offert d'office à chaque manche,
+      // jamais tiré au sort. Le tirage d'ouverture ne sert ici qu'à désigner
+      // qui distribue en premier (§ « Qui commence »).
+      table.panier = initialiserMatchPanier(table.joueurs, table.manchesAGagner, table.montant);
+    } else {
+      table.boule = initialiserBoule(
+        table.joueurs,
+        table.coupsFrichesDepart,
+        table.nombreCoups ?? undefined,
+        table.excedentDeFriches,
+      );
+      table.cartesConserveesParJoueur = tirage.cartesConserveesParJoueur;
+    }
     table.tirageOuverture = tirage;
     table.statut = 'en-cours';
     table.demarreeLe = new Date();
@@ -697,7 +787,7 @@ export class GameRoomManager {
     const actives = await this.depot.chargerPartiesActives();
     const rechargees: TableId[] = [];
 
-    for (const { partie, joueurs, etatBoule } of actives) {
+    for (const { partie, joueurs, etatBoule, etatPanier } of actives) {
       if (joueurs.length === 0) continue;
 
       const assis: Joueur[] = joueurs.map((joueur, rang) => ({
@@ -705,6 +795,7 @@ export class GameRoomManager {
         nom: nomALaTable(joueur, rang + 1),
         croix: 0,
       }));
+      const variante = partie.variante ?? 'boule';
 
       const table: Table = {
         id: partie.id,
@@ -715,17 +806,30 @@ export class GameRoomManager {
         creeeLe: partie.creeeLe,
         demarreeLe: partie.demarree ? (partie.demarreeLe ?? partie.creeeLe) : null,
         joueurs: assis,
+        variante,
         boule:
-          etatBoule === null
-            ? partie.demarree
-              ? initialiserBoule(
-                  assis,
-                  partie.coupsFrichesDepart,
-                  partie.nombreCoups ?? undefined,
-                  partie.excedentDeFriches ?? 0,
-                )
-              : null
-            : deserialiserBoule(etatBoule),
+          variante === 'panier'
+            ? null
+            : etatBoule === null
+              ? partie.demarree
+                ? initialiserBoule(
+                    assis,
+                    partie.coupsFrichesDepart,
+                    partie.nombreCoups ?? undefined,
+                    partie.excedentDeFriches ?? 0,
+                  )
+                : null
+              : deserialiserBoule(etatBoule),
+        panier:
+          variante !== 'panier'
+            ? null
+            : etatPanier === null
+              ? partie.demarree
+                ? initialiserMatchPanier(assis, partie.manchesAGagner ?? 3, partie.montant ?? 10)
+                : null
+              : deserialiserMatchPanier(etatPanier),
+        manchesAGagner: partie.manchesAGagner ?? 3,
+        montant: partie.montant ?? 10,
         coup: null,
         tourEnCours: null,
         connexions: new Map(assis.map((joueur) => [joueur.id, null])),
@@ -765,6 +869,10 @@ export class GameRoomManager {
 
   /** Écrit l'état de la Boule. Appelé aux fins de coup et de Boule, pas plus souvent. */
   async persister(table: Table): Promise<void> {
+    if (table.panier !== null) {
+      await this.depot?.enregistrerMatchPanier(table.id, serialiserMatchPanier(table.panier));
+      return;
+    }
     if (table.boule === null) return;
     await this.depot?.enregistrerBoule(table.id, serialiserBoule(table.boule));
   }
@@ -880,7 +988,57 @@ export class GameRoomManager {
 }
 
 /** Distribue un nouveau coup et ouvre la phase des annonces. */
+const recapitulatifsVides = (joueursActifs: readonly JoueurId[]): Coup['recapitulatifs'] => {
+  const recapitulatifs: Coup['recapitulatifs'] = {};
+  for (const id of joueursActifs) {
+    recapitulatifs[id] = { toursAvecPose: [], aAjouteSurCombinaisonAutrui: false };
+  }
+  return recapitulatifs;
+};
+
+/** Distribue le premier coup du panier : § « Le panier », composerManche. */
+const demarrerManchePanier = (table: Table): Coup => {
+  const match = panierEnCours(table);
+  const numero = numeroMancheCourant(match);
+  const { joueursActifs, donneurId } = composerManche(match, numero);
+
+  const actifs = table.joueurs.filter((joueur) => joueursActifs.includes(joueur.id));
+  const ordonnes = joueursActifs.map((id) => actifs.find((joueur) => joueur.id === id) as Joueur);
+  const paquet = melangerPaquet(construirePaquet('panier'), table.alea);
+  const { mains, pioche } = distribuerLePanier(ordonnes, paquet);
+
+  const coup: Coup = {
+    variante: 'panier',
+    numero,
+    donneurId,
+    ordreJoueurs: joueursActifs,
+    joueursSurLeCote: [],
+    phase: 'annonces',
+    annonces: {},
+    mains,
+    pioche,
+    defausse: [],
+    combinaisons: [],
+    joueurActifId: joueursActifs[0] as JoueurId,
+    numeroTour: 1,
+    // Au panier, aucun coup ne compte double : pas de coups frichés.
+    estFriche: false,
+    recapitulatifs: recapitulatifsVides(joueursActifs),
+    gagnantId: null,
+    aParler: joueursActifs[0] as JoueurId,
+    enAttente: [],
+    engageId: null,
+  };
+
+  table.coup = coup;
+  table.tourEnCours = null;
+  table.jokersGardes = new Map();
+  return coup;
+};
+
 export const demarrerCoup = (table: Table): Coup => {
+  if (table.variante === 'panier') return demarrerManchePanier(table);
+
   const boule = bouleEnCours(table);
   const numero = numeroCoupCourant(boule);
   const { joueursActifs, joueursAssis, donneurId } = determinerJoueursAssis(boule, numero);
@@ -911,11 +1069,6 @@ export const demarrerCoup = (table: Table): Coup => {
     ? distribuerAvecCartesConservees(conservees, paquet)
     : distribuerCartes(ordonnes, paquet);
 
-  const recapitulatifs: Coup['recapitulatifs'] = {};
-  for (const id of joueursActifs) {
-    recapitulatifs[id] = { toursAvecPose: [], aAjouteSurCombinaisonAutrui: false };
-  }
-
   const coup: Coup = {
     numero,
     donneurId,
@@ -930,7 +1083,7 @@ export const demarrerCoup = (table: Table): Coup => {
     joueurActifId: joueursActifs[0] as JoueurId,
     numeroTour: 1,
     estFriche: estCoupFriche(boule, numero),
-    recapitulatifs,
+    recapitulatifs: recapitulatifsVides(joueursActifs),
     gagnantId: null,
     // La parole commence à la gauche du donneur, comme le jeu.
     aParler: joueursActifs[0] as JoueurId,
@@ -951,7 +1104,48 @@ export const demarrerCoup = (table: Table): Coup => {
  * reçoivent une distribution ajustée pour revenir à 14 cartes. » Le donneur et
  * la composition de la table ne changent pas : le coup est rejoué à sa place.
  */
+/**
+ * Redistribue une manche du panier : contrairement à La Boule, aucun joker
+ * n'est conservé — chacun en reçoit un nouveau, offert d'office, exactement
+ * comme au premier coup (§ « Le panier »).
+ */
+const redistribuerManchePanier = (table: Table): Coup => {
+  const coup = table.coup;
+  if (coup === null) throw new Error('Aucune manche a redistribuer');
+
+  const paquet = melangerPaquet(construirePaquet('panier'), table.alea);
+  const joueurs = coup.ordreJoueurs.map(
+    (id) => table.joueurs.find((joueur) => joueur.id === id) as Joueur,
+  );
+  const { mains, pioche } = distribuerLePanier(joueurs, paquet);
+
+  const rejoue: Coup = {
+    ...coup,
+    phase: 'annonces',
+    annonces: {},
+    mains,
+    pioche,
+    defausse: [],
+    combinaisons: [],
+    joueurActifId: coup.ordreJoueurs[0] as JoueurId,
+    numeroTour: 1,
+    estFriche: false,
+    recapitulatifs: recapitulatifsVides(coup.ordreJoueurs),
+    gagnantId: null,
+    aParler: coup.ordreJoueurs[0] as JoueurId,
+    enAttente: [],
+    engageId: null,
+  };
+
+  table.jokersGardes = new Map();
+  table.coup = rejoue;
+  table.tourEnCours = null;
+  return rejoue;
+};
+
 export const redistribuerCoup = (table: Table): Coup => {
+  if (table.variante === 'panier') return redistribuerManchePanier(table);
+
   const coup = table.coup;
   if (coup === null) throw new Error('Aucun coup a redistribuer');
   const boule = bouleEnCours(table);
@@ -970,11 +1164,6 @@ export const redistribuerCoup = (table: Table): Coup => {
     melangerPaquet(aRedistribuer, table.alea),
   );
 
-  const recapitulatifs: Coup['recapitulatifs'] = {};
-  for (const id of coup.ordreJoueurs) {
-    recapitulatifs[id] = { toursAvecPose: [], aAjouteSurCombinaisonAutrui: false };
-  }
-
   const rejoue: Coup = {
     ...coup,
     // Le numéro de coup et le donneur sont inchangés : même place, même donneur.
@@ -987,7 +1176,7 @@ export const redistribuerCoup = (table: Table): Coup => {
     joueurActifId: coup.ordreJoueurs[0] as JoueurId,
     numeroTour: 1,
     estFriche: estCoupFriche(boule, coup.numero),
-    recapitulatifs,
+    recapitulatifs: recapitulatifsVides(coup.ordreJoueurs),
     gagnantId: null,
     aParler: coup.ordreJoueurs[0] as JoueurId,
     enAttente: [],

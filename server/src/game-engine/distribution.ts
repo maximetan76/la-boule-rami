@@ -8,9 +8,10 @@
  * Réf. § « Phase Friche / Je joue en début de coup » pour la redistribution
  * qui suit une friche généralisée.
  */
-import type { Carte, Joueur, JoueurId } from '../models/index.js';
+import type { Carte, Joueur, JoueurId, Variante } from '../models/index.js';
 import { CARTES_PAR_JOUEUR, COULEURS, VALEURS } from '../models/index.js';
 import { estJoker } from './cartes.js';
+import { reglesDe } from './variantes.js';
 
 /** Cartes distribuées d'un coup au même joueur (§ « distribuées 2 par 2 »). */
 export const CARTES_PAR_PAQUET = 2;
@@ -27,8 +28,14 @@ export interface DistributionResultat {
   readonly pioche: Carte[];
 }
 
-/** Les 109 cartes du jeu, non mélangées. */
-export const construirePaquet = (): Carte[] => {
+/**
+ * Le paquet, non mélangé.
+ *
+ * 109 cartes à La Boule : 2 x 52, 4 jokers et le coucou. Au panier, 106 :
+ * 2 x 52 et 2 jokers, un par joueur, sans coucou.
+ */
+export const construirePaquet = (variante?: Variante): Carte[] => {
+  const regles = reglesDe(variante);
   const paquet: Carte[] = [];
 
   for (const jeu of [1, 2]) {
@@ -38,10 +45,10 @@ export const construirePaquet = (): Carte[] => {
       }
     }
   }
-  for (let i = 1; i <= NOMBRE_JOKERS; i += 1) {
-    paquet.push({ type: 'joker', id: `joker-${i}` });
+  for (let i = 1; i <= regles.jokersDuPaquet; i += 1) {
+    paquet.push({ type: 'joker', id: `joker-${String(i)}` });
   }
-  paquet.push({ type: 'coucou', id: 'coucou' });
+  if (regles.avecCoucou) paquet.push({ type: 'coucou', id: 'coucou' });
 
   return paquet;
 };
@@ -169,3 +176,37 @@ export const distribuerAvecCartesConservees = (
  * des jokers déjà en main. »
  */
 export const redistribuerApresFricheGeneralisee = distribuerAvecCartesConservees;
+
+/**
+ * La donne du panier : 13 cartes ordinaires et un joker, à chacun.
+ *
+ * Réf. docs/REGLES.md § « Le panier » : le joker n'est pas tiré au hasard, il
+ * est donné d'office. Le paquet n'en compte que deux, un par joueur : aucun
+ * ne reste donc au talon, et aucun ne peut arriver en cours de manche.
+ */
+export const distribuerLePanier = (
+  joueurs: readonly Joueur[],
+  paquet: readonly Carte[],
+): DistributionResultat => {
+  if (joueurs.length === 0) throw new Error('Impossible de distribuer sans joueur');
+
+  const jokers = paquet.filter(estJoker);
+  if (jokers.length < joueurs.length) {
+    throw new Error(
+      `Il faut un joker par joueur : ${String(jokers.length)} pour ${String(joueurs.length)} joueurs`,
+    );
+  }
+
+  // Les cartes ordinaires se servent 2 par 2, comme partout ; le joker se
+  // pose ensuite dans chaque main.
+  const ordinaires = paquet.filter((carte) => !estJoker(carte));
+  const { mains, pioche } = servir(
+    joueurs.map((joueur) => ({ id: joueur.id, aServir: CARTES_PAR_JOUEUR - 1 })),
+    ordinaires,
+  );
+  for (const [rang, joueur] of joueurs.entries()) {
+    (mains[joueur.id] as Carte[]).push(jokers[rang] as Carte);
+  }
+
+  return { mains, pioche };
+};

@@ -28,3 +28,7 @@ export type {
 export { COUPS_FRICHES_PAR_DEFAUT, COUPS_PAR_NOMBRE_DE_JOUEURS, NOMBRE_COUPS_MAX, NOMBRE_COUPS_MIN } from './boule.js';
 
 export type { Partie, PartieId, StatutPartie } from './partie.js';
+export { estVariante, NOM_DE_LA_VARIANTE, VARIANTES } from './variante.js';
+export type { Variante } from './variante.js';
+export type { MatchPanier, ResultatManche } from './panier.js';
+export { MANCHES_A_GAGNER_MAX, MANCHES_A_GAGNER_MIN, MONTANT_MAX, MONTANT_MIN } from './panier.js';

@@ -1,4 +1,5 @@
 /** Aide de test : ouvre un salon et le remplit jusqu'à ce que la partie démarre. */
+import type { Variante } from '../models/index.js';
 import type { DelaisDeJeu, GestionDeconnexion } from '../persistence/depot.js';
 import type { GameRoomManager, TableId } from '../server/game-room-manager.js';
 
@@ -17,6 +18,9 @@ export const ouvrirTablePleine = async (
     readonly valeurPoint?: string | null;
     readonly nombreCoups?: number | null;
     readonly alea?: () => number;
+    readonly variante?: Variante;
+    readonly manchesAGagner?: number;
+    readonly montant?: number;
   } = {},
 ): Promise<{ tableId: TableId; codeInvitation: string }> => {
   const createur = joueurs[0] as JoueurDeTest;

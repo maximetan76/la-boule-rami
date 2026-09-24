@@ -10,7 +10,16 @@
  * fin de coup, et un redémarrage refait la donne du coup entamé. C'est ce que
  * signifie « ne jamais perdre plus d'un coup en cours ».
  */
-import type { Boule, Carte, Combinaison, JoueurId, ResultatCoup, TypeVictoire } from '../models/index.js';
+import type {
+  Boule,
+  Carte,
+  Combinaison,
+  JoueurId,
+  MatchPanier,
+  ResultatCoup,
+  ResultatManche,
+  TypeVictoire,
+} from '../models/index.js';
 
 /** Version du format, pour pouvoir faire évoluer le schéma sans casser l'existant. */
 export const VERSION_ETAT_BOULE = 1;
@@ -155,6 +164,83 @@ export const deserialiserBoule = (valeur: unknown): Boule => {
     ),
     scoresCumules: scores(brut['scoresCumules'], 'etat.scoresCumules'),
     croix: scores(brut['croix'], 'etat.croix'),
+  };
+};
+
+/**
+ * Sérialisation d'un match du panier : le même principe que pour une Boule,
+ * mais une forme bien plus courte — pas de coups frichés, pas de croix, pas de
+ * points cumulés.
+ */
+export const VERSION_ETAT_PANIER = 1;
+
+export interface EtatPanierPersiste {
+  readonly version: number;
+  readonly ordreTable: JoueurId[];
+  readonly manchesAGagner: number;
+  readonly montant: number;
+  readonly manchesGagnees: Record<JoueurId, number>;
+  readonly historique: ResultatManche[];
+  readonly vainqueurId: JoueurId | null;
+}
+
+export const serialiserMatchPanier = (match: MatchPanier): EtatPanierPersiste => ({
+  version: VERSION_ETAT_PANIER,
+  ordreTable: [...match.ordreTable],
+  manchesAGagner: match.manchesAGagner,
+  montant: match.montant,
+  manchesGagnees: { ...match.manchesGagnees },
+  historique: match.historique.map((manche) => ({ ...manche })),
+  vainqueurId: match.vainqueurId,
+});
+
+const resultatManche = (valeur: unknown, chemin: string): ResultatManche => {
+  const brut = objet(valeur, chemin);
+  // Comme pour l'archive d'un coup : reprise telle quelle, aucune règle n'en
+  // dépend, seule la relecture en a besoin.
+  const combinaisons = brut['combinaisons'];
+  const mainsRevelees = brut['mainsRevelees'];
+  return {
+    numero: entier(brut['numero'], `${chemin}.numero`),
+    gagnantId: texte(brut['gagnantId'], `${chemin}.gagnantId`),
+    combinaisons: Array.isArray(combinaisons) ? (combinaisons as Combinaison[]) : [],
+    mainsRevelees:
+      typeof mainsRevelees === 'object' && mainsRevelees !== null && !Array.isArray(mainsRevelees)
+        ? (mainsRevelees as Record<JoueurId, Carte[]>)
+        : {},
+  };
+};
+
+/**
+ * Relit un état de match du panier venu de la base.
+ *
+ * @throws EtatIllisibleError si le JSON ne correspond pas au format attendu.
+ */
+export const deserialiserMatchPanier = (valeur: unknown): MatchPanier => {
+  const brut = objet(valeur, 'etat');
+
+  const version = entier(brut['version'], 'etat.version');
+  if (version !== VERSION_ETAT_PANIER) {
+    throw new EtatIllisibleError(`version panier ${String(version)} non prise en charge`);
+  }
+
+  const historiqueBrut = brut['historique'];
+  if (!Array.isArray(historiqueBrut)) {
+    throw new EtatIllisibleError("etat.historique n'est pas une liste");
+  }
+
+  const vainqueurId = brut['vainqueurId'];
+  if (vainqueurId !== null && typeof vainqueurId !== 'string') {
+    throw new EtatIllisibleError("etat.vainqueurId n'est ni une chaine ni null");
+  }
+
+  return {
+    ordreTable: listeDeTextes(brut['ordreTable'], 'etat.ordreTable'),
+    manchesAGagner: entier(brut['manchesAGagner'], 'etat.manchesAGagner'),
+    montant: entier(brut['montant'], 'etat.montant'),
+    manchesGagnees: scores(brut['manchesGagnees'], 'etat.manchesGagnees'),
+    historique: historiqueBrut.map((manche, index) => resultatManche(manche, `etat.historique[${String(index)}]`)),
+    vainqueurId,
   };
 };
 

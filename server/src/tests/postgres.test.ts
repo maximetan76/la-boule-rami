@@ -83,6 +83,7 @@ describe.skipIf(URL_TEST === undefined || URL_TEST.length === 0)('PostgreSQL', (
       coupsFrichesDepart: 4,
       valeurPoint: null,
       nombreCoups: null,
+      variante: 'boule',
     });
     for (const [position, id] of ids.entries()) {
       await depot.asseoirJoueur('partie-pg', id, position);

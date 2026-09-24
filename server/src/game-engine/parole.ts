@@ -27,6 +27,7 @@
  * close pour tout le coup : on joue sans plus rien annoncer.
  */
 import type { Annonce, Coup, JoueurId } from '../models/index.js';
+import { reglesDe } from './variantes.js';
 
 const suivant = (coup: Coup, joueurId: JoueurId): JoueurId => {
   const rang = coup.ordreJoueurs.indexOf(joueurId);
@@ -127,7 +128,10 @@ export const apresTour = (coup: Coup, joueurId: JoueurId): Coup => {
   }
 
   const prochain = suivant(coup, joueurId);
-  if (prochain === (coup.engageId ?? null)) {
+  // Réf. § « Le panier » : la parole ne fait qu'un tour, chacun répond une
+  // fois ; l'engagé n'est jamais réinterrogé, même quand son tour revient.
+  const reglesDuCoup = reglesDe(coup.variante);
+  if (!reglesDuCoup.parolePremierTourSeulement && prochain === (coup.engageId ?? null)) {
     return { ...coup, phase: 'annonces', aParler: prochain, enAttente: [], joueurActifId: prochain };
   }
   return { ...coup, phase: 'jeu', aParler: null, enAttente: [], joueurActifId: prochain };

@@ -16,9 +16,16 @@ import type {
   PartieEnregistree,
   PartieRechargee,
 } from './depot.js';
-import { deserialiserBoule, serialiserBoule, type EtatBoulePersiste } from './serialisation.js';
+import {
+  deserialiserBoule,
+  deserialiserMatchPanier,
+  serialiserBoule,
+  serialiserMatchPanier,
+  type EtatBoulePersiste,
+  type EtatPanierPersiste,
+} from './serialisation.js';
 import { PSEUDO_COMPTE_SUPPRIME } from './depot.js';
-import type { JoueurId } from '../models/index.js';
+import type { JoueurId, Variante } from '../models/index.js';
 
 /** Forme d'une partie telle que Prisma la rend, places comprises. */
 interface LignePartie {
@@ -41,6 +48,9 @@ interface LignePartie {
   excedentDeFriches: number;
   valeurPoint: string | null;
   nombreCoups: number | null;
+  variante: string;
+  manchesAGagner: number | null;
+  montant: number | null;
   abandonneParId: string | null;
   interruption: unknown;
   joueurs?: { joueurId: string; position: number }[];
@@ -79,6 +89,9 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
   excedentDeFriches: ligne.excedentDeFriches,
   valeurPoint: ligne.valeurPoint,
   nombreCoups: ligne.nombreCoups,
+  variante: (ligne.variante === 'panier' ? 'panier' : 'boule') as Variante,
+  manchesAGagner: ligne.manchesAGagner,
+  montant: ligne.montant,
   abandon: relireAbandon(ligne.abandonneParId, ligne.interruption),
   // Les places ne sont là que si l'appel a demandé l'inclusion ; une partie
   // tout juste créée n'en a de toute façon aucune.
@@ -149,6 +162,9 @@ export class DepotPrisma implements Depot {
         excedentDeFriches: partie.excedentDeFriches ?? 0,
         valeurPoint: partie.valeurPoint,
         nombreCoups: partie.nombreCoups,
+        variante: partie.variante,
+        manchesAGagner: partie.manchesAGagner ?? null,
+        montant: partie.montant ?? null,
       },
       include: PLACES,
     });
@@ -292,6 +308,20 @@ export class DepotPrisma implements Depot {
     });
   }
 
+  /**
+   * Écrit l'état d'un match du panier, dans la même relation qu'une Boule :
+   * une partie n'a jamais les deux à la fois, `Partie.variante` dit laquelle
+   * lire.
+   */
+  async enregistrerMatchPanier(partieId: string, etat: EtatPanierPersiste): Promise<void> {
+    const document = etat as unknown as Prisma.InputJsonValue;
+    await this.prisma.boule.upsert({
+      where: { partieId },
+      create: { partieId, etat: document },
+      update: { etat: document },
+    });
+  }
+
   async chargerPartiesActives(): Promise<PartieRechargee[]> {
     const parties = await this.prisma.partie.findMany({
       where: { termineeLe: null },
@@ -310,9 +340,13 @@ export class DepotPrisma implements Depot {
       })),
       // L'état relu de la base repasse par la validation avant d'être utilisé.
       etatBoule:
-        partie.boule === null
+        partie.boule === null || partie.variante === 'panier'
           ? null
           : serialiserBoule(deserialiserBoule(partie.boule.etat)),
+      etatPanier:
+        partie.boule === null || partie.variante !== 'panier'
+          ? null
+          : serialiserMatchPanier(deserialiserMatchPanier(partie.boule.etat)),
     }));
   }
 
@@ -329,7 +363,14 @@ export class DepotPrisma implements Depot {
     return {
       partie: versPartie(partie as unknown as LignePartie),
       joueurs: partie.joueurs.map((place) => ({ id: place.joueur.id, pseudo: place.joueur.pseudo })),
-      etatBoule: partie.boule === null ? null : serialiserBoule(deserialiserBoule(partie.boule.etat)),
+      etatBoule:
+        partie.boule === null || partie.variante === 'panier'
+          ? null
+          : serialiserBoule(deserialiserBoule(partie.boule.etat)),
+      etatPanier:
+        partie.boule === null || partie.variante !== 'panier'
+          ? null
+          : serialiserMatchPanier(deserialiserMatchPanier(partie.boule.etat)),
     };
   }
 }

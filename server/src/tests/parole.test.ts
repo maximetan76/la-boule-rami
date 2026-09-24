@@ -283,3 +283,72 @@ describe('friche / je joue, les regles confirmees', () => {
     expect(calculerScoreCoup(fini, 'C', 'simple', false).chocolatId).toBe('D');
   });
 });
+
+describe('le panier : la parole ne fait qu un tour, jamais de refriche', () => {
+  const debutPanier = (mains: Partial<Record<JoueurId, Carte[]>> = {}): Coup => {
+    const pioche: Carte[] = [];
+    for (const couleur of COULEURS) for (const valeur of [2, 3, 4, 5, 6] as const) pioche.push(c(couleur, valeur));
+    const main = (): Carte[] => [c('pique', 7), c('coeur', 8), c('carreau', 9), c('trefle', 10), c('pique', 'V')];
+    return {
+      variante: 'panier',
+      numero: 1,
+      donneurId: 'A',
+      ordreJoueurs: ['A', 'B'],
+      joueursSurLeCote: [],
+      phase: 'annonces',
+      annonces: {},
+      mains: { A: mains.A ?? main(), B: mains.B ?? main() },
+      pioche,
+      defausse: [],
+      combinaisons: [],
+      joueurActifId: 'B',
+      numeroTour: 1,
+      estFriche: false,
+      recapitulatifs: { A: recap({ toursAvecPose: [] }), B: recap({ toursAvecPose: [] }) },
+      gagnantId: null,
+      aParler: 'B',
+      enAttente: [],
+      engageId: null,
+    };
+  };
+  const piocherEtDefausser = (coup: Coup): Coup => {
+    const joueur = coup.joueurActifId;
+    const piochee = coup.pioche[0] as Carte;
+    const aJeter = [...(coup.mains[joueur] ?? []), piochee].find((carte) => carte.type === 'normale') as Carte;
+    const { coup: apres } = jouerTour(coup, joueur, { source: 'pioche', carteDefausseeId: aJeter.id });
+    return apresTour(apres, joueur);
+  };
+
+  it('B dit je joue : il joue directement, puis A joue a son tour sans jamais etre re-interroge', () => {
+    let coup = dire(debutPanier(), 'B', 'je-joue');
+    expect(coup).toMatchObject({ phase: 'jeu', joueurActifId: 'B', aParler: null });
+
+    coup = piocherEtDefausser(coup);
+    // A joue son tour sans annonce ; A ne redevient jamais l engage a interroger.
+    expect(coup).toMatchObject({ phase: 'jeu', joueurActifId: 'A', aParler: null });
+    expect(() => annoncer(coup, 'A', 'friche')).toThrow(/pas le moment d'annoncer/);
+
+    coup = piocherEtDefausser(coup);
+    // Le tour de B revient : au panier, il ne reparle jamais, il joue.
+    expect(coup).toMatchObject({ phase: 'jeu', joueurActifId: 'B', aParler: null });
+  });
+
+  it('B friche, A dit je joue : B rattrape son tour force puis on joue sans plus jamais annoncer', () => {
+    let coup = dire(debutPanier(), 'B', 'friche');
+    coup = dire(coup, 'A', 'je-joue');
+    expect(coup).toMatchObject({ phase: 'jeu', joueurActifId: 'B', engageId: 'A' });
+
+    coup = piocherEtDefausser(coup);
+    // B a rattrape son tour : au panier, on ne lui redemande jamais rien.
+    expect(coup).toMatchObject({ phase: 'jeu', joueurActifId: 'A', aParler: null });
+    coup = piocherEtDefausser(coup);
+    expect(coup).toMatchObject({ phase: 'jeu', joueurActifId: 'B', aParler: null });
+  });
+
+  it('les deux frichent : le coup est a redistribuer', () => {
+    let coup = dire(debutPanier(), 'B', 'friche');
+    coup = { ...coup };
+    const { toutLeMondeAFriche } = annoncer(coup, 'A', 'friche');
+    expect(toutLeMondeAFriche).toBe(true);
+  });
+});

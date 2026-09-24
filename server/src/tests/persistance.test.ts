@@ -292,6 +292,7 @@ describe('DepotPrisma', () => {
       coupsFrichesDepart: 3,
       valeurPoint: '0.45',
       nombreCoups: 5,
+      variante: 'boule',
     });
 
     expect(appels[0]?.args).toMatchObject({

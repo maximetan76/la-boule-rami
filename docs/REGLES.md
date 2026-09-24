@@ -100,3 +100,29 @@
 - Autre exemple : un joueur termine à -80 points (négatif, le plus bas), les autres à 450, 700, 650 → son score final devient -80 - 200 = -280 points.
 - Ensuite, on applique les pénalités de "croix" accumulées par chaque joueur pendant la Boule (-100 points par croix), à leur score final individuel (après le bonus de victoire éventuel).
 - Enfin, on calcule l'écart de points entre chaque paire de joueurs (score final de chacun, croix incluses). Ces écarts servent de base à un enjeu financier optionnel (ex : 1€ par point d'écart). Les croix impactent donc aussi ces écarts entre joueurs, pas seulement le classement individuel.
+
+---
+
+## Le panier — variante à 2 joueurs
+
+Le panier réutilise le moteur de La Boule (mêmes combinaisons, mêmes ajouts, mêmes jokers récupérables) ; seules les règles ci-dessous changent. La variante est portée par la table, choisie à la création.
+
+### Matériel et donne
+- 106 cartes : 2 jeux de 52 + 2 jokers, sans coucou.
+- Chaque joueur reçoit 14 cartes : 13 cartes ordinaires et 1 joker, donné d'office (sans mise en avant dans l'interface). Le talon ne contient donc aucun joker.
+- Le tirage d'ouverture désigne le premier donneur : la carte la plus basse donne, et l'autre joueur parle en premier. Ensuite le donneur alterne à chaque manche.
+
+### Friche / Je joue
+- On ne peut fricher qu'au premier tour de parole, une seule fois : chacun répond une fois, et personne n'est jamais réinterrogé.
+- Si les deux joueurs frichent, la manche est entièrement redistribuée (nouveau paquet, nouvelle donne, aucun joker conservé) et ne compte pas.
+
+### Le tour
+- À chaque tour, on pioche dans le talon OU on prend la défausse, librement : aucune obligation de poser, aucune contrainte sur la carte prise.
+
+### Finir la manche
+- Pas de pose partielle : ni première pose à 51 points, ni tierce franche, ni ajout isolé. La manche ne se termine qu'en plaçant les 14 cartes de sa main dans des combinaisons valides puis en défaussant la 15e carte.
+
+### Score du match
+- À la création : un nombre de manches à gagner et un montant.
+- Les manches gagnées se cumulent (elles n'ont pas à être consécutives). Le premier qui atteint le nombre voulu gagne le montant fixé.
+- Pas de double, de triple, de croix ni de bonus.

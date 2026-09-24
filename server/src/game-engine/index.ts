@@ -47,6 +47,7 @@ export {
   construirePaquet,
   distribuerAvecCartesConservees,
   distribuerCartes,
+  distribuerLePanier,
   melangerPaquet,
   NOMBRE_JOKERS,
   redistribuerApresFricheGeneralisee,
@@ -76,3 +77,13 @@ export {
   tirerSiegesEtDonneurInitial,
 } from './boule.js';
 export type { CompositionCoup, FricheGeneralisee, TirageOuverture } from './boule.js';
+export {
+  composerManche,
+  enregistrerResultatManche,
+  estMatchTermine,
+  initialiserMatchPanier,
+  numeroMancheCourant,
+} from './panier.js';
+export type { FricheGeneraliseePanier } from './panier.js';
+export { reglesDe } from './variantes.js';
+export type { ReglesDeVariante } from './variantes.js';
