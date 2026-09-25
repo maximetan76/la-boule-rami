@@ -856,7 +856,12 @@ export const gererRequeteHttp =
     const methode = requete.method ?? 'GET';
 
     const traiter = async (): Promise<{ code: number; corps: unknown }> => {
-      if (methode === 'GET' && chemin === '/sante') return { code: 200, corps: { ok: true } };
+      if (methode === 'GET' && chemin === '/sante') {
+        // Render donne le commit déployé : le dire permet de vérifier, d'un
+        // simple appel, que la production porte bien le dernier correctif.
+        const commit = process.env['RENDER_GIT_COMMIT']?.slice(0, 7);
+        return { code: 200, corps: commit === undefined || commit === '' ? { ok: true } : { ok: true, commit } };
+      }
 
       if (methode === 'POST' && chemin === '/auth/apple') {
         return { code: 200, corps: await ouvrirSession(await lireCorps(requete), deps) };

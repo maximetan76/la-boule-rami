@@ -67,6 +67,18 @@ describe('authentification HTTP', () => {
     expect(await reponse.json()).toEqual({ ok: true });
   });
 
+  it('la sonde de sante dit le commit deploye quand la plateforme le donne', async () => {
+    const avant = process.env['RENDER_GIT_COMMIT'];
+    process.env['RENDER_GIT_COMMIT'] = 'a02b194f0e1d2c3b4a5968778695a4b3c2d1e0f9';
+    try {
+      const reponse = await fetch(`${base}/sante`);
+      expect(await reponse.json()).toEqual({ ok: true, commit: 'a02b194' });
+    } finally {
+      if (avant === undefined) delete process.env['RENDER_GIT_COMMIT'];
+      else process.env['RENDER_GIT_COMMIT'] = avant;
+    }
+  });
+
   it('ouvre une session a partir d un jeton Apple valide', async () => {
     const jetonIdentite = await signerApple('001.ana');
     const { statut, corps } = await poster('/auth/apple', { jetonIdentite, pseudo: 'Ana' });
