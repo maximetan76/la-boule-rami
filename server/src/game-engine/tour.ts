@@ -201,6 +201,24 @@ const regrouperAjouts = (ajouts: readonly AjoutCombinaison[]): AjoutCombinaison[
   return [...parCombinaison].map(([combinaisonId, cartes]) => ({ combinaisonId, cartes }));
 };
 
+/**
+ * Les jokers que les ajouts d'un tour rendent inutiles, avant même que le tour
+ * soit joué : ceux que le joueur tiendra en main s'il valide ces ajouts.
+ *
+ * Réf. docs/REGLES.md § « Récupération d'un joker posé » : un joker ainsi
+ * rendu peut être replacé dans le même tour. Le brouillon du tour doit donc
+ * pouvoir le désigner avant la défausse — c'est ce que sert cette fonction.
+ */
+export const jokersRendusParLesAjouts = (coup: Coup, ajouts: readonly AjoutCombinaison[]): Carte[] => {
+  const rendus: Carte[] = [];
+  for (const ajout of regrouperAjouts(ajouts)) {
+    const cible = coup.combinaisons.find((combinaison) => combinaison.id === ajout.combinaisonId);
+    if (cible === undefined) continue;
+    for (const { jokerPosee } of partagerAjout(cible, ajout.cartes).reprises) rendus.push(jokerPosee.carte);
+  }
+  return rendus;
+};
+
 /** Le moteur signe lui-même les combinaisons posées : ni propriétaire ni tour ne sont déclarés. */
 const attribuer = (combinaison: Combinaison, proprietaireId: JoueurId, tourDePose: number): Combinaison =>
   combinaison.type === 'tierce'
@@ -259,7 +277,10 @@ export const jouerTour = (
   const mainApresPioche = [...(coup.mains[joueurActifId] ?? []), cartePiochee];
 
   // --- Cartes engagées ----------------------------------------------------
-  const enMain = new Set(mainApresPioche.map((carte) => carte.id));
+  // Réf. § « Récupération d'un joker posé » : un joker que les ajouts de ce
+  // tour rendent au joueur peut repartir dans une combinaison du même tour,
+  // posée ou prolongée. C'est ce qui permet de finir le coup en un tour.
+  const enMain = new Set([...mainApresPioche, ...jokersRendusParLesAjouts(coup, ajouts)].map((carte) => carte.id));
   const utilisees = new Set<CarteId>();
   const engager = (carte: Carte): void => {
     if (!enMain.has(carte.id)) {
@@ -433,9 +454,10 @@ export const jouerTour = (
   }
   // Les jokers repris par un ajout rejoignent la main, une fois la défausse
   // faite : ils ne pouvaient donc pas être jetés ce tour-ci.
+  // Un joker rendu qui repart dans une combinaison du même tour n'est plus en main.
   const mainFinale = [
     ...mainApresPose.filter((carte) => carte.id !== carteDefaussee.id),
-    ...jokersReprisParAjout,
+    ...jokersReprisParAjout.filter((joker) => !utilisees.has(joker.id)),
   ];
   defausse.push(carteDefaussee);
 

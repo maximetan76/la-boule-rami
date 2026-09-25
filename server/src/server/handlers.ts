@@ -39,6 +39,7 @@ import {
   estBouleTerminee,
   estJoker,
   jouerTour,
+  jokersRendusParLesAjouts,
   echangerJoker,
   reformerTalon,
   annoncer,
@@ -141,14 +142,18 @@ const appliquerEchanges = (
 
 /** Ce que les échanges du tour montrent à celui qui les fait, et à lui seul. */
 const vueDesEchanges = (coup: Coup, tour: TourEnCours): VueEchanges | null => {
-  if (tour.echangesJoker.length === 0) return null;
-
   const { coup: applique, jokers, carteConsommee } = appliquerEchanges(coup, tour);
+  // Réf. docs/REGLES.md § « Récupération d'un joker posé » : un ajout qui rend
+  // un joker le met aussitôt à la disposition du joueur, pour qu'il le replace
+  // dans le même tour — c'est ce qui permet de finir le coup en un tour.
+  const rendus = jokersRendusParLesAjouts(applique, tour.ajouts);
+  if (tour.echangesJoker.length === 0 && rendus.length === 0) return null;
+
   const idsJokers = new Set(jokers.map((joker) => joker.id));
   return {
     combinaisons: [...applique.combinaisons],
     main: (applique.mains[tour.joueurId] ?? []).filter((carte) => !idsJokers.has(carte.id)),
-    jokers,
+    jokers: [...jokers, ...rendus],
     carteConsommee,
   };
 };
@@ -1046,9 +1051,6 @@ export const enregistrerHandlers = (
           }
 
           const disponibles = cartesDuJoueur(table, joueurId);
-          const poses = (payload?.poses ?? []).map((proposee) =>
-            construireCombinaison(proposee, disponibles, joueurId, coup.numeroTour),
-          );
           const ajouts = (payload?.ajouts ?? []).map((ajout) => {
             if (typeof ajout.combinaisonId !== 'string') {
               throw new Error('Combinaison cible manquante');
@@ -1063,6 +1065,15 @@ export const enregistrerHandlers = (
               ),
             };
           });
+
+          // Un joker que ces ajouts rendent au joueur peut repartir dans une pose
+          // du même geste : Réf. § « Récupération d'un joker posé ».
+          for (const joker of jokersRendusParLesAjouts(coup, [...tour.ajouts, ...ajouts])) {
+            disponibles.set(joker.id, joker);
+          }
+          const poses = (payload?.poses ?? []).map((proposee) =>
+            construireCombinaison(proposee, disponibles, joueurId, coup.numeroTour),
+          );
 
           // Le tour n'est qu'un brouillon : la validation complete (51 points,
           // tierce franche, carte collante...) revient a `jouerTour`, au moment de

@@ -2034,3 +2034,187 @@ describe('le panier : prise en defausse libre, pose seulement pour finir', () =>
     expect(apres.gagnantId).toBe('j1');
   });
 });
+
+describe('carré d\'as : deux ajouts sur A♥ A♠ [joker] rendent le joker', () => {
+  // Signalé sur une partie réelle : la combinaison adverse A♥ A♠ [joker], le
+  // joueur ajoute A♣ et A♦ — pour les quatre as réels et le joker rendu.
+  const ouvert = (main: Carte[], combinaison: Combinaison) =>
+    coupJouable(main, {
+      combinaisons: [combinaison],
+      recapitulatifs: { j1: recap({ toursAvecPose: [1] }) },
+    });
+
+  const jouerLesAjouts = (
+    jokerTable: ReturnType<typeof joker> | ReturnType<typeof jokerPour>,
+    gestes: readonly (readonly ('trefle' | 'carreau')[])[],
+  ) => {
+    const asTrefle = c('trefle', 'A');
+    const asCarreau = c('carreau', 'A');
+    const parCouleur = { trefle: asTrefle, carreau: asCarreau };
+    const aJeter = c('pique', 9);
+    const brelan = ensemble('A', [c('coeur', 'A'), c('pique', 'A'), jokerTable], 'j2', 1);
+    const { coup: apres } = jouerTour(ouvert([asTrefle, asCarreau, aJeter], brelan), 'j1', {
+      source: 'pioche',
+      ajouts: gestes.map((couleurs) => ({
+        combinaisonId: brelan.id,
+        cartes: couleurs.map((couleur) => ({ carte: parCouleur[couleur], remplace: null })),
+      })),
+      carteDefausseeId: aJeter.id,
+    });
+    return { apres, asTrefle, asCarreau };
+  };
+
+  const verifier = (
+    resultat: ReturnType<typeof jouerLesAjouts>,
+    jokerTable: ReturnType<typeof joker> | ReturnType<typeof jokerPour>,
+  ) => {
+    const carre = resultat.apres.combinaisons[0];
+    const idJoker = 'carte' in jokerTable ? jokerTable.carte.id : jokerTable.id;
+    expect(carre?.type).toBe('carre');
+    expect(carre?.cartes).toHaveLength(4);
+    // Quatre as réels : plus aucun joker sur la table.
+    expect(carre?.cartes.some((cp) => cp.carte.type !== 'normale')).toBe(false);
+    expect(carre?.cartes.map((cp) => cp.carte.id)).toContain(resultat.asTrefle.id);
+    expect(carre?.cartes.map((cp) => cp.carte.id)).toContain(resultat.asCarreau.id);
+    expect(resultat.apres.mains['j1']?.map((carte) => carte.id)).toContain(idJoker);
+  };
+
+  it('joker non déclaré : A♣ et A♦ dans le même geste', () => {
+    const jokerNu = joker();
+    verifier(jouerLesAjouts(jokerNu, [['trefle', 'carreau']]), jokerNu);
+  });
+
+  it('joker non déclaré : A♦ puis A♣ en deux gestes', () => {
+    const jokerNu = joker();
+    verifier(jouerLesAjouts(jokerNu, [['carreau'], ['trefle']]), jokerNu);
+  });
+
+  it('joker déclaré A♦ : A♣ et A♦ dans le même geste', () => {
+    const jokerEnAs = jokerPour('carreau', 'A');
+    verifier(jouerLesAjouts(jokerEnAs, [['trefle', 'carreau']]), jokerEnAs);
+  });
+
+  it('joker déclaré A♣ : A♦ puis A♣ en deux gestes', () => {
+    const jokerEnAs = jokerPour('trefle', 'A');
+    verifier(jouerLesAjouts(jokerEnAs, [['carreau'], ['trefle']]), jokerEnAs);
+  });
+});
+
+describe('fin de coup en un tour : le joker rendu par un ajout repart dans le même tour', () => {
+  // Réf. docs/REGLES.md § « Récupération d'un joker posé » et « Fin de coup
+  // automatique ». Signalé : les 14 cartes posées dont A♣ et A♦ sur le carré
+  // A♥ A♠ [joker] — le joker revenait en main, la fin de coup n'était pas
+  // reconnue et le joueur restait bloqué avec un joker.
+  const scenario = (ouvert: boolean) => {
+    const jokerDeLaTable = joker();
+    const asTrefle = c('trefle', 'A');
+    const asCarreau = c('carreau', 'A');
+    const quinzieme = c('pique', 9);
+    const groupes = {
+      deux: [c('pique', 2), c('coeur', 2), c('trefle', 2)],
+      trois: [c('pique', 3), c('coeur', 3), c('trefle', 3), c('carreau', 3)],
+      quatre: [c('pique', 4), c('coeur', 4), c('trefle', 4)],
+      cinq: [c('pique', 5), c('coeur', 5)],
+    };
+    const carreAdverse = ensemble('A', [c('coeur', 'A'), c('pique', 'A'), jokerDeLaTable], 'j2', 1);
+    // 14 cartes en main : deux as, trois groupes et deux cinq.
+    const main = [asTrefle, asCarreau, ...groupes.deux, ...groupes.trois, ...groupes.quatre, ...groupes.cinq];
+    const depart = coupJouable(main, {
+      combinaisons: [carreAdverse],
+      pioche: [quinzieme],
+      recapitulatifs: { j1: recap({ toursAvecPose: ouvert ? [1] : [] }) },
+    });
+    const poses = (avecLeJoker: boolean) => [
+      ensemble(2, groupes.deux, 'j1', 2),
+      ensemble(3, groupes.trois, 'j1', 2),
+      ensemble(4, groupes.quatre, 'j1', 2),
+      ensemble(5, avecLeJoker ? [...groupes.cinq, jokerDeLaTable] : groupes.cinq, 'j1', 2),
+    ];
+    const ajoutDesAs = {
+      combinaisonId: carreAdverse.id,
+      cartes: [
+        { carte: asTrefle, remplace: null },
+        { carte: asCarreau, remplace: null },
+      ],
+    };
+    return { depart, poses, ajoutDesAs, jokerDeLaTable, quinzieme, carreAdverse };
+  };
+
+  for (const ouvert of [false, true]) {
+    it(`14 cartes posées, le joker rendu replacé dans un brelan (joueur ${ouvert ? 'ayant ouvert' : 'sans ouverture'}) : le coup est gagné`, () => {
+      const s = scenario(ouvert);
+      const { coup: apres, coupTermine } = jouerTour(s.depart, 'j1', {
+        source: 'pioche',
+        poses: s.poses(true),
+        ajouts: [s.ajoutDesAs],
+        carteDefausseeId: s.quinzieme.id,
+      });
+
+      expect(coupTermine).toBe(true);
+      expect(apres.gagnantId).toBe('j1');
+      expect(apres.mains['j1']).toEqual([]);
+      // Le carré des quatre as est complet, sans aucun joker.
+      const carre = apres.combinaisons.find((combinaison) => combinaison.id === s.carreAdverse.id);
+      expect(carre?.cartes).toHaveLength(4);
+      expect(carre?.cartes.some((cp) => cp.carte.type !== 'normale')).toBe(false);
+      // Le joker a rejoint le brelan de cinq posé ce tour-ci.
+      const cinq = apres.combinaisons.find((combinaison) => combinaison.proprietaireId === 'j1' && combinaison.cartes.length === 3 && combinaison.cartes.some((cp) => cp.carte.id === s.jokerDeLaTable.id));
+      expect(cinq).toBeDefined();
+    });
+  }
+
+  it('le joker rendu peut aussi partir en ajout sur une autre combinaison de la table', () => {
+    const s = scenario(true);
+    const suiteVisible = tierce('coeur', [c('coeur', 6), c('coeur', 7), c('coeur', 8)], 'j3', 1);
+    const depart = { ...s.depart, combinaisons: [...s.depart.combinaisons, suiteVisible] };
+    // Le joker de la table, déclaré 9♥, prolonge la suite visible : les cinq
+    // restent sans lui, deux cartes seulement, donc on les défausse avec la 15e.
+    const jokerEnNeuf = { carte: s.jokerDeLaTable, remplace: { couleur: 'coeur' as const, valeur: 9 as const } };
+    const poses = [
+      ensemble(2, depart.mains['j1']!.filter((carte) => carte.type === 'normale' && carte.valeur === 2), 'j1', 2),
+      ensemble(3, depart.mains['j1']!.filter((carte) => carte.type === 'normale' && carte.valeur === 3), 'j1', 2),
+      ensemble(4, depart.mains['j1']!.filter((carte) => carte.type === 'normale' && carte.valeur === 4), 'j1', 2),
+    ];
+    const cinqs = depart.mains['j1']!.filter((carte) => carte.type === 'normale' && carte.valeur === 5);
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses,
+      ajouts: [s.ajoutDesAs, { combinaisonId: suiteVisible.id, cartes: [jokerEnNeuf] }],
+      carteDefausseeId: cinqs[0]!.id,
+    });
+    // Le joker n'est plus en main ; il reste un cinq, non défaussé : pas de fin.
+    expect(apres.mains['j1']?.some((carte) => carte.id === s.jokerDeLaTable.id)).toBe(false);
+    expect(apres.combinaisons.find((combinaison) => combinaison.id === suiteVisible.id)?.cartes).toHaveLength(4);
+  });
+
+  it('le joker rendu n\'est pas replacé : il reste en main et le coup n\'est pas gagné', () => {
+    const s = scenario(false);
+    // Quatorze cartes posées sans le joker : les deux cinq restent en main, on
+    // n'en pose que douze — pas de fin de coup, mais pas d'erreur non plus.
+    const { coup: apres, coupTermine } = jouerTour(
+      { ...s.depart, recapitulatifs: { j1: recap({ toursAvecPose: [1] }) } },
+      'j1',
+      {
+        source: 'pioche',
+        poses: s.poses(false).slice(0, 3),
+        ajouts: [s.ajoutDesAs],
+        carteDefausseeId: s.quinzieme.id,
+      },
+    );
+    expect(coupTermine).toBe(false);
+    expect(apres.mains['j1']?.some((carte) => carte.id === s.jokerDeLaTable.id)).toBe(true);
+  });
+
+  it('un joker de la table qui n\'est pas rendu par l\'ajout ne peut pas être engagé', () => {
+    const s = scenario(true);
+    // Un seul as ajouté : le joker tient toujours l'autre, il n'est pas à lui.
+    expect(() =>
+      jouerTour(s.depart, 'j1', {
+        source: 'pioche',
+        poses: s.poses(true),
+        ajouts: [{ combinaisonId: s.carreAdverse.id, cartes: [s.ajoutDesAs.cartes[0]!] }],
+        carteDefausseeId: s.quinzieme.id,
+      }),
+    ).toThrow(/absente de la main/);
+  });
+});

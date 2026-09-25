@@ -932,6 +932,60 @@ describe('serveur socket.io', () => {
     neuve.disconnect();
   });
 
+  for (const enUnSeulGeste of [false, true]) {
+    it(`fin de coup : A♣ et A♦ sur A♥ A♠ [joker], le joker rendu repart dans un brelan (${enUnSeulGeste ? 'un seul geste' : 'deux gestes'})`, async () => {
+      // Réf. docs/REGLES.md § « Récupération d'un joker posé ». Le premier joueur
+      // n'a jamais ouvert ; il tient 14 cartes, dont les deux as manquants au
+      // carré adverse. Le joker que l'ajout rend doit pouvoir repartir aussitôt.
+      const { tableId } = await ouvrirTable();
+      const table = serveur.manager.table(tableId);
+      if (table.coup === null) throw new Error('coup absent');
+      const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId];
+      const jokerDeLaTable = joker();
+      const asTrefle = c('trefle', 'A');
+      const asCarreau = c('carreau', 'A');
+      const groupes = [
+        [c('pique', 2), c('coeur', 2), c('trefle', 2)],
+        [c('pique', 3), c('coeur', 3), c('trefle', 3), c('carreau', 3)],
+        [c('pique', 4), c('coeur', 4), c('trefle', 4)],
+      ];
+      const cinq = [c('pique', 5), c('coeur', 5)];
+      const carre = ensemble('A', [c('coeur', 'A'), c('pique', 'A'), jokerDeLaTable], second);
+      table.coup.combinaisons = [carre];
+      table.coup.mains[premier] = [asTrefle, asCarreau, ...groupes.flat(), ...cinq];
+      table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [] });
+      const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+      expect((await agir(joueur, 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+      expect((await agir(joueur, 'piocher', { source: 'pioche' })).ok).toBe(true);
+      const quinzieme = table.tourEnCours?.cartePiochee;
+      if (quinzieme === undefined) throw new Error('carte piochee absente');
+
+      const ids = (cartes: readonly Carte[]) => cartes.map((carte) => ({ carteId: carte.id }));
+      const ajout = { ajouts: [{ combinaisonId: carre.id, cartes: ids([asTrefle, asCarreau]) }] };
+      const poses = [
+        { type: 'ensemble', valeur: 2, cartes: ids(groupes[0] as Carte[]) },
+        { type: 'ensemble', valeur: 3, cartes: ids(groupes[1] as Carte[]) },
+        { type: 'ensemble', valeur: 4, cartes: ids(groupes[2] as Carte[]) },
+        { type: 'ensemble', valeur: 5, cartes: ids([...cinq, jokerDeLaTable]) },
+      ];
+
+      if (enUnSeulGeste) {
+        expect((await emettre(joueur.socket, 'poser', { ...ajout, poses })).ok).toBe(true);
+      } else {
+        expect((await emettre(joueur.socket, 'poser', ajout)).ok).toBe(true);
+        // Le joker que l'ajout rend est aussitôt à lui, à part, pour être replacé.
+        await agir(joueur, 'composition-commencee', {});
+        expect(joueur.dernierEtat?.moi.jokersRecuperes?.map((carte) => carte.id)).toContain(jokerDeLaTable.id);
+        expect((await emettre(joueur.socket, 'poser', { poses })).ok).toBe(true);
+      }
+
+      expect(await agir(joueur, 'defausser', { carteId: quinzieme.id })).toEqual({ ok: true });
+      expect(table.resultatCoup?.score.gagnantId).toBe(premier);
+      expect(table.coup?.mains[premier]).toEqual([]);
+    });
+  }
+
   it('le dernier arrive au salon : ceux qui attendaient recoivent son pseudo avec le premier etat', async () => {
     // Le salon se remplit : Ana et Bo attendent, connectés.
     const { tableId, codeInvitation } = await serveur.manager.creerTable(

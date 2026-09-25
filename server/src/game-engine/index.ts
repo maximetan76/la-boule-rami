@@ -58,7 +58,7 @@ export { annoncer, apresTour, engageInterroge, frichePossible, joueurQuiParle } 
 export type { ResultatAnnonce } from './parole.js';
 export type { ResultatAnnonces } from './annonces.js';
 export { verifierFinDeCoupSpeciale } from './pose.js';
-export { jouerTour, echangerJoker,
+export { jouerTour, echangerJoker, jokersRendusParLesAjouts,
   recupererJoker, reformerTalon } from './tour.js';
 export type { ActionTour, AjoutCombinaison, JokerCible, NouvelEtatCoup } from './tour.js';
 export type { DistributionResultat } from './distribution.js';
