@@ -53,6 +53,7 @@ import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { EcheanceFiltree, ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
 import type { AttenteDeJeu, ResultatCoupEnAttente, TourEnCours } from './game-room-manager.js';
 import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
+import { memoireVierge, strategieDe, type MemoireDuRobot } from '../bots/index.js';
 import {
   bouleEnCours,
   panierEnCours,
@@ -825,13 +826,88 @@ const reevaluerLesBots = (io: Server, manager: GameRoomManager, table: Table): v
 };
 
 /**
- * Ce que fait un joueur automatique : le strict nécessaire pour que la partie
- * avance sous les yeux d'un joueur humain.
+ * Ce que chaque robot retient d'un tour à l'autre. Rien de caché : ce qu'un
+ * joueur attentif retiendrait lui aussi. Perdu au redémarrage du serveur, sans
+ * autre conséquence qu'un robot un peu moins attentif.
+ */
+const memoiresDesRobots = new WeakMap<Table, Map<JoueurId, MemoireDuRobot>>();
+
+const memoireDe = (table: Table, botId: JoueurId): MemoireDuRobot => {
+  const memoires = memoiresDesRobots.get(table) ?? new Map<JoueurId, MemoireDuRobot>();
+  memoiresDesRobots.set(table, memoires);
+  const memoire = memoires.get(botId) ?? memoireVierge();
+  memoires.set(botId, memoire);
+  return memoire;
+};
+
+/** Ce que le robot voit de la table : exactement ce qu'un joueur verrait à sa place. */
+const vueDuRobot = (table: Table, coup: Coup, botId: JoueurId) =>
+  filtrerEtatPourJoueur(
+    coup,
+    table.variante === 'panier' ? { panier: panierEnCours(table) } : { boule: bouleEnCours(table) },
+    botId,
+    { tableId: table.id, pseudos: Object.fromEntries(table.joueurs.map((joueur) => [joueur.id, joueur.nom])) },
+  );
+
+/**
+ * Le tour d'un robot pendant le jeu : sa stratégie choisit d'où piocher, puis
+ * quoi poser et quoi jeter ; le moteur applique, avec les mêmes règles que pour
+ * tout le monde.
  *
- * Il annonce « je joue » chaque fois qu'il a la parole, pioche au talon et défausse à son
- * tour — le même geste que le serveur joue déjà pour un joueur parti —, et
- * demande la suite pendant l'entracte. Il ne pose jamais : rien ne l'y oblige,
- * et cela suffit à faire tourner la table.
+ * Une décision que le moteur refuserait — ce qui ne devrait pas arriver —
+ * n'arrête pas la partie : le robot joue alors comme un joueur parti, pioche au
+ * talon et jette.
+ */
+const jouerLeTourDuRobot = (
+  table: Table,
+  botId: JoueurId,
+): { readonly coup: Coup; readonly poseFinale: CarteId[] } | null => {
+  const coup = table.coup;
+  if (coup === null || coup.phase !== 'jeu' || coup.joueurActifId !== botId) return null;
+  if (table.tourEnCours !== null && table.tourEnCours.joueurId !== botId) return null;
+
+  const talon = reformerTalon(coup.pioche, coup.defausse, table.alea);
+  coup.pioche = talon.pioche;
+  coup.defausse = talon.defausse;
+
+  const strategie = strategieDe(table.variante);
+  const memoire = memoireDe(table, botId);
+  const vue = vueDuRobot(table, coup, botId);
+
+  const dessus = coup.defausse.at(-1);
+  const choisie = strategie.choisirSource(vue, memoire);
+  const source = choisie === 'defausse' && dessus !== undefined ? 'defausse' : 'pioche';
+  const carte = source === 'defausse' ? dessus : coup.pioche[0];
+  if (carte === undefined) return null;
+
+  let apres: Coup;
+  let poseFinale: CarteId[] = [];
+  try {
+    const decision = strategie.finirTour(vue, carte, source, memoire);
+    apres = jouerTour(
+      coup,
+      botId,
+      { source, poses: [...decision.poses], carteDefausseeId: decision.carteDefausseeId },
+      table.alea,
+    ).coup;
+    poseFinale = decision.poses.flatMap((pose) => pose.cartes.map((cp) => cp.carte.id));
+  } catch {
+    const suite = abandonnerTour(table, botId);
+    return suite === null ? null : { coup: suite, poseFinale: [] };
+  }
+
+  const suite = apresTour(apres, botId);
+  table.coup = suite;
+  table.tourEnCours = null;
+  return { coup: suite, poseFinale };
+};
+
+/**
+ * Ce que fait un joueur automatique quand la table l'attend.
+ *
+ * Pendant l'entracte, il demande la suite. Pendant le coup, sa stratégie décide — voir `bots/` : au panier,
+ * il joue pour gagner ; à La Boule, il annonce « je joue », pioche et jette,
+ * le strict nécessaire pour que la table tourne.
  */
 const jouerPourLeBot = async (
   io: Server,
@@ -853,13 +929,14 @@ const jouerPourLeBot = async (
   if (coup === null || joueurAttendu(coup) !== botId) return;
 
   if (coup.phase === 'annonces') {
-    appliquerAnnonce(table, botId, 'je-joue');
+    const annonce = strategieDe(table.variante).annoncer(vueDuRobot(table, coup, botId), memoireDe(table, botId));
+    appliquerAnnonce(table, botId, annonce);
     publier(io, manager, table);
     return;
   }
 
-  const apres = abandonnerTour(table, botId);
-  if (apres !== null && apres.gagnantId !== null) await cloturerCoup(manager, table, apres);
+  const tour = jouerLeTourDuRobot(table, botId);
+  if (tour !== null && tour.coup.gagnantId !== null) await cloturerCoup(manager, table, tour.coup, tour.poseFinale);
   publier(io, manager, table);
 };
 
