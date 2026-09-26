@@ -52,7 +52,7 @@ import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { EcheanceFiltree, ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
 import type { AttenteDeJeu, ResultatCoupEnAttente, TourEnCours } from './game-room-manager.js';
-import { filtrerTirage, retournerCarte } from './tirage-en-direct.js';
+import { filtrerTirage, joueursARetourner, retournerCarte, TAILLE_ETALAGE } from './tirage-en-direct.js';
 import { memoireVierge, strategieDe, type MemoireDuRobot } from '../bots/index.js';
 import {
   bouleEnCours,
@@ -272,7 +272,7 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
       joueurs: table.joueurs.map((joueur) => ({
         joueurId: joueur.id,
         pseudo: joueur.nom,
-        connecte: connectes.includes(joueur.id),
+        connecte: connectes.includes(joueur.id) || table.bots.has(joueur.id),
       })),
       // Le salon ne remplace pas la description : il doit porter la variante.
       variante: table.variante,
@@ -307,7 +307,7 @@ export const diffuserEtat = (io: Server, manager: GameRoomManager, table: Table)
         joueurId,
         {
         tableId: table.id,
-        connectes,
+        connectes: manager.joueursPresents(table),
         pseudos: Object.fromEntries(table.joueurs.map((joueur) => [joueur.id, joueur.nom])),
         tourEnAttente: table.tourEnCours,
         resultat: resultatFiltre(table),
@@ -530,6 +530,8 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
         manchesAGagner: table.manchesAGagner,
         montant: table.montant,
         alea: table.alea,
+        // L'ordinateur rejoue avec eux : il reste l'ordinateur.
+        bots: [...table.bots],
       },
     );
   } else {
@@ -551,6 +553,7 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
         nombreCoups: table.nombreCoups,
         valeurPoint: table.valeurPoint,
         alea: table.alea,
+        bots: [...table.bots],
       },
     );
   }
@@ -662,6 +665,8 @@ const reevaluerSursis = (io: Server, manager: GameRoomManager, table: Table): vo
 
   if (attendu === null) return;
   if (manager.socketDe(table, attendu) !== null) return;
+  // Un joueur que le serveur joue lui-même n'est jamais absent : il joue.
+  if (table.bots.has(attendu)) return;
   if (table.joueurEnSursis === attendu) return;
 
   const dureeMs = table.gestionDeconnexion.dureeMs;
@@ -691,7 +696,11 @@ const reevaluerSursis = (io: Server, manager: GameRoomManager, table: Table): vo
  */
 const reevaluerDelaiDeJeu = (io: Server, manager: GameRoomManager, table: Table): void => {
   const coup = table.coup;
-  const attendu = coup === null || table.resultatCoup !== null ? null : joueurAttendu(coup);
+  const joueurAttenduParLaTable = coup === null || table.resultatCoup !== null ? null : joueurAttendu(coup);
+  // Un joueur que le serveur joue lui-même ne fait pas attendre la table : pas
+  // de délai, pas de compte à rebours.
+  const attendu =
+    joueurAttenduParLaTable !== null && table.bots.has(joueurAttenduParLaTable) ? null : joueurAttenduParLaTable;
   const dureeMs =
     coup === null || attendu === null
       ? null
@@ -771,9 +780,24 @@ export const DELAI_BOT_MS = 1_200;
 const botAttendu = (table: Table): JoueurId | null => {
   if (table.bots.size === 0) return null;
 
+  // Le tirage d'ouverture : un robot retourne sa carte lui-même, comme chacun.
+  const aRetourner = robotQuiRetourne(table);
+  if (aRetourner !== null) return aRetourner;
+
   const resultat = table.resultatCoup;
   if (resultat !== null) {
-    if (resultat.derniereCoup) return null;
+    if (resultat.derniereCoup) {
+      // Au dernier coup, « Terminer » appartient aux joueurs humains ; mais
+      // qu'un seul veuille rejouer, et le robot le suit : sans lui, le groupe
+      // ne serait jamais au complet.
+      const unHumainVeutRejouer = resultat.rejouer.some((joueurId) => !table.bots.has(joueurId));
+      if (!unHumainVeutRejouer || resultat.rejouerAnnulePar !== null) return null;
+      return (
+        table.joueurs
+          .map((joueur) => joueur.id)
+          .find((joueurId) => table.bots.has(joueurId) && !resultat.rejouer.includes(joueurId)) ?? null
+      );
+    }
     return table.joueurs
       .map((joueur) => joueur.id)
       .find((joueurId) => table.bots.has(joueurId) && !resultat.prets.includes(joueurId)) ?? null;
@@ -799,7 +823,8 @@ const reevaluerLesBots = (io: Server, manager: GameRoomManager, table: Table): v
       ? null
       : [
           bot,
-          table.resultatCoup === null ? 'jeu' : 'entracte',
+          table.resultatCoup === null ? 'jeu' : `entracte:${String(table.resultatCoup.rejouer.length)}`,
+          [...table.retournementsTirage.values()].reduce((total, places) => total + places.length, 0),
           coup?.numero ?? 0,
           coup?.phase ?? '-',
           coup?.numeroTour ?? 0,
@@ -823,6 +848,13 @@ const reevaluerLesBots = (io: Server, manager: GameRoomManager, table: Table): v
       });
     }, DELAI_BOT_MS),
   };
+};
+
+/** Le robot qui peut retourner une carte du tirage d'ouverture, s'il y en a un. */
+const robotQuiRetourne = (table: Table): JoueurId | null => {
+  const tirage = table.tirageOuverture;
+  if (tirage === null || table.resultatCoup !== null) return null;
+  return joueursARetourner(tirage, table.retournementsTirage).find((joueurId) => table.bots.has(joueurId)) ?? null;
 };
 
 /**
@@ -905,7 +937,8 @@ const jouerLeTourDuRobot = (
 /**
  * Ce que fait un joueur automatique quand la table l'attend.
  *
- * Pendant l'entracte, il demande la suite. Pendant le coup, sa stratégie décide — voir `bots/` : au panier,
+ * Au tirage d'ouverture, il retourne sa carte. Pendant l'entracte, il demande
+ * la suite. Pendant le coup, sa stratégie décide — voir `bots/` : au panier,
  * il joue pour gagner ; à La Boule, il annonce « je joue », pioche et jette,
  * le strict nécessaire pour que la table tourne.
  */
@@ -915,8 +948,21 @@ const jouerPourLeBot = async (
   table: Table,
   botId: JoueurId,
 ): Promise<void> => {
+  if (robotQuiRetourne(table) === botId && table.tirageOuverture !== null) {
+    const prises = new Set([...table.retournementsTirage.values()].flat());
+    const libres = Array.from({ length: TAILLE_ETALAGE }, (_, place) => place).filter((place) => !prises.has(place));
+    const place = libres[Math.floor(table.alea() * libres.length)];
+    if (place !== undefined) {
+      table.retournementsTirage = retournerCarte(table.tirageOuverture, table.retournementsTirage, botId, place);
+    }
+    publier(io, manager, table);
+    return;
+  }
+
   const resultat = table.resultatCoup;
   if (resultat !== null) {
+    // Le même geste que « rejouer » : un vote, qui vaut demande de la suite.
+    if (resultat.derniereCoup && !resultat.rejouer.includes(botId)) resultat.rejouer = [...resultat.rejouer, botId];
     if (!resultat.prets.includes(botId)) resultat.prets = [...resultat.prets, botId];
     if (table.joueurs.every((joueur) => resultat.prets.includes(joueur.id))) {
       await enchainer(io, manager, table);
@@ -950,7 +996,12 @@ const jouerPourLeBot = async (
  */
 const mesurerLeTempsDeJeu = (table: Table): void => {
   const coup = table.coup;
-  const attendu = coup === null || table.resultatCoup !== null ? null : joueurAttendu(coup);
+  const joueurAttenduParLaTable = coup === null || table.resultatCoup !== null ? null : joueurAttendu(coup);
+  // Le temps d'un robot n'est pas du temps de jeu : il ne réfléchit pas, il
+  // attend son minuteur. Le compter ferait de chaque ordinateur un joueur de
+  // plus dans les cumuls.
+  const attendu =
+    joueurAttenduParLaTable !== null && table.bots.has(joueurAttenduParLaTable) ? null : joueurAttenduParLaTable;
   // Le même chronomètre sert les deux variantes : seul le porteur du cumul change.
   if (table.variante === 'panier') {
     const { boule: panier, chronometre } = avancerLeChronometre(

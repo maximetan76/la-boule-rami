@@ -49,6 +49,11 @@ model Partie {
   /// Panier seulement : ce que le vainqueur du match empoche.
   montant        Float?
 
+  /// Les joueurs que le serveur joue lui-même : l'ordinateur d'une partie
+  /// « contre l'ordinateur », les robots de la démonstration. Relus au
+  /// redémarrage, pour que la partie reprenne avec eux.
+  robots String[] @default([])
+
   /// Sort d'un tour entamé par un joueur qui se déconnecte : « delai » ou
   /// « illimite ». Voir GestionDeconnexion côté serveur.
   gestionDeconnexionType    String @default("delai")

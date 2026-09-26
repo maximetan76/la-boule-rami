@@ -98,6 +98,8 @@ export interface PartieEnregistree {
   /** Panier seulement : manches à gagner et montant empoché par le vainqueur. */
   readonly manchesAGagner?: number | null;
   readonly montant?: number | null;
+  /** Joueurs que le serveur joue lui-même ; absent d'une partie antérieure : aucun. */
+  readonly robots?: readonly JoueurId[];
   /** Coups frichés choisis à la création. */
   readonly coupsFrichesDepart: number;
   /** Base du report en cascade, transmise de Boule rejouée en Boule rejouée ; absente : le départ. */
@@ -133,6 +135,8 @@ export interface NouvellePartie {
   readonly variante: Variante;
   readonly manchesAGagner?: number;
   readonly montant?: number;
+  /** Joueurs que le serveur joue lui-même. */
+  readonly robots?: readonly JoueurId[];
 }
 
 /** Une partie en cours, avec l'état de sa Boule, tel qu'il revient de la base. */

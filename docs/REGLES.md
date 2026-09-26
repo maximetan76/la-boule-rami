@@ -123,6 +123,9 @@ Le panier réutilise le moteur de La Boule (mêmes combinaisons, mêmes ajouts, 
 ### Finir la manche
 - Pas de pose partielle : ni première pose à 51 points, ni tierce franche, ni ajout isolé. La manche ne se termine qu'en plaçant les 14 cartes de sa main dans des combinaisons valides puis en défaussant la 15e carte.
 
+### Contre l'ordinateur
+- Une partie du panier peut se jouer contre l'ordinateur, choisi à la création : il s'assied aussitôt et la partie commence sans salon. Il joue avec les mêmes règles et ne voit que ce qu'un joueur verrait à sa place — sa main, la défausse, ce qui a été dit.
+
 ### Score du match
 - À la création : un nombre de manches à gagner et un montant.
 - Les manches gagnées se cumulent (elles n'ont pas à être consécutives). Le premier qui atteint le nombre voulu gagne le montant fixé.

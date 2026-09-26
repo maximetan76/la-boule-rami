@@ -176,6 +176,9 @@ const ouvrirSession = async (
 
 /** Pseudo du compte de démonstration servi à la revue Apple. */
 export const PSEUDO_DEMO = 'Testeur';
+
+/** Le nom de l'adversaire d'une partie contre l'ordinateur. */
+export const PSEUDO_ORDINATEUR = 'Ordinateur';
 /** Ses adversaires, tenus par le serveur. */
 const PSEUDOS_DES_ROBOTS = ['Robot Bo', 'Robot Cy'];
 
@@ -314,6 +317,13 @@ const lireVariante = (valeur: unknown): Variante => {
   return valeur;
 };
 
+/** L'adversaire d'une partie de panier : un autre joueur (par défaut), ou l'ordinateur. */
+const lireAdversaire = (valeur: unknown): 'humain' | 'ordinateur' => {
+  if (valeur === undefined || valeur === null || valeur === 'humain') return 'humain';
+  if (valeur === 'ordinateur') return 'ordinateur';
+  throw new ErreurHttp(400, 'Adversaire inconnu (humain ou ordinateur)');
+};
+
 /** Manches à gagner du panier : absent, 3 ; sinon un entier dans les bornes. */
 const lireManchesAGagner = (valeur: unknown): number | undefined => {
   if (valeur === undefined || valeur === null) return undefined;
@@ -352,9 +362,16 @@ const creerTable = async (
     // Réf. § « Le panier » : deux joueurs, ni coups frichés ni valeur du point.
     const manchesAGagner = lireManchesAGagner(corps['manchesAGagner']);
     const montant = lireMontant(corps['montant']);
+    const contreLOrdinateur = lireAdversaire(corps['adversaire']) === 'ordinateur';
+    // L'ordinateur a son propre compte, un par partie : il s'assied comme
+    // n'importe quel joueur, et le serveur joue pour lui (voir `bots/`).
+    const ordinateur = contreLOrdinateur
+      ? await deps.depot.trouverOuCreerJoueurApple(`robot:${randomUUID()}`, PSEUDO_ORDINATEUR, { pseudoChoisi: true })
+      : null;
     const creee = await deps.manager.creerTable(joueur, {
       variante: 'panier',
       capacite: 2,
+      ...(ordinateur === null ? {} : { bots: [ordinateur.id] }),
       ...(manchesAGagner === undefined ? {} : { manchesAGagner }),
       ...(montant === undefined ? {} : { montant }),
       delais: lireDelais(corps['delais']),
@@ -363,6 +380,11 @@ const creerTable = async (
         return gestion === undefined ? {} : { gestionDeconnexion: gestion };
       })(),
     });
+    // La table est aussitôt complète : la partie démarre dès que le joueur
+    // s'y connecte.
+    if (ordinateur !== null) {
+      await deps.manager.rejoindreParCode(creee.codeInvitation, { id: ordinateur.id, pseudo: ordinateur.pseudo });
+    }
     return decrireTable(deps.manager.table(creee.tableId));
   }
 
@@ -713,7 +735,7 @@ const situationDuJoueur = async (
               joueur.id,
               {
                 tableId: table.id,
-                connectes: deps.manager.joueursConnectes(table),
+                connectes: deps.manager.joueursPresents(table),
                 pseudos: Object.fromEntries(table.joueurs.map((assis) => [assis.id, assis.nom])),
                 tourEnAttente: table.tourEnCours,
               },

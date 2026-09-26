@@ -51,6 +51,7 @@ interface LignePartie {
   variante: string;
   manchesAGagner: number | null;
   montant: number | null;
+  robots?: string[] | null;
   abandonneParId: string | null;
   interruption: unknown;
   joueurs?: { joueurId: string; position: number }[];
@@ -92,6 +93,7 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
   variante: (ligne.variante === 'panier' ? 'panier' : 'boule') as Variante,
   manchesAGagner: ligne.manchesAGagner,
   montant: ligne.montant,
+  robots: [...(ligne.robots ?? [])],
   abandon: relireAbandon(ligne.abandonneParId, ligne.interruption),
   // Les places ne sont là que si l'appel a demandé l'inclusion ; une partie
   // tout juste créée n'en a de toute façon aucune.
@@ -165,6 +167,7 @@ export class DepotPrisma implements Depot {
         variante: partie.variante,
         manchesAGagner: partie.manchesAGagner ?? null,
         montant: partie.montant ?? null,
+        robots: [...(partie.robots ?? [])],
       },
       include: PLACES,
     });

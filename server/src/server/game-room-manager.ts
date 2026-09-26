@@ -579,6 +579,7 @@ export class GameRoomManager {
       valeurPoint: options.valeurPoint ?? null,
       variante,
       ...(variante === 'panier' ? { manchesAGagner, montant } : {}),
+      robots: [...(options.bots ?? [])],
     });
     await this.depot?.asseoirJoueur(tableId, createur.id, 0);
 
@@ -853,9 +854,9 @@ export class GameRoomManager {
       tirageOuverture: null,
       retournementsTirage: new Map(),
       jokersGardes: new Map(),
-      // Les joueurs automatiques ne survivent pas à un redémarrage : une table
-      // de démonstration ne se reprend pas, elle se recrée.
-      bots: new Set(),
+      // Les joueurs que le serveur joue lui-même reprennent leur place : une
+      // partie contre l'ordinateur continue après un redémarrage.
+      bots: new Set(partie.robots ?? []),
       actionBot: null,
       };
 
@@ -972,6 +973,14 @@ export class GameRoomManager {
     return [...table.connexions.entries()]
       .filter(([, socketId]) => socketId !== null)
       .map(([joueurId]) => joueurId);
+  }
+
+  /**
+   * Ceux qui sont à la table, tels que les autres les voient : les joueurs
+   * connectés, et ceux que le serveur joue lui-même — jamais absents.
+   */
+  joueursPresents(table: Table): JoueurId[] {
+    return [...new Set([...this.joueursConnectes(table), ...table.bots])];
   }
 
   socketDe(table: Table, joueurId: JoueurId): string | null {
