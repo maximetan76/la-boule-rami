@@ -530,8 +530,9 @@ const rejouerAvecLeGroupe = async (io: Server, manager: GameRoomManager, table: 
         manchesAGagner: table.manchesAGagner,
         montant: table.montant,
         alea: table.alea,
-        // L'ordinateur rejoue avec eux : il reste l'ordinateur.
+        // L'ordinateur rejoue avec eux : il reste l'ordinateur, à la même force.
         bots: [...table.bots],
+        niveauOrdinateur: table.niveauOrdinateur,
       },
     );
   } else {
@@ -902,7 +903,7 @@ const jouerLeTourDuRobot = (
   coup.pioche = talon.pioche;
   coup.defausse = talon.defausse;
 
-  const strategie = strategieDe(table.variante);
+  const strategie = strategieDe(table.variante, table.niveauOrdinateur);
   const memoire = memoireDe(table, botId);
   const vue = vueDuRobot(table, coup, botId);
 
@@ -975,7 +976,7 @@ const jouerPourLeBot = async (
   if (coup === null || joueurAttendu(coup) !== botId) return;
 
   if (coup.phase === 'annonces') {
-    const annonce = strategieDe(table.variante).annoncer(vueDuRobot(table, coup, botId), memoireDe(table, botId));
+    const annonce = strategieDe(table.variante, table.niveauOrdinateur).annoncer(vueDuRobot(table, coup, botId), memoireDe(table, botId));
     appliquerAnnonce(table, botId, annonce);
     publier(io, manager, table);
     return;

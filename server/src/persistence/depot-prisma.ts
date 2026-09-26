@@ -52,6 +52,7 @@ interface LignePartie {
   manchesAGagner: number | null;
   montant: number | null;
   robots?: string[] | null;
+  niveauOrdinateur?: string | null;
   abandonneParId: string | null;
   interruption: unknown;
   joueurs?: { joueurId: string; position: number }[];
@@ -94,6 +95,7 @@ const versPartie = (ligne: LignePartie): PartieEnregistree => ({
   manchesAGagner: ligne.manchesAGagner,
   montant: ligne.montant,
   robots: [...(ligne.robots ?? [])],
+  niveauOrdinateur: ligne.niveauOrdinateur === 'fort' ? 'fort' : ligne.niveauOrdinateur === 'facile' ? 'facile' : null,
   abandon: relireAbandon(ligne.abandonneParId, ligne.interruption),
   // Les places ne sont là que si l'appel a demandé l'inclusion ; une partie
   // tout juste créée n'en a de toute façon aucune.
@@ -168,6 +170,7 @@ export class DepotPrisma implements Depot {
         manchesAGagner: partie.manchesAGagner ?? null,
         montant: partie.montant ?? null,
         robots: [...(partie.robots ?? [])],
+        niveauOrdinateur: partie.niveauOrdinateur ?? null,
       },
       include: PLACES,
     });

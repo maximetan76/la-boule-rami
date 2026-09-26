@@ -53,6 +53,8 @@ model Partie {
   /// « contre l'ordinateur », les robots de la démonstration. Relus au
   /// redémarrage, pour que la partie reprenne avec eux.
   robots String[] @default([])
+  /// Leur force : « facile » ou « fort ». Absente : « facile ».
+  niveauOrdinateur String?
 
   /// Sort d'un tour entamé par un joueur qui se déconnecte : « delai » ou
   /// « illimite ». Voir GestionDeconnexion côté serveur.

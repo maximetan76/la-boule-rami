@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
@@ -119,6 +119,28 @@ describe("le panier contre l'ordinateur", () => {
     expect([...rechargee.bots]).toEqual([...table.bots]);
   });
 
+  it('le niveau : facile sans précision, fort sur demande, retenu au redémarrage, refusé s il est inconnu', async () => {
+    const sansNiveau = await creer({ variante: 'panier', adversaire: 'ordinateur' });
+    expect(serveur.manager.table(sansNiveau.corps['tableId'] as string).niveauOrdinateur).toBe('facile');
+    expect(sansNiveau.corps['niveauOrdinateur']).toBe('facile');
+
+    const fort = await creer({ variante: 'panier', adversaire: 'ordinateur', niveau: 'fort' });
+    const tableId = fort.corps['tableId'] as string;
+    expect(fort.corps['niveauOrdinateur']).toBe('fort');
+    expect(serveur.manager.table(tableId).niveauOrdinateur).toBe('fort');
+
+    const apresRedemarrage = new GameRoomManager({ depot });
+    await apresRedemarrage.recharger();
+    expect(apresRedemarrage.table(tableId).niveauOrdinateur).toBe('fort');
+
+    // Refusé avant que l'ordinateur ait un compte : pas de compte orphelin.
+    const comptes = vi.spyOn(depot, 'trouverOuCreerJoueurApple');
+    expect((await creer({ variante: 'panier', adversaire: 'ordinateur', niveau: 'impossible' })).statut).toBe(400);
+    expect(comptes).not.toHaveBeenCalled();
+    // Entre joueurs humains, il n'y a pas d'ordinateur, donc pas de niveau.
+    expect((await creer({ variante: 'panier' })).corps['niveauOrdinateur']).toBeNull();
+  });
+
   it("refuse un adversaire inconnu, et reste une table à deux joueurs humains sans l'option", async () => {
     expect((await creer({ variante: 'panier', adversaire: 'martien' })).statut).toBe(400);
     const { corps } = await creer({ variante: 'panier' });
@@ -192,7 +214,7 @@ describe("le panier contre l'ordinateur", () => {
   }, 30_000);
 
   it("en fin de match, qu'Ana veuille rejouer, et l'ordinateur la suit : nouvelle table, lui toujours robot", async () => {
-    const { jeton, corps } = await creer({ variante: 'panier', adversaire: 'ordinateur', manchesAGagner: 1 });
+    const { jeton, corps } = await creer({ variante: 'panier', adversaire: 'ordinateur', niveau: 'fort', manchesAGagner: 1 });
     const tableId = corps['tableId'] as string;
     socket = clientIo(`http://localhost:${String(port)}`, { transports: ['websocket'] });
     await new Promise<void>((resolve) => {
@@ -239,5 +261,7 @@ describe("le panier contre l'ordinateur", () => {
     const suivante = serveur.manager.table(table.relanceeVers as string);
     expect([...suivante.bots]).toEqual([ordinateurId]);
     expect(suivante.variante).toBe('panier');
+    // Il rejoue à la même force.
+    expect(suivante.niveauOrdinateur).toBe('fort');
   }, 30_000);
 });

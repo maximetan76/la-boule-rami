@@ -100,6 +100,8 @@ export interface PartieEnregistree {
   readonly montant?: number | null;
   /** Joueurs que le serveur joue lui-même ; absent d'une partie antérieure : aucun. */
   readonly robots?: readonly JoueurId[];
+  /** Leur force ; absente : « facile ». */
+  readonly niveauOrdinateur?: 'facile' | 'fort' | null;
   /** Coups frichés choisis à la création. */
   readonly coupsFrichesDepart: number;
   /** Base du report en cascade, transmise de Boule rejouée en Boule rejouée ; absente : le départ. */
@@ -137,6 +139,7 @@ export interface NouvellePartie {
   readonly montant?: number;
   /** Joueurs que le serveur joue lui-même. */
   readonly robots?: readonly JoueurId[];
+  readonly niveauOrdinateur?: 'facile' | 'fort';
 }
 
 /** Une partie en cours, avec l'état de sa Boule, tel qu'il revient de la base. */

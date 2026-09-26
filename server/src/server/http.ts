@@ -6,6 +6,7 @@
  * abandonner une partie, changer de pseudo, supprimer son compte.
  */
 import { decrireTablePublique, nomALaTable } from './game-room-manager.js';
+import type { NiveauOrdinateur } from '../bots/index.js';
 import {
   COUPS_PAR_NOMBRE_DE_JOUEURS,
   estVariante,
@@ -324,6 +325,13 @@ const lireAdversaire = (valeur: unknown): 'humain' | 'ordinateur' => {
   throw new ErreurHttp(400, 'Adversaire inconnu (humain ou ordinateur)');
 };
 
+/** La force de l'ordinateur : absente, « facile ». */
+const lireNiveau = (valeur: unknown): NiveauOrdinateur => {
+  if (valeur === undefined || valeur === null) return 'facile';
+  if (valeur === 'facile' || valeur === 'fort') return valeur;
+  throw new ErreurHttp(400, 'Niveau inconnu (facile ou fort)');
+};
+
 /** Manches à gagner du panier : absent, 3 ; sinon un entier dans les bornes. */
 const lireManchesAGagner = (valeur: unknown): number | undefined => {
   if (valeur === undefined || valeur === null) return undefined;
@@ -363,6 +371,8 @@ const creerTable = async (
     const manchesAGagner = lireManchesAGagner(corps['manchesAGagner']);
     const montant = lireMontant(corps['montant']);
     const contreLOrdinateur = lireAdversaire(corps['adversaire']) === 'ordinateur';
+    // Lu avant de créer le compte de l'ordinateur : un niveau refusé n'en laisse aucun.
+    const niveauOrdinateur = contreLOrdinateur ? lireNiveau(corps['niveau']) : 'facile';
     // L'ordinateur a son propre compte, un par partie : il s'assied comme
     // n'importe quel joueur, et le serveur joue pour lui (voir `bots/`).
     const ordinateur = contreLOrdinateur
@@ -371,7 +381,7 @@ const creerTable = async (
     const creee = await deps.manager.creerTable(joueur, {
       variante: 'panier',
       capacite: 2,
-      ...(ordinateur === null ? {} : { bots: [ordinateur.id] }),
+      ...(ordinateur === null ? {} : { bots: [ordinateur.id], niveauOrdinateur }),
       ...(manchesAGagner === undefined ? {} : { manchesAGagner }),
       ...(montant === undefined ? {} : { montant }),
       delais: lireDelais(corps['delais']),

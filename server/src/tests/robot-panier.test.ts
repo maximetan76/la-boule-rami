@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cartesInvisibles,
   creerStrategiePanier,
   nourrirait,
   retenirCeQueLaDefausseApprend,
   strategiePanier,
+  strategiePanierForte,
 } from '../bots/panier.js';
+import { strategieDe } from '../bots/index.js';
+import { AnalyseDeMain } from '../game-engine/solveur.js';
+import { construirePaquet, melangerPaquet } from '../game-engine/distribution.js';
 import { memoireVierge } from '../bots/strategie.js';
 import { strategieElementaire } from '../bots/elementaire.js';
 import { initialiserMatchPanier } from '../game-engine/panier.js';
@@ -194,5 +199,89 @@ describe('le robot du panier', () => {
     expect(strategieElementaire.finirTour(vue(etat), piochee, 'pioche', memoireVierge()).carteDefausseeId).toBe(
       premiere.id,
     );
+  });
+
+  describe('le niveau fort : jeter en regardant un coup à l avance', () => {
+    it('les cartes invisibles : ni en main, ni sorties, avec leurs exemplaires restants', () => {
+      const septCoeur = c('coeur', 7);
+      const possibles = cartesInvisibles([septCoeur, joker()], [c('coeur', 7), c('pique', 2)]);
+      const septs = possibles.filter(({ carte }) => carte.type === 'normale' && carte.couleur === 'coeur' && carte.valeur === 7);
+      const deuxPique = possibles.find(({ carte }) => carte.type === 'normale' && carte.couleur === 'pique' && carte.valeur === 2);
+      // Les deux 7♥ sont vus : il n'en vient plus. Un 2♠ vu : il en reste un.
+      expect(septs).toEqual([]);
+      expect(deuxPique?.exemplaires).toBe(1);
+      expect(possibles.reduce((total, { exemplaires }) => total + exemplaires, 0)).toBe(104 - 3);
+    });
+
+    it('finit dès que sa main le permet, comme le niveau facile', () => {
+      const { main, cartes } = presqueFinie();
+      const neufCarreau = c('carreau', 9);
+      const etat = panier({ mains: { robot: main, ana: [] }, pioche: [neufCarreau] });
+      const decision = strategiePanierForte.finirTour(vue(etat), neufCarreau, 'pioche', memoireVierge());
+      expect(decision.carteDefausseeId).toBe(cartes.seule.id);
+      expect(decision.poses.flatMap((pose) => pose.cartes)).toHaveLength(14);
+    });
+
+    it('sur des donnes au hasard : jamais un joker, jamais une carte qui éloigne du but', () => {
+      let graine = 7;
+      const alea = () => {
+        graine = (graine * 1103515245 + 12345) % 2147483648;
+        return graine / 2147483648;
+      };
+      for (let essai = 0; essai < 25; essai += 1) {
+        const paquet = melangerPaquet(construirePaquet('panier'), alea);
+        const main = [joker(), ...paquet.filter((carte) => carte.type === 'normale').slice(0, 13)];
+        const piochee = paquet.filter((carte) => carte.type === 'normale')[13] as Carte;
+        const etat = panier({ mains: { robot: main, ana: [] }, pioche: [piochee] });
+        const facile = strategiePanier.finirTour(vue(etat), piochee, 'pioche', memoireVierge());
+        const fort = strategiePanierForte.finirTour(vue(etat), piochee, 'pioche', memoireVierge());
+        const toutes = [...main, piochee];
+        const jetee = toutes.find((carte) => carte.id === fort.carteDefausseeId) as Carte;
+        expect(jetee.type).toBe('normale');
+        // À distance égale au mieux : il ne sacrifie jamais une carte de distance.
+        const distanceSans = (id: string) =>
+          new AnalyseDeMain(toutes.filter((carte) => carte.id !== id)).meilleure(null).distance;
+        expect(distanceSans(fort.carteDefausseeId)).toBe(distanceSans(facile.carteDefausseeId));
+      }
+    });
+
+    it('à distance égale, départage autrement que le niveau facile', () => {
+      // Trouvé au banc : deux cartes au même coût. Le facile départage par le
+      // potentiel d'aujourd'hui et jette l'as ; le fort, par ce que la pioche
+      // suivante apporterait en moyenne, et jette le valet.
+      const main = [c('trefle', 'A'), c('pique', 8), c('pique', 9), c('coeur', 10), c('trefle', 'V'), c('pique', 4)];
+      const piochee = c('trefle', 5);
+      const etat = panier({ mains: { robot: main, ana: [] }, pioche: [piochee] });
+      const libelle = (id: string) => {
+        const carte = [...main, piochee].find((candidate) => candidate.id === id);
+        return carte?.type === 'normale' ? `${String(carte.valeur)}${carte.couleur}` : '?';
+      };
+      expect(libelle(strategiePanier.finirTour(vue(etat), piochee, 'pioche', memoireVierge()).carteDefausseeId)).toBe('Atrefle');
+      expect(libelle(strategiePanierForte.finirTour(vue(etat), piochee, 'pioche', memoireVierge()).carteDefausseeId)).toBe('Vtrefle');
+    });
+
+    it('décide en moins d une seconde sur une main pleine', () => {
+      const { main } = presqueFinie();
+      const piochee = c('coeur', 'D');
+      const etat = panier({ mains: { robot: main, ana: [] }, pioche: [piochee] });
+      const debut = performance.now();
+      strategiePanierForte.finirTour(vue(etat), piochee, 'pioche', memoireVierge());
+      expect(performance.now() - debut).toBeLessThan(1_000);
+    });
+
+    it('la parole et la pioche ne changent pas avec le niveau', () => {
+      const { main } = presqueFinie();
+      const etat = panier({ mains: { robot: main, ana: [] }, defausse: [c('carreau', 9)] });
+      expect(strategiePanierForte.choisirSource(vue(etat), memoireVierge())).toBe(
+        strategiePanier.choisirSource(vue(etat), memoireVierge()),
+      );
+    });
+
+    it('la stratégie suit le jeu et le niveau', () => {
+      expect(strategieDe('panier', 'fort')).toBe(strategiePanierForte);
+      expect(strategieDe('panier', 'facile')).toBe(strategiePanier);
+      expect(strategieDe('panier')).toBe(strategiePanier);
+      expect(strategieDe('boule', 'fort')).toBe(strategieElementaire);
+    });
   });
 });

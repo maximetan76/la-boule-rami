@@ -14,6 +14,7 @@
  * de retrouver sa place après un redémarrage du serveur.
  */
 import type { Chronometre } from './temps-de-jeu.js';
+import type { NiveauOrdinateur } from '../bots/index.js';
 import {
   COUPS_FRICHES_PAR_DEFAUT,
   COUPS_PAR_NOMBRE_DE_JOUEURS,
@@ -209,6 +210,8 @@ export interface Table {
   /** Panier seulement : manches à gagner et montant empoché par le vainqueur. */
   readonly manchesAGagner: number;
   readonly montant: number;
+  /** La force des joueurs que le serveur joue lui-même. Voir `bots/`. */
+  readonly niveauOrdinateur: NiveauOrdinateur;
   coup: Coup | null;
   tourEnCours: TourEnCours | null;
   /** Socket courante de chaque joueur, `null` s'il est déconnecté. */
@@ -328,6 +331,8 @@ export const decrireTablePublique = (table: Table) => ({
   variante: table.variante,
   manchesAGagner: table.variante === 'panier' ? table.manchesAGagner : null,
   montant: table.variante === 'panier' ? table.montant : null,
+  // Contre l'ordinateur seulement : sa force.
+  niveauOrdinateur: table.bots.size > 0 ? table.niveauOrdinateur : null,
 });
 
 /** La Boule d'une table dont la partie a démarré. */
@@ -456,6 +461,8 @@ export class GameRoomManager {
       readonly valeurPoint?: string | null;
       /** Joueurs que le serveur joue lui-même : la table de démonstration. */
       readonly bots?: readonly JoueurId[];
+      /** Leur force ; « facile » sans précision. */
+      readonly niveauOrdinateur?: NiveauOrdinateur;
       readonly alea?: () => number;
       /** Le jeu joué à cette table ; sans précision, La Boule. */
       readonly variante?: Variante;
@@ -540,6 +547,7 @@ export class GameRoomManager {
       panier: null,
       manchesAGagner,
       montant,
+      niveauOrdinateur: options.niveauOrdinateur ?? 'facile',
       coup: null,
       tourEnCours: null,
       connexions: new Map([[createur.id, null]]),
@@ -580,6 +588,9 @@ export class GameRoomManager {
       variante,
       ...(variante === 'panier' ? { manchesAGagner, montant } : {}),
       robots: [...(options.bots ?? [])],
+      ...(options.bots !== undefined && options.bots.length > 0
+        ? { niveauOrdinateur: options.niveauOrdinateur ?? 'facile' }
+        : {}),
     });
     await this.depot?.asseoirJoueur(tableId, createur.id, 0);
 
@@ -831,6 +842,7 @@ export class GameRoomManager {
               : deserialiserMatchPanier(etatPanier),
         manchesAGagner: partie.manchesAGagner ?? 3,
         montant: partie.montant ?? 10,
+        niveauOrdinateur: partie.niveauOrdinateur ?? 'facile',
         coup: null,
         tourEnCours: null,
         connexions: new Map(assis.map((joueur) => [joueur.id, null])),
