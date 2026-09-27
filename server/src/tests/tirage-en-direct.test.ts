@@ -3,6 +3,7 @@ import {
   filtrerTirage,
   joueursARetourner,
   retournerCarte,
+  retournerPourLesPasseurs,
   tirageComplet,
 } from '../server/tirage-en-direct.js';
 import { c, joker } from './fixtures.js';
@@ -87,5 +88,70 @@ describe('tirage en direct — ce qui est montre', () => {
     expect(vue.donneurInitial).toBe('j2');
     expect(vue.jokersConserves['j2']?.map((carte) => carte.type)).toEqual(['joker']);
     expect(vue.jokersConserves['j1']).toEqual([]);
+  });
+});
+
+/** Deux joueurs à égalité : a et b tirent un 5, puis a un 9 et b un 10. */
+const egalite = () => ({
+  ordreTable: ['a', 'b'],
+  donneurInitial: 'a',
+  cartesTirees: new Map<JoueurId, Carte[]>([
+    ['a', [c('pique', 5), c('coeur', 9)]],
+    ['b', [c('coeur', 5), c('trefle', 10)]],
+  ]),
+});
+/** Un tirage au sort qui prend toujours la première place libre : lisible dans un test. */
+const premiereLibre = () => 0;
+
+describe('tirage en direct — qui a passé', () => {
+  it('retourne la carte de celui qui passe, tout de suite, sans toucher à celle des autres', () => {
+    const t = egalite();
+    const r = retournerPourLesPasseurs(t, rien(), new Set(['a']), premiereLibre);
+    expect(r.get('a')).toEqual([0]);
+    expect(r.get('b')).toBeUndefined();
+    // Elle est retournée comme n'importe quelle autre : tous la voient.
+    expect(filtrerTirage(t, r).retournees['a']?.map((retournee) => retournee.carte)).toMatchObject([
+      { type: 'normale', couleur: 'pique', valeur: 5 },
+    ]);
+  });
+
+  it('le sert aussi au retirage, dès que la manche précédente est retournée par tous', () => {
+    const t = egalite();
+    // a passe avant que rien ne se sache : sa première carte part, pas son retirage.
+    let r = retournerPourLesPasseurs(t, rien(), new Set(['a']), premiereLibre);
+    expect(joueursARetourner(t, r)).toEqual(['b']);
+
+    // b retourne son 5 : égalité, le retirage s'ouvre — et a y est servi d'office.
+    r = retournerCarte(t, r, 'b', 20);
+    r = retournerPourLesPasseurs(t, r, new Set(['a']), premiereLibre);
+    expect(r.get('a')).toEqual([0, 1]);
+    expect(joueursARetourner(t, r)).toEqual(['b']);
+
+    // Il ne reste que b à toucher : le tirage se termine sans attendre a.
+    r = retournerCarte(t, r, 'b', 30);
+    expect(tirageComplet(t, r)).toBe(true);
+  });
+
+  it('sert chacun de ceux qui passent, jusqu au bout', () => {
+    const t = egalite();
+    const r = retournerPourLesPasseurs(t, rien(), new Set(['a', 'b']), premiereLibre);
+    expect(tirageComplet(t, r)).toBe(true);
+    // Chaque carte à sa propre place : aucune n'est retournée deux fois.
+    const places = [...r.values()].flat();
+    expect(new Set(places).size).toBe(places.length);
+  });
+
+  it('ne change rien quand personne n a passé, ni quand le tirage est fini', () => {
+    const t = egalite();
+    expect(retournerPourLesPasseurs(t, rien(), new Set(), premiereLibre)).toEqual(rien());
+    const fini = retournerPourLesPasseurs(t, rien(), new Set(['a', 'b']), premiereLibre);
+    expect(retournerPourLesPasseurs(t, fini, new Set(['a', 'b']), premiereLibre)).toEqual(fini);
+  });
+
+  it('prend une place libre : jamais une carte déjà retournée', () => {
+    const t = egalite();
+    const r = retournerPourLesPasseurs(t, retournerCarte(t, rien(), 'b', 0), new Set(['a']), premiereLibre);
+    // La place 0 est prise par b : a reçoit la suivante, puis la suivante pour son retirage (5-5).
+    expect(r.get('a')).toEqual([1, 2]);
   });
 });

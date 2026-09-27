@@ -265,6 +265,11 @@ export interface Table {
   /** Les places de l'étalage où chaque joueur a retourné ses cartes du tirage. */
   retournementsTirage: Map<JoueurId, number[]>;
   /**
+   * Ceux qui ont appuyé sur « Passer » : le serveur retourne leurs cartes du
+   * tirage à leur place, retirages compris, dès que c'est à eux.
+   */
+  passeursDuTirage: Set<JoueurId>;
+  /**
    * Jokers que chaque joueur a gardés en main lors d'une friche généralisée,
    * pour qu'il les reconnaisse à la reprise. Vidé à chaque nouvelle donne.
    */
@@ -566,6 +571,7 @@ export class GameRoomManager {
       resultatCoup: null,
       tirageOuverture: null,
       retournementsTirage: new Map(),
+      passeursDuTirage: new Set(),
       jokersGardes: new Map(),
       bots: new Set(options.bots ?? []),
       actionBot: null,
@@ -865,6 +871,7 @@ export class GameRoomManager {
       resultatCoup: null,
       tirageOuverture: null,
       retournementsTirage: new Map(),
+      passeursDuTirage: new Set(),
       jokersGardes: new Map(),
       // Les joueurs que le serveur joue lui-même reprennent leur place : une
       // partie contre l'ordinateur continue après un redémarrage.

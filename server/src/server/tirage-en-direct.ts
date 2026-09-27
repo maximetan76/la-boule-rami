@@ -79,6 +79,32 @@ export const retournerCarte = (
 };
 
 /**
+ * Retourne, à la place d'un joueur qui a passé, la carte qu'il devait toucher :
+ * au hasard dans l'étalage, et retournée comme s'il l'avait choisie. Un retirage
+ * ne s'ouvre qu'une fois la manche précédente retournée par tous : dès qu'il
+ * s'ouvre, le joueur qui a passé y est servi à son tour, jusqu'à ce que plus
+ * aucun passeur n'ait de carte à retourner. Ainsi personne n'attend ni ne
+ * bloque le tirage en ne touchant à rien.
+ *
+ * @param alea tirage dans [0, 1) : celui de la table, pour qu'un banc le rejoue.
+ */
+export const retournerPourLesPasseurs = (
+  tirage: TirageARetourner,
+  retournements: Retournements,
+  passeurs: ReadonlySet<JoueurId>,
+  alea: () => number,
+): Map<JoueurId, number[]> => {
+  let suite = new Map([...retournements].map(([id, places]) => [id, [...places]]));
+  for (;;) {
+    const attendu = joueursARetourner(tirage, suite).find((joueurId) => passeurs.has(joueurId));
+    if (attendu === undefined) return suite;
+    const prises = new Set([...suite.values()].flat());
+    const libres = Array.from({ length: TAILLE_ETALAGE }, (_, place) => place).filter((place) => !prises.has(place));
+    suite = retournerCarte(tirage, suite, attendu, libres[Math.floor(alea() * libres.length)]);
+  }
+};
+
+/**
  * Le tirage tel que chacun le voit : les seules cartes retournées, à leur
  * place. Sièges, donneur et jokers gardés n'apparaissent qu'une fois tout
  * retourné.

@@ -52,7 +52,14 @@ import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { EcheanceFiltree, ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
 import type { AttenteDeJeu, ResultatCoupEnAttente, TourEnCours } from './game-room-manager.js';
-import { filtrerTirage, joueursARetourner, retournerCarte, TAILLE_ETALAGE } from './tirage-en-direct.js';
+import {
+  filtrerTirage,
+  joueursARetourner,
+  retournerCarte,
+  retournerPourLesPasseurs,
+  TAILLE_ETALAGE,
+  tirageComplet,
+} from './tirage-en-direct.js';
 import { memoireVierge, strategieDe, type MemoireDuRobot } from '../bots/index.js';
 import {
   bouleEnCours,
@@ -349,6 +356,21 @@ const tirageFiltre = (table: Table): TirageOuvertureFiltre | null => {
 
   // Seules les cartes retournées par leur joueur sortent : voir tirage-en-direct.
   return filtrerTirage(tirage, table.retournementsTirage);
+};
+
+/**
+ * Retourne, pour ceux qui ont passé, les cartes du tirage qui leur reviennent.
+ * À rappeler après chaque carte retournée : un retirage s'ouvre à ce moment-là.
+ */
+const retournerPourCeuxQuiOntPasse = (table: Table): void => {
+  const tirage = table.tirageOuverture;
+  if (tirage === null || table.passeursDuTirage.size === 0) return;
+  table.retournementsTirage = retournerPourLesPasseurs(
+    tirage,
+    table.retournementsTirage,
+    table.passeursDuTirage,
+    table.alea,
+  );
 };
 
 /**
@@ -955,6 +977,7 @@ const jouerPourLeBot = async (
     const place = libres[Math.floor(table.alea() * libres.length)];
     if (place !== undefined) {
       table.retournementsTirage = retournerCarte(table.tirageOuverture, table.retournementsTirage, botId, place);
+      retournerPourCeuxQuiOntPasse(table);
     }
     publier(io, manager, table);
     return;
@@ -1498,6 +1521,28 @@ export const enregistrerHandlers = (
           throw new Error("Aucun tirage d'ouverture en cours");
         }
         table.retournementsTirage = retournerCarte(tirage, table.retournementsTirage, joueurId, payload?.place);
+        // Un retirage s'ouvre quand tous ont retourné : ceux qui ont passé y sont servis.
+        retournerPourCeuxQuiOntPasse(table);
+        publier(io, manager, table);
+      });
+    });
+
+    /**
+     * « Passer » : le joueur ne veut pas toucher de carte.
+     *
+     * Le serveur retourne la sienne tout de suite, au hasard, à la vue de tous
+     * comme s'il l'avait choisie — et fait de même pour ses retirages, dès
+     * qu'ils s'ouvrent. Personne n'attend un joueur qui ne touche à rien.
+     */
+    socket.on('passer-tirage', (_payload: unknown, ack: unknown) => {
+      repondre(ack, () => {
+        const { table, joueurId } = manager.placeDeLaSocket(socket.id);
+        const tirage = table.tirageOuverture;
+        // Plus de tirage à jouer : passer est sans objet, pas une faute.
+        if (tirage === null || table.coup?.numero !== 1 || tirageComplet(tirage, table.retournementsTirage)) return;
+        if (!tirage.cartesTirees.has(joueurId)) throw new Error('Vous ne prenez pas part a ce tirage');
+        table.passeursDuTirage.add(joueurId);
+        retournerPourCeuxQuiOntPasse(table);
         publier(io, manager, table);
       });
     });
