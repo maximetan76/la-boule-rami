@@ -1775,6 +1775,74 @@ describe('joker frais : une seule regle pour ouvrir, sauf en finissant le coup',
   });
 });
 
+/**
+ * Même règle que ci-dessus, mais le joker revient par un ajout du tour même
+ * (§ « Récupération d'un joker posé », 3e alinéa) — pas par un échange tendu
+ * à part (`echangerJoker`). Bug corrigé : `peutPoser` et `ouvreSansJokersRecuperes`
+ * ne voyaient pas ce joker-là, qui ne rejoint la main que dans
+ * `jokersReprisParAjout`, jamais `coup.mains` — une première pose par ailleurs
+ * valide (51 points et tierce franche sans la combinaison du joker) était donc
+ * refusée à tort avec « Premiere pose invalide ».
+ */
+describe('joker frais repris par un ajout du meme tour, pas par un echange', () => {
+  it('exemple de reference libre, joker rendu par un ajout : AKQ + 789 + 333 tiennent seuls, 6-[joker]-8 passe', () => {
+    const coeur = [c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+    const pique = [c('pique', 7), c('pique', 8), c('pique', 9)];
+    const trois = [c('pique', 3), c('carreau', 3), c('trefle', 3)];
+    const six = c('carreau', 6);
+    const huit = c('carreau', 8);
+    const aJeter = c('trefle', 2);
+    const representant = jokerPour('carreau', 7);
+    const chezJ2 = tierce('carreau', [c('carreau', 5), representant, c('carreau', 6)], 'j2', 1);
+    const vraiSept = c('carreau', 7);
+
+    const depart = coupJouable([...coeur, ...pique, ...trois, six, huit, vraiSept, aJeter], {
+      combinaisons: [chezJ2],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
+    });
+
+    const { coup: apres } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      poses: [
+        tierce('coeur', coeur),
+        tierce('pique', pique),
+        ensemble(3, trois),
+        tierce('carreau', [six, { carte: representant.carte, remplace: { couleur: 'carreau', valeur: 7 } }, huit]),
+      ],
+      ajouts: [{ combinaisonId: chezJ2.id, cartes: [{ carte: vraiSept, remplace: null }] }],
+      carteDefausseeId: aJeter.id,
+    });
+    expect(apres.combinaisons.some((combinaison) => combinaison.id === chezJ2.id)).toBe(true);
+  });
+
+  it('exemple de reference bloque, joker rendu par un ajout : AKQ + 7-[joker]-9, la pose ne tient que par le joker frais', () => {
+    const coeur = [c('coeur', 'D'), c('coeur', 'R'), c('coeur', 'A')];
+    const sept = c('carreau', 7);
+    const neuf = c('carreau', 9);
+    const aJeter = c('trefle', 2);
+    const representant = jokerPour('carreau', 8);
+    const chezJ2 = tierce('carreau', [c('carreau', 6), c('carreau', 7), representant], 'j2', 1);
+    const vraiHuit = c('carreau', 8);
+
+    const depart = coupJouable([...coeur, sept, neuf, vraiHuit, aJeter], {
+      combinaisons: [chezJ2],
+      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
+    });
+
+    expect(() =>
+      jouerTour(depart, 'j1', {
+        source: 'pioche',
+        poses: [
+          tierce('coeur', coeur),
+          tierce('carreau', [sept, { carte: representant.carte, remplace: { couleur: 'carreau', valeur: 8 } }, neuf]),
+        ],
+        ajouts: [{ combinaisonId: chezJ2.id, cartes: [{ carte: vraiHuit, remplace: null }] }],
+        carteDefausseeId: aJeter.id,
+      }),
+    ).toThrow(/joker tout juste recupere ne peut pas servir a ouvrir/);
+  });
+});
+
 describe('joker non declare dans un brelan : deduit par elimination des couleurs', () => {
   // Réf. docs/REGLES.md § « Récupération d'un joker posé ».
   const ouvert = (main: Carte[], combinaison: ReturnType<typeof ensemble>) =>

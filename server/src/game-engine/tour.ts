@@ -397,12 +397,18 @@ export const jouerTour = (
         "Il faut avoir pose son jeu avant d'ajouter des cartes sur les combinaisons en place",
       );
     }
-    if (poses.length > 0 && !peutPoser(mainApresPioche, poses)) {
+    // Réf. § « Récupération d'un joker posé » : un joker qu'un ajout de ce
+    // tour vient de rendre est aussitôt disponible, y compris pour ouvrir —
+    // dans une combinaison qui ne compte pas, seule, pour les 51 points
+    // (`ouvreSansJokersRecuperes`, juste en dessous). Sans lui ici, une pose
+    // par ailleurs valide était refusée faute de le trouver dans la main.
+    const mainDisponiblePourPoser = [...mainApresPioche, ...jokersReprisParAjout];
+    if (poses.length > 0 && !peutPoser(mainDisponiblePourPoser, poses)) {
       throw new Error(
         `Premiere pose invalide : il faut au moins ${String(SEUIL_POSE)} points et une tierce franche`,
       );
     }
-    if (poses.length > 0 && !ouvreSansJokersRecuperes(mainApresPioche, poses, jokersRecuperes)) {
+    if (poses.length > 0 && !ouvreSansJokersRecuperes(mainDisponiblePourPoser, poses, jokersRecuperes)) {
       throw new Error(
         `Le joker tout juste recupere ne peut pas servir a ouvrir : sans lui, votre premiere pose n atteint pas ${String(SEUIL_POSE)} points avec une tierce franche`,
       );
