@@ -5,9 +5,10 @@
  * circule, et les places se remplissent une par une. Quand la dernière est
  * prise, le tirage d'ouverture a lieu et la partie commence.
  *
- * L'état de jeu vit en mémoire — c'est lui qui répond à chaque action — et n'est
- * écrit en base qu'aux moments qui comptent : fin de coup et fin de Boule. Un
- * redémarrage ne perd donc jamais plus que le coup en cours, redistribué.
+ * L'état de jeu vit en mémoire — c'est lui qui répond à chaque action — et part
+ * en base à chaque tour complet : une annonce, une défausse, une donne, un
+ * geste de l'entracte. Un redémarrage reprend donc chaque partie au dernier tour
+ * joué ; seul le brouillon d'un tour entamé se perd, et son joueur le rejoue.
  *
  * L'identité vient du jeton de session applicatif (voir `src/auth`) : c'est lui
  * qui désigne le joueur, et non un jeton propre à la table. C'est ce qui permet
@@ -67,8 +68,10 @@ import { DELAI_DECONNEXION_PAR_DEFAUT_MS, DELAIS_ILLIMITES } from '../persistenc
 import {
   deserialiserBoule,
   deserialiserMatchPanier,
+  lireEnCours,
   serialiserBoule,
   serialiserMatchPanier,
+  type EnCoursPersiste,
 } from '../persistence/serialisation.js';
 import type { TourEnAttente } from './etat-filtre.js';
 
@@ -415,10 +418,82 @@ const estInactive = (table: Table, maintenant: Date): boolean => {
   return age(table.demarreeLe ?? table.creeeLe) > DELAI_INACTIVITE_MS;
 };
 
+/**
+ * Ce qu'une écriture a vu de la table : tant que rien de cela ne change, il n'y
+ * a rien de neuf à écrire. Les références suffisent — le moteur rend un coup
+ * neuf à chaque tour, et l'entracte remplace ses listes plutôt que les muter.
+ */
+interface Empreinte {
+  readonly coup: Coup | null;
+  readonly resultat: ResultatCoupEnAttente | null;
+  readonly prets: readonly JoueurId[] | null;
+  readonly rejouer: readonly JoueurId[] | null;
+  readonly rejouerAnnulePar: JoueurId | null;
+  readonly jokersGardes: Map<JoueurId, Carte[]>;
+}
+
+const empreinteDe = (table: Table): Empreinte => ({
+  coup: table.coup,
+  resultat: table.resultatCoup,
+  prets: table.resultatCoup?.prets ?? null,
+  rejouer: table.resultatCoup?.rejouer ?? null,
+  rejouerAnnulePar: table.resultatCoup?.rejouerAnnulePar ?? null,
+  jokersGardes: table.jokersGardes,
+});
+
+const memeEmpreinte = (a: Empreinte, b: Empreinte): boolean =>
+  a.coup === b.coup &&
+  a.resultat === b.resultat &&
+  a.prets === b.prets &&
+  a.rejouer === b.rejouer &&
+  a.rejouerAnnulePar === b.rejouerAnnulePar &&
+  a.jokersGardes === b.jokersGardes;
+
+const enCoursDe = (table: Table): EnCoursPersiste => ({
+  coup: table.coup,
+  resultat: table.resultatCoup,
+  jokersGardes: Object.fromEntries(table.jokersGardes),
+});
+
+/**
+ * Ce qui se jouait à une table rechargée, s'il se relit et s'il concerne bien
+ * les joueurs assis. Sinon `null` : le coup sera redistribué, comme avant qu'on
+ * le retienne — mieux qu'une partie qui refuse de se recharger.
+ */
+const relireEnCours = (
+  partieId: string,
+  etat: unknown,
+  assis: readonly Joueur[],
+): EnCoursPersiste | null => {
+  if (etat === null || etat === undefined) return null;
+  try {
+    const enCours = lireEnCours(etat);
+    const ids = new Set(assis.map((joueur) => joueur.id));
+    const coup = enCours?.coup ?? null;
+    if (coup !== null && ![...coup.ordreJoueurs, ...coup.joueursSurLeCote].every((id) => ids.has(id))) {
+      console.error(`Partie ${partieId} : coup en cours sans rapport avec les joueurs assis, il sera redistribue`);
+      return null;
+    }
+    return enCours;
+  } catch (erreur) {
+    console.error(`Partie ${partieId} : coup en cours illisible, il sera redistribue`, erreur);
+    return null;
+  }
+};
+
 export class GameRoomManager {
   private readonly tables = new Map<TableId, Table>();
   private readonly parCode = new Map<string, TableId>();
   private readonly sockets = new Map<string, { tableId: TableId; joueurId: JoueurId }>();
+  /** La dernière écriture de chaque table, pour les enchaîner dans l'ordre. */
+  private readonly ecritures = new Map<TableId, Promise<void>>();
+  /** Tables dont une écriture attend son tour : elle lira l'état le plus récent. */
+  private readonly ecrituresEnFile = new Set<TableId>();
+  /** Ce que la dernière écriture de chaque table a vu. */
+  private readonly empreintes = new WeakMap<Table, Empreinte>();
+  /** Tables relues au démarrage qu'aucun joueur n'a encore rejointes. */
+  private readonly tablesFroides = new Set<TableId>();
+  private readonly rafraichissements = new Map<TableId, Promise<void>>();
 
   readonly minuteur: Minuteur;
   private readonly depot: Depot | null;
@@ -796,8 +871,9 @@ export class GameRoomManager {
   /**
    * Recharge les parties non terminées depuis le dépôt.
    *
-   * Le coup en cours n'est pas restauré : il sera redistribué dès que la table
-   * sera de nouveau au complet.
+   * Le coup en cours reprend au dernier tour joué, entracte compris. Seul un
+   * état écrit avant qu'on le retienne, ou illisible, fait redistribuer le
+   * coup dès que la table est de nouveau au complet.
    */
   async recharger(options: { readonly alea?: () => number } = {}): Promise<TableId[]> {
     if (this.depot === null) return [];
@@ -814,6 +890,9 @@ export class GameRoomManager {
         croix: 0,
       }));
       const variante = partie.variante ?? 'boule';
+      const enCours = partie.demarree
+        ? relireEnCours(partie.id, variante === 'panier' ? etatPanier : etatBoule, assis)
+        : null;
 
       const table: Table = {
         id: partie.id,
@@ -849,7 +928,9 @@ export class GameRoomManager {
         manchesAGagner: partie.manchesAGagner ?? 3,
         montant: partie.montant ?? 10,
         niveauOrdinateur: partie.niveauOrdinateur ?? 'facile',
-        coup: null,
+        // Le dernier tour joué ; le brouillon d'un tour entamé, lui, est perdu :
+        // son joueur le rejoue.
+        coup: enCours?.coup ?? null,
         tourEnCours: null,
         connexions: new Map(assis.map((joueur) => [joueur.id, null])),
         alea: options.alea ?? Math.random,
@@ -868,17 +949,24 @@ export class GameRoomManager {
         // Les jokers du tirage d'ouverture appartiennent au premier coup, déjà
         // joué si la Boule a un historique.
         cartesConserveesParJoueur: new Map(),
-      resultatCoup: null,
+      resultatCoup:
+        enCours?.resultat == null
+          ? null
+          : { ...enCours.resultat, prets: [...enCours.resultat.prets], rejouer: [...enCours.resultat.rejouer] },
       tirageOuverture: null,
       retournementsTirage: new Map(),
       passeursDuTirage: new Set(),
-      jokersGardes: new Map(),
+      jokersGardes: new Map(Object.entries(enCours?.jokersGardes ?? {})),
       // Les joueurs que le serveur joue lui-même reprennent leur place : une
       // partie contre l'ordinateur continue après un redémarrage.
       bots: new Set(partie.robots ?? []),
       actionBot: null,
       };
 
+      // Ce qui vient d'être relu est déjà en base : rien à réécrire tant que la
+      // partie n'avance pas.
+      this.empreintes.set(table, empreinteDe(table));
+      if (partie.demarree) this.tablesFroides.add(table.id);
       this.tables.set(table.id, table);
       this.parCode.set(table.codeInvitation, table.id);
       rechargees.push(partie.id);
@@ -887,14 +975,129 @@ export class GameRoomManager {
     return rechargees;
   }
 
-  /** Écrit l'état de la Boule. Appelé aux fins de coup et de Boule, pas plus souvent. */
-  async persister(table: Table): Promise<void> {
+  /**
+   * Écrit l'état de la table : la Boule ou le match, et ce qui s'y joue en ce
+   * moment — le coup en cours, l'entracte.
+   *
+   * Les écritures d'une même table passent l'une après l'autre : lancées
+   * ensemble, elles pourraient arriver en base dans le désordre, la plus
+   * ancienne écrasant la plus récente. Une écriture qui attend encore son tour
+   * lit l'état au moment où elle part : une nouvelle demande pendant ce temps
+   * n'ajoute rien, elle la rejoint.
+   */
+  persister(table: Table): Promise<void> {
+    if (this.depot === null) return Promise.resolve();
+    const enFile = this.ecritures.get(table.id);
+    if (enFile !== undefined && this.ecrituresEnFile.has(table.id)) return enFile;
+
+    this.ecrituresEnFile.add(table.id);
+    const suite = (enFile ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        this.ecrituresEnFile.delete(table.id);
+        this.empreintes.set(table, empreinteDe(table));
+        await this.ecrireMaintenant(table);
+      });
+    this.ecritures.set(table.id, suite);
+    const oublier = (): void => {
+      if (this.ecritures.get(table.id) === suite) this.ecritures.delete(table.id);
+    };
+    suite.then(oublier, oublier);
+    return suite;
+  }
+
+  /** Sérialise tout de suite — avant la moindre attente — puis écrit. */
+  private async ecrireMaintenant(table: Table): Promise<void> {
     if (table.panier !== null) {
-      await this.depot?.enregistrerMatchPanier(table.id, serialiserMatchPanier(table.panier));
+      await this.depot?.enregistrerMatchPanier(table.id, serialiserMatchPanier(table.panier, enCoursDe(table)));
       return;
     }
     if (table.boule === null) return;
-    await this.depot?.enregistrerBoule(table.id, serialiserBoule(table.boule));
+    await this.depot?.enregistrerBoule(table.id, serialiserBoule(table.boule, enCoursDe(table)));
+  }
+
+  /**
+   * Appelé à chaque publication de la table : n'écrit que si la partie a
+   * avancé — une donne, une annonce, un tour joué jusqu'à la défausse, un
+   * geste de l'entracte. Piocher ou composer une pose ne touche que le
+   * brouillon du tour : rien à écrire.
+   *
+   * L'écriture part sans retenir la réponse : une base lente ne ralentit pas
+   * la table. Au redémarrage, `attendreLesEcritures` laisse finir celles en vol.
+   */
+  sauvegarderSiNecessaire(table: Table): void {
+    if (this.depot === null || table.statut !== 'en-cours') return;
+    if (table.boule === null && table.panier === null) return;
+
+    const actuelle = empreinteDe(table);
+    const derniere = this.empreintes.get(table);
+    if (derniere === undefined && table.coup === null && table.resultatCoup === null) {
+      // Le tirage d'ouverture : rien ne se joue encore, rien à reprendre.
+      this.empreintes.set(table, actuelle);
+      return;
+    }
+    if (derniere !== undefined && memeEmpreinte(derniere, actuelle)) return;
+
+    this.persister(table).catch((erreur: unknown) => {
+      console.error(`Table ${table.id} : ecriture de l'etat impossible`, erreur);
+    });
+  }
+
+  /**
+   * Relit en base une table rechargée au démarrage, à l'arrivée de son premier
+   * joueur.
+   *
+   * Pendant un redéploiement, l'ancien serveur continue de faire jouer ses
+   * tables après que le nouveau a lu la base : sans cette relecture, la partie
+   * reculerait des tours joués entre-temps. L'ancien serveur écrit tout ce qui
+   * est en vol avant de couper ses connexions (voir `attendreLesEcritures`) :
+   * quand un joueur arrive ici, la base est à jour.
+   */
+  rafraichirSiFroide(tableId: TableId): Promise<void> {
+    const enCours = this.rafraichissements.get(tableId);
+    if (enCours !== undefined) return enCours;
+    if (!this.tablesFroides.has(tableId) || this.depot === null) return Promise.resolve();
+    this.tablesFroides.delete(tableId);
+
+    const depot = this.depot;
+    const relecture = (async () => {
+      const table = this.tables.get(tableId);
+      const relue = await depot.chargerArchive(tableId);
+      if (table === undefined || relue === null) return;
+      if (relue.partie.termineeLe !== null) {
+        // Close par l'ancien serveur : elle ne se sert plus d'ici.
+        this.tables.delete(tableId);
+        this.parCode.delete(table.codeInvitation);
+        return;
+      }
+      if (table.variante === 'panier') {
+        if (relue.etatPanier !== null) table.panier = deserialiserMatchPanier(relue.etatPanier);
+      } else if (relue.etatBoule !== null) {
+        table.boule = deserialiserBoule(relue.etatBoule);
+      }
+      const enCoursRelu = relireEnCours(
+        tableId,
+        table.variante === 'panier' ? relue.etatPanier : relue.etatBoule,
+        table.joueurs,
+      );
+      table.coup = enCoursRelu?.coup ?? null;
+      table.tourEnCours = null;
+      table.resultatCoup =
+        enCoursRelu?.resultat == null
+          ? null
+          : { ...enCoursRelu.resultat, prets: [...enCoursRelu.resultat.prets], rejouer: [...enCoursRelu.resultat.rejouer] };
+      table.jokersGardes = new Map(Object.entries(enCoursRelu?.jokersGardes ?? {}));
+      this.empreintes.set(table, empreinteDe(table));
+    })().finally(() => {
+      this.rafraichissements.delete(tableId);
+    });
+    this.rafraichissements.set(tableId, relecture);
+    return relecture;
+  }
+
+  /** Laisse finir les écritures en vol : avant d'arrêter le serveur. */
+  async attendreLesEcritures(): Promise<void> {
+    while (this.ecritures.size > 0) await Promise.allSettled([...this.ecritures.values()]);
   }
 
   async cloreLaPartie(table: Table): Promise<void> {

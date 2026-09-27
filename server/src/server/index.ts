@@ -181,6 +181,35 @@ const demarrer = async (): Promise<void> => {
   setInterval(nettoyer, INTERVALLE_NETTOYAGE_MS).unref();
 
   serveur.httpServer.listen(Number(process.env['PORT'] ?? 3000));
+
+  // Un redéploiement arrête ce processus par SIGTERM, le nouveau serveur déjà
+  // en route. Tout ce qui est joué ici doit être en base avant que les joueurs
+  // ne le rejoignent : on écrit ce qui est en vol, on coupe les connexions —
+  // les apps se reconnectent au nouveau —, puis on écrit les derniers tours
+  // arrivés entre-temps. Au pire, dix secondes, et l'on sort quoi qu'il arrive.
+  let arretEnCours = false;
+  const arreter = (): void => {
+    if (arretEnCours) return;
+    arretEnCours = true;
+    const garde = setTimeout(() => process.exit(0), 10_000);
+    garde.unref();
+    void (async () => {
+      await serveur.manager.attendreLesEcritures();
+      await new Promise<void>((resolve) => {
+        serveur.io.close(() => {
+          resolve();
+        });
+      });
+      await serveur.manager.attendreLesEcritures();
+      await prisma.$disconnect();
+      process.exit(0);
+    })().catch((erreur: unknown) => {
+      console.error('Arret du serveur', erreur);
+      process.exit(1);
+    });
+  };
+  process.once('SIGTERM', arreter);
+  process.once('SIGINT', arreter);
 };
 
 if (process.env['NODE_ENV'] !== 'test') {

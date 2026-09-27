@@ -417,9 +417,9 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
 /**
  * Clôt le coup : score, cumul dans la Boule, coup suivant s'il y a lieu.
  *
- * C'est l'un des deux moments où l'état part en base — l'autre étant la fin de
- * Boule. Entre deux, tout vit en mémoire : un redémarrage ne coûte que le coup
- * en cours, qui sera redistribué.
+ * L'écriture de la clôture est attendue avant d'acquitter : le score cumulé
+ * est ce qu'on ne veut perdre à aucun prix. Les autres moments du coup partent
+ * en base depuis `publier`, sans ralentir la table.
  */
 /**
  * Un score de coup vide, honnête : au panier, il n'y a ni points, ni croix,
@@ -478,7 +478,6 @@ const cloturerCoup = async (
 
   // Le coup est fini : le dernier temps de jeu part avec la Boule enregistrée.
   mesurerLeTempsDeJeu(table);
-  await manager.persister(table);
 
   // Le coup suivant n'est pas distribué ici : la donne effacerait le décompte
   // avant que personne ait pu le lire. La table entre en entracte, et n'en
@@ -498,6 +497,10 @@ const cloturerCoup = async (
     rejouer: [],
     rejouerAnnulePar: null,
   };
+
+  // Le score cumulé et l'entracte partent ensemble, et la clôture n'est
+  // acquittée qu'une fois écrite : c'est le moment qui compte le plus.
+  await manager.persister(table);
 };
 
 /**
@@ -1049,6 +1052,10 @@ const publier = (io: Server, manager: GameRoomManager, table: Table): void => {
   reevaluerDelaiDeJeu(io, manager, table);
   reevaluerLesBots(io, manager, table);
   diffuserEtat(io, manager, table);
+  // Tout ce qui fait avancer une partie passe par ici : une donne, une
+  // annonce, un tour défaussé, un geste de l'entracte. C'est donc ici qu'on
+  // l'écrit — un seul endroit, qu'aucun chemin ne contourne.
+  manager.sauvegarderSiNecessaire(table);
 };
 
 const repondre = (ack: unknown, action: () => void | Promise<void>): void => {
@@ -1091,6 +1098,8 @@ export const enregistrerHandlers = (
         if (await manager.compteSupprime(joueurId)) throw new Error('Compte supprime');
         // Pour couper toutes ses connexions si le compte est supprimé.
         socket.data.joueurId = joueurId;
+        // Première venue depuis le démarrage : l'état le plus récent est en base.
+        await manager.rafraichirSiFroide(payload.tableId);
         const quittee = manager.tableDeLaSocket(socket.id);
         const table = manager.attacherSocket(payload.tableId, joueurId, socket.id);
         // La table que cette connexion suivait vient de la perdre : ses

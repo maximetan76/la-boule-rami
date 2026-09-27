@@ -151,7 +151,7 @@ describe('GameRoomManager et persistance', () => {
     expect(rechargee.joueurs.map((j) => j.nom)).toEqual(table.joueurs.map((j) => j.nom));
     // La configuration de deconnexion est relue avec la partie.
     expect(rechargee.gestionDeconnexion).toEqual(table.gestionDeconnexion);
-    // Le coup en cours n'est pas restaure : il sera redistribue.
+    // Aucun coup n'avait ete distribue (personne n'etait connecte) : rien a reprendre.
     expect(rechargee.coup).toBeNull();
   });
 
@@ -431,28 +431,55 @@ describe('moments de sauvegarde', () => {
     return { tableId };
   };
 
-  it('n ecrit pas en base a chaque tour de jeu', async () => {
+  /** Les écritures parties en arrière-plan, toutes arrivées en base. */
+  const ecritures = async (): Promise<number> => {
+    await serveur.manager.attendreLesEcritures();
+    return depot.ecritures;
+  };
+
+  it('ecrit a chaque tour complet et a chaque annonce, jamais pour une simple pioche', async () => {
     const { tableId } = await asseoirTout();
     const table = serveur.manager.table(tableId);
     const ordre = table.coup?.ordreJoueurs ?? [];
     const socketDe = (joueurId: string) =>
       sockets[JOUEURS.findIndex((inscrit) => inscrit.id === joueurId)] as ClientSocket;
 
-    await emettre(socketDe(ordre[0] as string), 'annoncer', { annonce: 'je-joue' });
+    // La donne elle-même est partie en base.
+    const apresDonne = await ecritures();
+    expect(apresDonne).toBeGreaterThanOrEqual(1);
 
+    await emettre(socketDe(ordre[0] as string), 'annoncer', { annonce: 'je-joue' });
+    expect(await ecritures()).toBe(apresDonne + 1);
+
+    let piochesSansEcriture = 0;
     for (let tour = 0; tour < 4; tour += 1) {
+      const avant = await ecritures();
       const actifId = serveur.manager.table(tableId).coup?.joueurActifId as string;
       const socket = socketDe(actifId);
+      // Toucher la pioche quand on doit encore parler vaut « je joue » : c'est
+      // une annonce, qui s'écrit. Sinon, piocher ne touche que le brouillon.
+      const vautAnnonce = serveur.manager.table(tableId).coup?.phase === 'annonces';
       await emettre(socket, 'piocher', { source: 'pioche' });
+      expect(await ecritures()).toBe(avant + (vautAnnonce ? 1 : 0));
+      if (!vautAnnonce) piochesSansEcriture += 1;
+      const apresPioche = await ecritures();
+      // Un joker ne se défausse jamais : la première carte ordinaire.
       const main = serveur.manager.table(tableId).coup?.mains[actifId] ?? [];
-      await emettre(socket, 'defausser', { carteId: main[0]?.id });
+      const aJeter = main.find((carte) => carte.type === 'normale');
+      expect((await emettre(socket, 'defausser', { carteId: aJeter?.id })).ok).toBe(true);
+      // Le tour est complet : une écriture, une seule.
+      expect(await ecritures()).toBe(apresPioche + 1);
     }
 
-    // Quatre tours joues, aucun coup termine : rien n'est parti en base.
-    expect(depot.ecritures).toBe(0);
+    // Au moins une pioche ordinaire a bien été observée sans écriture.
+    expect(piochesSansEcriture).toBeGreaterThan(0);
+
+    // Ce qui est en base est exactement le coup vivant.
+    const actives = await depot.chargerPartiesActives();
+    expect(actives[0]?.etatBoule?.enCours?.coup).toEqual(serveur.manager.table(tableId).coup);
   });
 
-  it('ecrit une fois quand un coup se termine', async () => {
+  it('ecrit une fois quand un coup se termine, entracte compris', async () => {
     const { tableId } = await asseoirTout();
     const table = serveur.manager.table(tableId);
     const ordre = table.coup?.ordreJoueurs ?? [];
@@ -466,20 +493,26 @@ describe('moments de sauvegarde', () => {
     const coup = serveur.manager.table(tableId).coup;
     if (coup === null) throw new Error('coup absent');
     coup.mains[actifId] = [];
+    // Une carte ordinaire au-dessus du talon : un joker, lui, ne se défausse pas.
+    const ordinaire = coup.pioche.findIndex((carte) => carte.type === 'normale');
+    coup.pioche.unshift(...coup.pioche.splice(ordinaire, 1));
 
     await emettre(socketDe(actifId), 'piocher', { source: 'pioche' });
     const piochee = serveur.manager.table(tableId).tourEnCours?.cartePiochee;
+    const avant = await ecritures();
     const reponse = await emettre(socketDe(actifId), 'defausser', { carteId: piochee?.id });
     expect(reponse.ok).toBe(true);
 
-    // Le coup est clos, cumule dans la Boule, et l'etat est parti en base.
-    expect(depot.ecritures).toBe(1);
+    // Le coup est clos, cumule dans la Boule, et l'etat est parti en base —
+    // score et entracte ensemble, en une seule ecriture.
+    expect(await ecritures()).toBe(avant + 1);
     const apres = serveur.manager.table(tableId);
     expect(bouleDe(apres).historique).toHaveLength(1);
     expect(bouleDe(apres).historique[0]?.gagnantId).toBe(actifId);
 
     const actives = await depot.chargerPartiesActives();
     expect(actives[0]?.etatBoule?.historique).toHaveLength(1);
+    expect(actives[0]?.etatBoule?.enCours?.resultat?.numero).toBe(1);
 
     // Et un serveur redemarre reprend la partie a ce point exact.
     const apresRedemarrage = new GameRoomManager({ depot });
