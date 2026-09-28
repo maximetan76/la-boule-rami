@@ -562,6 +562,22 @@ export interface CartePiocheeDuTour {
 }
 
 /**
+ * Réf. docs/REGLES.md § « Fin d'un coup et scoring » : reprendre un joker sur
+ * la combinaison d'un autre joueur, c'est toucher à son jeu. Le coup reste
+ * simple, même si toute la main est posée ensuite en une fois. Sur sa propre
+ * combinaison, rien ne change.
+ */
+const marquerInteractionAvecAutrui = (
+  coup: Coup,
+  joueurId: JoueurId,
+  cible: Combinaison,
+): Coup['recapitulatifs'] => {
+  if (cible.proprietaireId === joueurId) return coup.recapitulatifs;
+  const precedent = coup.recapitulatifs[joueurId] ?? { toursAvecPose: [], aAjouteSurCombinaisonAutrui: false };
+  return { ...coup.recapitulatifs, [joueurId]: { ...precedent, aAjouteSurCombinaisonAutrui: true } };
+};
+
+/**
  * Échange la vraie carte contre un joker posé, sans exiger qu'il soit replacé
  * dans la même action.
  *
@@ -607,6 +623,7 @@ export const echangerJoker = (
   );
   const joker = jokerPosee.carte;
   const main = coup.mains[joueurId] ?? [];
+  const recapitulatifs = marquerInteractionAvecAutrui(coup, joueurId, cible);
 
   if (main.some((carte) => carte.id === carteReelle.id)) {
     return {
@@ -614,6 +631,7 @@ export const echangerJoker = (
         ...coup,
         combinaisons,
         mains: { ...coup.mains, [joueurId]: [...main.filter((carte) => carte.id !== carteReelle.id), joker] },
+        recapitulatifs,
       },
       joker,
     };
@@ -623,7 +641,7 @@ export const echangerJoker = (
     if (coup.pioche[0]?.id !== carteReelle.id) {
       throw new Error('La carte piochee n est plus en tete du talon');
     }
-    return { coup: { ...coup, combinaisons, pioche: [joker, ...coup.pioche.slice(1)] }, joker };
+    return { coup: { ...coup, combinaisons, pioche: [joker, ...coup.pioche.slice(1)], recapitulatifs }, joker };
   }
 
   throw new Error(`La carte ${carteReelle.id} n est pas dans la main de ${joueurId}`);
@@ -708,9 +726,10 @@ export const recupererJoker = (
             ? [...precedent.toursAvecPose]
             : [...precedent.toursAvecPose, coup.numeroTour],
           // Réf. § « Fin d'un coup et scoring » : reprendre un joker sur la
-          // combinaison d'un autre joueur n'est pas s'aider de son jeu. Seule
-          // compte, pour le double, la pose de toute sa main en une fois.
-          aAjouteSurCombinaisonAutrui: precedent.aAjouteSurCombinaisonAutrui,
+          // combinaison d'un autre joueur, c'est toucher à son jeu : le coup
+          // reste simple.
+          aAjouteSurCombinaisonAutrui:
+            precedent.aAjouteSurCombinaisonAutrui || cible.proprietaireId !== joueurId,
         },
       },
     },

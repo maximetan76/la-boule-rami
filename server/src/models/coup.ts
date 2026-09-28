@@ -31,7 +31,12 @@ export type PhaseCoup =
 export interface RecapJoueurCoup {
   /** Numéros de tour où le joueur a posé au moins une carte. */
   toursAvecPose: number[];
-  /** Le joueur a ajouté au moins une carte sur une combinaison d'un adversaire. */
+  /**
+   * Le joueur a touché au jeu d'un adversaire ce coup-ci : une carte ajoutée à
+   * sa combinaison, ou un joker qu'il y a repris. Le nom est resté celui du
+   * premier cas ; le coup reste simple dans les deux (docs/REGLES.md § « Fin
+   * d'un coup et scoring »).
+   */
   aAjouteSurCombinaisonAutrui: boolean;
 }
 

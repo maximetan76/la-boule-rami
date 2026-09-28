@@ -1587,40 +1587,7 @@ describe('declaration exigee, et reprise sur le jeu d un adversaire', () => {
     expect(apres.combinaisons[0]?.type).toBe('carre');
   });
 
-  it('reprendre un joker sur la combinaison d un adversaire puis tout poser en une fois : double', () => {
-    const jokerEnSix = jokerPour('trefle', 6);
-    const chezJ2 = tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], 'j2', 1);
-    const six = c('trefle', 6);
-    const coeur = ([10, 'V', 'D', 'R', 'A'] as const).map((valeur) => c('coeur', valeur));
-    const pique = ([2, 3, 4, 5, 6] as const).map((valeur) => c('pique', valeur));
-    const sept = [c('carreau', 7), c('pique', 7), c('trefle', 7)];
-    const aJeter = c('coeur', 8);
-    const depart = coupJouable([six, ...coeur, ...pique, ...sept], {
-      combinaisons: [chezJ2],
-      pioche: [aJeter, c('carreau', 2)],
-      recapitulatifs: { j1: recap({ toursAvecPose: [] }) },
-    });
-    const { coup: avecEchange, joker: repris } = echangerJoker(depart, 'j1', six, {
-      combinaisonId: chezJ2.id,
-      carteJokerId: jokerEnSix.carte.id,
-    });
-
-    const { coup: fin, coupTermine } = jouerTour(avecEchange, 'j1', {
-      source: 'pioche',
-      poses: [
-        tierce('coeur', coeur),
-        tierce('pique', pique),
-        ensemble(7, [...sept, { carte: repris, remplace: { couleur: 'coeur', valeur: 7 } }]),
-      ],
-      carteDefausseeId: aJeter.id,
-      jokersRecuperes: [repris.id],
-    });
-    expect(coupTermine).toBe(true);
-    expect(fin.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(false);
-    expect(detecterDoubleOuTriple(fin, 'j1')).toBe('double');
-  });
-
-  it('recupererJoker ne compte pas non plus la reprise chez un adversaire comme une aide', () => {
+  it('recupererJoker marque aussi la reprise chez un adversaire', () => {
     const jokerEnSix = jokerPour('trefle', 6);
     const chezJ2 = tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], 'j2', 1);
     const six = c('trefle', 6);
@@ -1632,7 +1599,73 @@ describe('declaration exigee, et reprise sur le jeu d un adversaire', () => {
       { combinaisonId: chezJ2.id, carteJokerId: jokerEnSix.carte.id },
       ensemble(8, [...paire, { carte: jokerEnSix.carte, remplace: { couleur: 'carreau', valeur: 8 } }], 'j1'),
     );
-    expect(apres.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(false);
+    expect(apres.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(true);
+  });
+});
+
+describe('double et triple : toute interaction avec le jeu d un adversaire laisse le coup simple', () => {
+  // Réf. docs/REGLES.md § « Fin d'un coup et scoring ». j1 tient le 6♣ et de
+  // quoi poser ses 14 cartes en un tour, le joker d'une 5-[6]-7♣ repris dans
+  // son brelan de 7.
+  const scenario = (proprietaire: 'j1' | 'j2') => {
+    const jokerEnSix = jokerPour('trefle', 6);
+    const cible = tierce('trefle', [c('trefle', 5), jokerEnSix, c('trefle', 7)], proprietaire, 1);
+    const six = c('trefle', 6);
+    const coeur = ([10, 'V', 'D', 'R', 'A'] as const).map((valeur) => c('coeur', valeur));
+    const pique = ([2, 3, 4, 5, 6] as const).map((valeur) => c('pique', valeur));
+    const sept = [c('carreau', 7), c('pique', 7), c('trefle', 7)];
+    const aJeter = c('coeur', 8);
+    const depart = coupJouable([six, ...coeur, ...pique, ...sept], {
+      combinaisons: [cible],
+      pioche: [aJeter, c('carreau', 2)],
+    });
+    const poses = (joker: Carte) => [
+      tierce('coeur', coeur),
+      tierce('pique', pique),
+      ensemble(7, [...sept, { carte: joker, remplace: { couleur: 'coeur' as const, valeur: 7 as const } }]),
+    ];
+    return { jokerEnSix, cible, six, aJeter, depart, poses };
+  };
+
+  const echangerPuisToutPoser = (proprietaire: 'j1' | 'j2') => {
+    const { jokerEnSix, cible, six, aJeter, depart, poses } = scenario(proprietaire);
+    const { coup: avecEchange, joker: repris } = echangerJoker(depart, 'j1', six, {
+      combinaisonId: cible.id,
+      carteJokerId: jokerEnSix.carte.id,
+    });
+    return jouerTour(avecEchange, 'j1', {
+      source: 'pioche',
+      poses: poses(repris),
+      carteDefausseeId: aJeter.id,
+      jokersRecuperes: [repris.id],
+    });
+  };
+
+  it('echange de joker chez un adversaire, puis toute la main posee en une fois : simple', () => {
+    const { coup: fin, coupTermine } = echangerPuisToutPoser('j2');
+    expect(coupTermine).toBe(true);
+    expect(fin.recapitulatifs['j1']?.toursAvecPose).toEqual([1]);
+    expect(fin.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(true);
+    expect(detecterDoubleOuTriple(fin, 'j1')).toBe('simple');
+  });
+
+  it('le meme joker repris sur sa propre combinaison garde le double', () => {
+    const { coup: fin, coupTermine } = echangerPuisToutPoser('j1');
+    expect(coupTermine).toBe(true);
+    expect(fin.recapitulatifs['j1']?.aAjouteSurCombinaisonAutrui).toBe(false);
+    expect(detecterDoubleOuTriple(fin, 'j1')).toBe('double');
+  });
+
+  it('le meme geste par un ajout qui prend la place du joker chez l adversaire : simple', () => {
+    const { jokerEnSix, cible, six, aJeter, depart, poses } = scenario('j2');
+    const { coup: fin, coupTermine } = jouerTour(depart, 'j1', {
+      source: 'pioche',
+      ajouts: [{ combinaisonId: cible.id, cartes: [{ carte: six, remplace: null }] }],
+      poses: poses(jokerEnSix.carte),
+      carteDefausseeId: aJeter.id,
+    });
+    expect(coupTermine).toBe(true);
+    expect(detecterDoubleOuTriple(fin, 'j1')).toBe('simple');
   });
 });
 

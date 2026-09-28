@@ -314,7 +314,7 @@ describe('serveur socket.io', () => {
     expect(compterCroix(t.coupReel(), t.premier)).toBe(2);
   });
 
-  it('banc : reprendre un joker chez un adversaire avant d ouvrir puis tout poser d un coup reste un double', async () => {
+  it('banc : reprendre un joker chez un adversaire avant d ouvrir puis tout poser d un coup reste simple', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);
     if (table.coup === null) throw new Error('coup absent');
@@ -350,7 +350,9 @@ describe('serveur socket.io', () => {
     expect(await agir(joueur, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
 
     expect(table.resultatCoup?.score.gagnantId).toBe(premier);
-    expect(table.resultatCoup?.score.typeVictoire).toBe('double');
+    // Réf. docs/REGLES.md § « Fin d'un coup et scoring » : la reprise a touché
+    // au jeu de l'adversaire.
+    expect(table.resultatCoup?.score.typeVictoire).toBe('simple');
   });
 
   it('banc : un joker ajoute a une suite sans declaration est refuse a la defausse', async () => {
