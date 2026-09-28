@@ -22,6 +22,8 @@ export class DepotMemoire implements Depot {
   private readonly parties = new Map<string, PartieEnregistree>();
   private readonly boules = new Map<string, EtatBoulePersiste>();
   private readonly paniers = new Map<string, EtatPanierPersiste>();
+  /** Parties masquées, par joueur : clé `${partieId}:${joueurId}`. */
+  private readonly masquees = new Set<string>();
   /** Compteur d'écritures de Boule, pour vérifier en test qu'on ne sauvegarde pas trop. */
   ecritures = 0;
 
@@ -134,8 +136,17 @@ export class DepotMemoire implements Depot {
 
   partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]> {
     return Promise.resolve(
-      [...this.parties.values()].filter((partie) => partie.joueursIds.includes(joueurId)).reverse(),
+      [...this.parties.values()]
+        .filter(
+          (partie) => partie.joueursIds.includes(joueurId) && !this.masquees.has(`${partie.id}:${joueurId}`),
+        )
+        .reverse(),
     );
+  }
+
+  masquerPartiePourJoueur(partieId: string, joueurId: JoueurId): Promise<void> {
+    this.masquees.add(`${partieId}:${joueurId}`);
+    return Promise.resolve();
   }
 
   asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void> {

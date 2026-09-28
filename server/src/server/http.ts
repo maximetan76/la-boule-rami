@@ -875,6 +875,28 @@ const mesParties = async (deps: DependancesHttp, joueur: JoueurEnregistre): Prom
 const ABANDON = /^\/tables\/([^/]+)\/abandonner$/;
 const QUITTER = /^\/tables\/([^/]+)\/quitter$/;
 const HISTORIQUE = /^\/tables\/([^/]+)\/historique$/;
+const MASQUER = /^\/tables\/([^/]+)$/;
+
+/**
+ * Retire une partie terminée de la liste de ce joueur, lui seul. Réservée aux
+ * parties closes : une en cours ou un salon se quitte ou s'abandonne, il ne
+ * se masque pas. Sans effet si la partie est déjà masquée pour lui.
+ */
+const masquerPartie = async (
+  tableId: string,
+  deps: DependancesHttp,
+  joueur: JoueurEnregistre,
+): Promise<unknown> => {
+  const archive = await deps.depot.chargerArchive(tableId);
+  if (archive === null || !archive.partie.joueursIds.includes(joueur.id)) {
+    throw new ErreurHttp(404, 'Table introuvable');
+  }
+  if (archive.partie.termineeLe === null) {
+    throw new ErreurHttp(400, "Une partie en cours ne se supprime pas : quittez-la ou abandonnez-la");
+  }
+  await deps.depot.masquerPartiePourJoueur(tableId, joueur.id);
+  return { tableId };
+};
 
 /**
  * Gestionnaire de requêtes, à brancher sur le serveur HTTP que socket.io
@@ -956,6 +978,12 @@ export const gererRequeteHttp =
       if (methode === 'GET' && historique !== null) {
         const joueur = await authentifier(requete, deps);
         return { code: 200, corps: await historiqueDeLaBoule(historique[1] as string, deps, joueur) };
+      }
+
+      const masquage = MASQUER.exec(chemin);
+      if (methode === 'DELETE' && masquage !== null) {
+        const joueur = await authentifier(requete, deps);
+        return { code: 200, corps: await masquerPartie(masquage[1] as string, deps, joueur) };
       }
 
       if (methode === 'DELETE' && chemin === '/joueur/compte') {

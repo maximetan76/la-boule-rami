@@ -115,6 +115,11 @@ model JoueurSurPartie {
   joueurId String
   position Int
 
+  /// Ce joueur a supprimé cette partie de sa liste « Mes parties ». La
+  /// partie et la place restent en base : les autres joueurs la gardent,
+  /// avec leur historique. `null` : toujours visible.
+  masqueeLe DateTime?
+
   partie Partie @relation(fields: [partieId], references: [id], onDelete: Cascade)
   joueur Joueur @relation(fields: [joueurId], references: [id], onDelete: Cascade)
 

@@ -355,6 +355,74 @@ describe('API des tables', () => {
     });
   });
 
+  describe('DELETE /tables/:id — supprimer une partie de sa liste', () => {
+    /** Une partie terminée (abandon de Bo), avec Ana et Bo à la table. */
+    const partieTerminee = async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      const bo = await ouvrirCompte('001.bo', 'Bo');
+      const table = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2 } });
+      const tableId = table.corps['tableId'] as string;
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: table.corps['codeInvitation'] } });
+      await appeler('POST', `/tables/${tableId}/abandonner`, { compte: bo });
+      return { ana, bo, tableId };
+    };
+
+    it('retire la partie de la liste de qui la supprime, sans toucher a l autre joueur', async () => {
+      const { ana, bo, tableId } = await partieTerminee();
+
+      const { statut } = await appeler('DELETE', `/tables/${tableId}`, { compte: ana });
+      expect(statut).toBe(200);
+
+      const deAna = (await appeler('GET', '/tables', { compte: ana })).corps['parties'] as { tableId: string }[];
+      expect(deAna.map((p) => p.tableId)).not.toContain(tableId);
+
+      const deBo = (await appeler('GET', '/tables', { compte: bo })).corps['parties'] as { tableId: string }[];
+      expect(deBo.map((p) => p.tableId)).toContain(tableId);
+    });
+
+    it('l historique reste consultable par qui a supprime la partie de sa liste', async () => {
+      const { ana, tableId } = await partieTerminee();
+      await appeler('DELETE', `/tables/${tableId}`, { compte: ana });
+
+      const { statut } = await appeler('GET', `/tables/${tableId}/historique`, { compte: ana });
+      expect(statut).toBe(200);
+    });
+
+    it('refuse une partie en cours ou un salon', async () => {
+      const ana = await ouvrirCompte('002.ana', 'Ana');
+      const bo = await ouvrirCompte('002.bo', 'Bo');
+      const salon = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 3 } });
+      const enCours = await appeler('POST', '/tables', { compte: ana, corps: { nombreJoueurs: 2 } });
+      await appeler('POST', '/tables/rejoindre', { compte: bo, corps: { code: enCours.corps['codeInvitation'] } });
+
+      expect((await appeler('DELETE', `/tables/${salon.corps['tableId'] as string}`, { compte: ana })).statut).toBe(400);
+      expect((await appeler('DELETE', `/tables/${enCours.corps['tableId'] as string}`, { compte: ana })).statut).toBe(400);
+    });
+
+    it('refuse un joueur qui n etait pas a cette table', async () => {
+      const { tableId } = await partieTerminee();
+      const curieux = await ouvrirCompte('001.curieux', 'Curieux');
+
+      expect((await appeler('DELETE', `/tables/${tableId}`, { compte: curieux })).statut).toBe(404);
+    });
+
+    it('une table inconnue rend 404', async () => {
+      const ana = await ouvrirCompte('001.ana', 'Ana');
+      expect((await appeler('DELETE', '/tables/inconnue', { compte: ana })).statut).toBe(404);
+    });
+
+    it('sans effet, deja supprimee : ne renvoie pas d erreur', async () => {
+      const { ana, tableId } = await partieTerminee();
+      await appeler('DELETE', `/tables/${tableId}`, { compte: ana });
+      expect((await appeler('DELETE', `/tables/${tableId}`, { compte: ana })).statut).toBe(200);
+    });
+
+    it('exige un jeton de session', async () => {
+      const { tableId } = await partieTerminee();
+      expect((await appeler('DELETE', `/tables/${tableId}`)).statut).toBe(401);
+    });
+  });
+
   describe('POST /tables/rejoindre', () => {
     const ouvrirSalon = async (compte: Compte, nombreJoueurs = 3) => {
       const { corps } = await appeler('POST', '/tables', {

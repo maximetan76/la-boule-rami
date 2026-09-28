@@ -249,11 +249,22 @@ export class DepotPrisma implements Depot {
 
   async partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]> {
     const lignes = await this.prisma.partie.findMany({
-      where: { joueurs: { some: { joueurId } } },
+      where: { joueurs: { some: { joueurId, masqueeLe: null } } },
       orderBy: { creeeLe: 'desc' },
       include: PLACES,
     });
     return lignes.map((ligne) => versPartie(ligne as LignePartie));
+  }
+
+  /**
+   * `updateMany` plutôt qu'`update` : silencieux si la place n'existe pas ou
+   * est déjà masquée, comme le port le demande.
+   */
+  async masquerPartiePourJoueur(partieId: string, joueurId: JoueurId): Promise<void> {
+    await this.prisma.joueurSurPartie.updateMany({
+      where: { partieId, joueurId, masqueeLe: null },
+      data: { masqueeLe: new Date() },
+    });
   }
 
   async asseoirJoueur(partieId: string, joueurId: JoueurId, position: number): Promise<void> {

@@ -182,8 +182,17 @@ export interface Depot {
    * dire, à son retour, que sa partie a été abandonnée en son absence.
    */
   dernierePartieDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree | null>;
-  /** Toutes les parties du joueur, en cours ou terminées, la plus récente d'abord. */
+  /**
+   * Toutes les parties du joueur, en cours ou terminées, la plus récente
+   * d'abord — celles qu'il n'a pas masquées de sa liste.
+   */
   partiesDuJoueur(joueurId: JoueurId): Promise<PartieEnregistree[]>;
+  /**
+   * Retire une partie terminée de la liste de ce joueur, lui seul : la
+   * partie, ses autres places et son historique restent intacts. Sans effet
+   * si elle est déjà masquée, ou si le joueur n'y a pas de place.
+   */
+  masquerPartiePourJoueur(partieId: string, joueurId: JoueurId): Promise<void>;
   /**
    * Le temps de jeu de chacun, partie par partie, lu dans l'état des Boules
    * en une seule fois. Une partie sans mesure n'y figure pas.
