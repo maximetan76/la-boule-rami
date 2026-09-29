@@ -10,6 +10,7 @@ import type { Carte, Combinaison } from '../models/index.js';
 import { CARTES_PAR_JOUEUR } from '../models/index.js';
 import {
   calculerValeurCombinaison,
+  estCombinaisonProlongeeValide,
   estCombinaisonValide,
   estTierceValidante,
   verifierDeclarationsJokers,
@@ -72,20 +73,26 @@ export const peutPoser = (
  * l'appelant de vérifier qu'elles y sont bien.
  *
  * @param main15Cartes main du joueur après avoir pioché : 15 cartes.
- * @param combinaisonsProposees tout ce qu'il pose et prolonge en une fois.
+ * @param combinaisonsProposees ce qu'il pose, jugé comme toute pose.
+ * @param combinaisonsProlongees les combinaisons de la table qu'il prolonge,
+ * telles qu'elles deviennent. Une suite déjà posée s'allonge sans plafond :
+ * jugée comme une pose, une suite portée à 6 cartes faisait manquer la fin
+ * en une fois, et le joueur retombait sur les conditions de la première pose.
  */
 export const verifierFinDeCoupSpeciale = (
   main15Cartes: readonly Carte[],
   combinaisonsProposees: readonly Combinaison[],
+  combinaisonsProlongees: readonly Combinaison[] = [],
 ): boolean => {
   if (main15Cartes.length !== CARTES_PAR_JOUEUR + 1) return false;
-  if (combinaisonsProposees.length === 0) return false;
+  if (combinaisonsProposees.length + combinaisonsProlongees.length === 0) return false;
   if (!combinaisonsProposees.every(estCombinaisonValide)) return false;
+  if (!combinaisonsProlongees.every(estCombinaisonProlongeeValide)) return false;
 
   const enMain = new Set(main15Cartes.map((carte) => carte.id));
   const utilisees = new Set<string>();
 
-  for (const combinaison of combinaisonsProposees) {
+  for (const combinaison of [...combinaisonsProposees, ...combinaisonsProlongees]) {
     for (const { carte } of combinaison.cartes) {
       // Les cartes hors de la main viennent des combinaisons déjà visibles.
       if (!enMain.has(carte.id)) continue;

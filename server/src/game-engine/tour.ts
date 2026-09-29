@@ -383,7 +383,7 @@ export const jouerTour = (
   const enrichies = combinaisonsMisesAJour.filter((combinaison) =>
     ajouts.some((ajout) => ajout.combinaisonId === combinaison.id),
   );
-  const finSpeciale = verifierFinDeCoupSpeciale(mainApresPioche, [...poses, ...enrichies]);
+  const finSpeciale = verifierFinDeCoupSpeciale(mainApresPioche, poses, enrichies);
 
   // Réf. § « Le panier » : là-bas, on ne pose jamais qu'en finissant le coup
   // d'un seul coup — pas de première pose à 51 points, pas d'ajout séparé.

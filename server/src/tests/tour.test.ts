@@ -2319,3 +2319,62 @@ describe('fin de coup en un tour : le joker rendu par un ajout repart dans le m�
     ).toThrow(/absente de la main/);
   });
 });
+
+describe('fin de coup en une fois : une suite adverse portee a 6 cartes', () => {
+  // Réf. docs/REGLES.md § « Fin de coup automatique sans les conditions
+  // normales ». Une suite déjà posée s'allonge sans plafond : prolongée à 6
+  // cartes, elle faisait manquer la fin en une fois, et le joueur retombait
+  // sur la première pose — « le joker tout juste récupéré ne peut pas servir
+  // à ouvrir ».
+  const suiteDe5 = () => tierce('pique', [c('pique', 7), c('pique', 8), c('pique', 9), c('pique', 10), c('pique', 'V')], 'j2', 1);
+
+  it('verifierFinDeCoupSpeciale juge la suite prolongee sans le plafond de la pose', () => {
+    const suite = suiteDe5();
+    const dame = c('pique', 'D');
+    const reste = [c('coeur', 2), c('trefle', 2), c('carreau', 2), c('coeur', 3), c('trefle', 3), c('carreau', 3),
+      c('coeur', 4), c('trefle', 4), c('carreau', 4), c('coeur', 5), c('trefle', 5), c('carreau', 5), c('pique', 'R')];
+    const main15 = [dame, ...reste, c('coeur', 'R')];
+    const poses = [ensemble(2, reste.slice(0, 3)), ensemble(3, reste.slice(3, 6)), ensemble(4, reste.slice(6, 9)), ensemble(5, reste.slice(9, 12))];
+    const prolongee = tierce('pique', [...suite.cartes, { carte: dame, remplace: null }, { carte: reste[12]!, remplace: null }], 'j2', 1);
+    expect(verifierFinDeCoupSpeciale(main15, poses, [prolongee])).toBe(true);
+    // Posée telle quelle, une suite de 7 reste refusée.
+    expect(verifierFinDeCoupSpeciale(main15, [...poses, prolongee])).toBe(false);
+  });
+
+  it('joker repris chez un adversaire et suite adverse portee a 6 : les 14 cartes posees finissent le coup', () => {
+    const jokerEn9 = jokerPour('carreau', 9);
+    const chezMaxime = tierce('carreau', [c('carreau', 8), jokerEn9, c('carreau', 10)], 'j2', 1);
+    const suite = suiteDe5();
+    const neuf = c('carreau', 9);
+    const coeurs = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D')];
+    const carre2 = [c('pique', 2), c('coeur', 2), c('trefle', 2), c('carreau', 2)];
+    const brelan3 = [c('pique', 3), c('coeur', 3), c('trefle', 3)];
+    const paire6 = [c('pique', 6), c('coeur', 6)];
+    const dame = c('pique', 'D');
+    const aJeter = c('trefle', 'R');
+    const depart = coupJouable([neuf, ...coeurs, ...carre2, ...brelan3, dame, ...paire6], {
+      combinaisons: [chezMaxime, suite],
+      pioche: [aJeter, c('carreau', 'R')],
+    });
+    const { coup: avecEchange, joker: repris } = echangerJoker(depart, 'j1', neuf, {
+      combinaisonId: chezMaxime.id,
+      carteJokerId: jokerEn9.carte.id,
+    });
+
+    // Sans la combinaison du joker : 30 + 8 + 9 = 47, sous les 51 points.
+    const { coup: fin, coupTermine } = jouerTour(avecEchange, 'j1', {
+      source: 'pioche',
+      poses: [
+        tierce('coeur', coeurs),
+        ensemble(2, carre2),
+        ensemble(3, brelan3),
+        ensemble(6, [...paire6, { carte: repris, remplace: { couleur: 'carreau', valeur: 6 } }]),
+      ],
+      ajouts: [{ combinaisonId: suite.id, cartes: [{ carte: dame, remplace: null }] }],
+      carteDefausseeId: aJeter.id,
+      jokersRecuperes: [repris.id],
+    });
+    expect(coupTermine).toBe(true);
+    expect(fin.combinaisons.find((combinaison) => combinaison.id === suite.id)?.cartes).toHaveLength(6);
+  });
+});

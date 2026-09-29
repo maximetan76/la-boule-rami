@@ -355,6 +355,55 @@ describe('serveur socket.io', () => {
     expect(table.resultatCoup?.score.typeVictoire).toBe('simple');
   });
 
+  it('banc : joker repris chez un adversaire, 14 cartes posees d un coup avec une suite adverse portee a 6 : le coup finit', async () => {
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    if (table.coup === null) throw new Error('coup absent');
+    const [premier, second] = table.coup.ordreJoueurs as [JoueurId, JoueurId];
+    const jokerEn9 = { carte: joker(), remplace: { couleur: 'carreau' as const, valeur: 9 as const } };
+    const chezLeSecond = {
+      id: 'comb-du-second', type: 'tierce' as const, proprietaireId: second, tourDePose: 1, couleur: 'carreau' as const, pure: false,
+      cartes: [{ carte: c('carreau', 8), remplace: null }, jokerEn9, { carte: c('carreau', 10), remplace: null }],
+    };
+    const suiteDe5 = {
+      id: 'suite-du-second', type: 'tierce' as const, proprietaireId: second, tourDePose: 1, couleur: 'pique' as const, pure: true,
+      cartes: ([7, 8, 9, 10, 'V'] as const).map((valeur) => ({ carte: c('pique', valeur), remplace: null })),
+    };
+    // Sans la combinaison du joker : 10-V-D♥ (30) + carré de 2 (8) + brelan de 3 (9) = 47.
+    const neuf = c('carreau', 9);
+    const coeurs = [c('coeur', 10), c('coeur', 'V'), c('coeur', 'D')];
+    const carre2 = [c('pique', 2), c('coeur', 2), c('trefle', 2), c('carreau', 2)];
+    const carre3 = [c('pique', 3), c('coeur', 3), c('trefle', 3)];
+    const paire6 = [c('pique', 6), c('coeur', 6)];
+    const dame = c('pique', 'D');
+    const aJeter = c('trefle', 'R');
+    table.coup.combinaisons = [chezLeSecond, suiteDe5];
+    table.coup.mains[premier] = [neuf, ...coeurs, ...carre2, ...carre3, dame, ...paire6];
+    table.coup.pioche.unshift(aJeter);
+    table.coup.recapitulatifs[premier] = recap({ toursAvecPose: [] });
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+    const ids = (cartes: { id: string }[]) => cartes.map((carte) => ({ carteId: carte.id }));
+
+    await agir(joueur, 'annoncer', { annonce: 'je-joue' });
+    await agir(joueur, 'piocher', { source: 'pioche' });
+    expect((await emettre(joueur.socket, 'recuperer-joker', {
+      carteReelleId: neuf.id, combinaisonId: chezLeSecond.id, carteJokerId: jokerEn9.carte.id,
+    })).ok).toBe(true);
+    expect((await emettre(joueur.socket, 'poser', {
+      poses: [
+        { type: 'tierce', couleur: 'coeur', cartes: ids(coeurs) },
+        { type: 'ensemble', valeur: 2, cartes: ids(carre2) },
+        { type: 'ensemble', valeur: 3, cartes: ids(carre3) },
+        { type: 'ensemble', valeur: 6, cartes: [...ids(paire6), { carteId: jokerEn9.carte.id, remplace: { couleur: 'carreau', valeur: 6 } }] },
+      ],
+      ajouts: [{ combinaisonId: suiteDe5.id, cartes: [{ carteId: dame.id }] }],
+    })).ok).toBe(true);
+    // Réf. docs/REGLES.md § « Fin de coup automatique » : ni 51 points ni
+    // tierce franche à fournir, joker tout juste repris compris.
+    expect(await agir(joueur, 'defausser', { carteId: aJeter.id })).toEqual({ ok: true });
+    expect(table.resultatCoup?.score.gagnantId).toBe(premier);
+  });
+
   it('banc : un joker ajoute a une suite sans declaration est refuse a la defausse', async () => {
     const { tableId } = await ouvrirTable();
     const table = serveur.manager.table(tableId);
