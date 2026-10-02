@@ -1037,6 +1037,90 @@ describe('serveur socket.io', () => {
     });
   }
 
+  // Réf. docs/REGLES.md § « Récupération d'un joker posé ». Cas signalé en
+  // partie : l'app envoie tout le brouillon d'un seul `poser` à la défausse. Le
+  // joker rendu par un ajout et replacé par un AUTRE ajout du même envoi était
+  // refusé — « Carte joker-N indisponible » — et le tour ne pouvait plus finir.
+  for (const cas of [
+    { nom: 'replacé au bout de sa suite 7-8-9-10♣', surLaSuite: true, dixEnPlus: false },
+    { nom: 'replacé sur son brelan de 10', surLaSuite: false, dixEnPlus: false },
+    { nom: 'replacé sur sa suite, avec un 10♣ ajouté à son brelan dans le même envoi', surLaSuite: true, dixEnPlus: true },
+  ]) {
+    it(`2♥ 2♠ sur le brelan adverse 2♦ 2♣ [joker], le joker ${cas.nom}, puis défausse du 3♥`, async () => {
+      const { tableId } = await ouvrirTable();
+      const table = serveur.manager.table(tableId);
+      const coup = table.coup;
+      if (coup === null) throw new Error('coup absent');
+      const [premier, second] = coup.ordreJoueurs as [JoueurId, JoueurId];
+      const jokerAdverse = joker();
+      const brelanDeDeux = ensemble(2, [c('carreau', 2), c('trefle', 2), jokerAdverse], second);
+      const brelanDeDix = ensemble(10, [c('pique', 10), c('coeur', 10), c('carreau', 10)], premier);
+      const suite = tierce('trefle', [c('trefle', 7), c('trefle', 8), c('trefle', 9), c('trefle', 10)], premier);
+      const [deuxCoeur, deuxPique, troisCoeur, dixTrefle] = [c('coeur', 2), c('pique', 2), c('coeur', 3), c('trefle', 10)];
+      coup.combinaisons = [brelanDeDeux, brelanDeDix, suite];
+      coup.mains[premier] = [deuxCoeur, deuxPique, troisCoeur, dixTrefle, c('carreau', 'R'), c('pique', 5)];
+      coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+      coup.phase = 'jeu';
+      coup.aParler = null;
+      coup.enAttente = [];
+      coup.joueurActifId = premier;
+      const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+      expect((await agir(joueur, 'piocher', { source: 'pioche' })).ok).toBe(true);
+      const ajouts = [
+        { combinaisonId: brelanDeDeux.id, cartes: [{ carteId: deuxCoeur.id }, { carteId: deuxPique.id }] },
+        cas.surLaSuite
+          ? { combinaisonId: suite.id, cartes: [{ carteId: jokerAdverse.id, remplace: { couleur: 'trefle', valeur: 'V' } }] }
+          : { combinaisonId: brelanDeDix.id, cartes: [{ carteId: jokerAdverse.id }] },
+        ...(cas.dixEnPlus ? [{ combinaisonId: brelanDeDix.id, cartes: [{ carteId: dixTrefle.id }] }] : []),
+      ];
+
+      // Tout part d'un seul envoi, comme depuis l'app.
+      expect(await emettre(joueur.socket, 'poser', { ajouts })).toEqual({ ok: true });
+      expect(await agir(joueur, 'defausser', { carteId: troisCoeur.id })).toEqual({ ok: true });
+
+      const apres = table.coup;
+      if (apres === null) throw new Error('coup absent');
+      const ids = (id: string) => apres.combinaisons.find((comb) => comb.id === id)?.cartes.map((cp) => cp.carte.id) ?? [];
+      expect(ids(brelanDeDeux.id)).not.toContain(jokerAdverse.id);
+      expect(ids(cas.surLaSuite ? suite.id : brelanDeDix.id)).toContain(jokerAdverse.id);
+      expect(apres.mains[premier]?.map((carte) => carte.id)).not.toContain(jokerAdverse.id);
+      expect(apres.defausse.at(-1)?.id).toBe(troisCoeur.id);
+    });
+  }
+
+  it('un joker que les ajouts du même envoi ne rendent pas reste refusé', async () => {
+    // Le 2♥ seul ne dit pas quelle couleur le joker représente : il reste sur
+    // le brelan adverse, et le replacer ailleurs n'est pas permis.
+    const { tableId } = await ouvrirTable();
+    const table = serveur.manager.table(tableId);
+    const coup = table.coup;
+    if (coup === null) throw new Error('coup absent');
+    const [premier, second] = coup.ordreJoueurs as [JoueurId, JoueurId];
+    const jokerAdverse = joker();
+    const brelanDeDeux = ensemble(2, [c('carreau', 2), c('trefle', 2), jokerAdverse], second);
+    const suite = tierce('trefle', [c('trefle', 7), c('trefle', 8), c('trefle', 9), c('trefle', 10)], premier);
+    const deuxCoeur = c('coeur', 2);
+    coup.combinaisons = [brelanDeDeux, suite];
+    coup.mains[premier] = [deuxCoeur, c('coeur', 3), c('carreau', 'R')];
+    coup.recapitulatifs[premier] = recap({ toursAvecPose: [1] });
+    coup.phase = 'jeu';
+    coup.aParler = null;
+    coup.enAttente = [];
+    coup.joueurActifId = premier;
+    const joueur = espions.find((e) => e.joueurId === premier) as Espion;
+
+    expect((await agir(joueur, 'piocher', { source: 'pioche' })).ok).toBe(true);
+    const refus = await emettre(joueur.socket, 'poser', {
+      ajouts: [
+        { combinaisonId: brelanDeDeux.id, cartes: [{ carteId: deuxCoeur.id }] },
+        { combinaisonId: suite.id, cartes: [{ carteId: jokerAdverse.id, remplace: { couleur: 'trefle', valeur: 'V' } }] },
+      ],
+    });
+    expect(refus).toMatchObject({ ok: false, erreur: `Carte ${jokerAdverse.id} indisponible` });
+    expect(table.tourEnCours?.ajouts).toEqual([]);
+  });
+
   it('le dernier arrive au salon : ceux qui attendaient recoivent son pseudo avec le premier etat', async () => {
     // Le salon se remplit : Ana et Bo attendent, connectés.
     const { tableId, codeInvitation } = await serveur.manager.creerTable(

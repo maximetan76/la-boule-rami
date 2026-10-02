@@ -1212,26 +1212,50 @@ export const enregistrerHandlers = (
           }
 
           const disponibles = cartesDuJoueur(table, joueurId);
-          const ajouts = (payload?.ajouts ?? []).map((ajout) => {
+          const proposes = (payload?.ajouts ?? []).map((ajout) => {
             if (typeof ajout.combinaisonId !== 'string') {
               throw new Error('Combinaison cible manquante');
             }
             if (!coup.combinaisons.some((comb) => comb.id === ajout.combinaisonId)) {
               throw new Error(`Combinaison ${ajout.combinaisonId} introuvable sur la table`);
             }
-            return {
-              combinaisonId: ajout.combinaisonId,
-              cartes: (ajout.cartes ?? []).map((carte) =>
-                construireCartePosee(disponibles, carte),
-              ),
-            };
+            return { combinaisonId: ajout.combinaisonId, cartes: ajout.cartes ?? [] };
           });
 
-          // Un joker que ces ajouts rendent au joueur peut repartir dans une pose
-          // du même geste : Réf. § « Récupération d'un joker posé ».
-          for (const joker of jokersRendusParLesAjouts(coup, [...tour.ajouts, ...ajouts])) {
-            disponibles.set(joker.id, joker);
-          }
+          // Réf. § « Récupération d'un joker posé » : un joker que ces ajouts
+          // rendent au joueur peut repartir dans une pose ou dans un AUTRE ajout
+          // du même geste — l'app envoie tout le brouillon d'un seul `poser`.
+          // Les ajouts se résolvent donc par passes : ceux dont toutes les cartes
+          // sont déjà au joueur d'abord, puis ceux qu'un joker ainsi rendu
+          // débloque. Ce qui reste introuvable est refusé comme avant.
+          const resolus = new Map<number, { combinaisonId: string; cartes: CartePosee[] }>();
+          const resoudreLesAjouts = (): void => {
+            for (const [index, ajout] of proposes.entries()) {
+              if (resolus.has(index)) continue;
+              if (!ajout.cartes.every((carte) => typeof carte.carteId === 'string' && disponibles.has(carte.carteId))) continue;
+              resolus.set(index, {
+                combinaisonId: ajout.combinaisonId,
+                cartes: ajout.cartes.map((carte) => construireCartePosee(disponibles, carte)),
+              });
+            }
+          };
+          const rendreLesJokers = (): number => {
+            const avant = disponibles.size;
+            for (const joker of jokersRendusParLesAjouts(coup, [...tour.ajouts, ...resolus.values()])) {
+              disponibles.set(joker.id, joker);
+            }
+            return disponibles.size - avant;
+          };
+          do resoudreLesAjouts();
+          while (rendreLesJokers() > 0);
+          // Une carte toujours introuvable : le refus habituel, sur la première.
+          const ajouts = proposes.map(
+            (ajout, index) =>
+              resolus.get(index) ?? {
+                combinaisonId: ajout.combinaisonId,
+                cartes: ajout.cartes.map((carte) => construireCartePosee(disponibles, carte)),
+              },
+          );
           const poses = (payload?.poses ?? []).map((proposee) =>
             construireCombinaison(proposee, disponibles, joueurId, coup.numeroTour),
           );
