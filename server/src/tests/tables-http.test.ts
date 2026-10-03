@@ -603,6 +603,20 @@ describe('API des tables', () => {
       chocolatId: null,
     });
 
+    it('dit la regle d arrondi du tableau : vers zero pour une Boule nouvelle, rien pour une Boule d avant', async () => {
+      const { ana, tableId } = await tableDeDeux();
+      const nouvelle = await appeler('GET', `/tables/${tableId}/historique`, { compte: ana });
+      expect(nouvelle.corps['regleArrondi']).toBe('vers-zero');
+
+      // Une Boule créée avant la règle n'en porte pas : l'app garde l'ancienne.
+      const table = serveur.manager.table(tableId);
+      if (table.boule === null) throw new Error('boule absente apres le remplissage');
+      const { regleArrondi: _, ...avant } = table.boule;
+      table.boule = avant;
+      const ancienne = await appeler('GET', `/tables/${tableId}/historique`, { compte: ana });
+      expect(ancienne.corps['regleArrondi']).toBeNull();
+    });
+
     it('archive un abandon : qui, quand, les coups joues et les mains de tous a cet instant', async () => {
       const { ana, bo, tableId } = await tableDeDeux();
       const table = serveur.manager.table(tableId);

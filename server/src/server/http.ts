@@ -478,8 +478,9 @@ const finDe = (boule: Parameters<typeof estBouleTerminee>[0] | null) =>
 
 /**
  * Ce que le tableau de scores lit en plus des coups : l'ordre des joueurs à la
- * table, la valeur d'un point, et le report de coups frichés — ceux que la
- * Boule suivante reprendrait en plus de ses coups frichés configurés.
+ * table, la valeur d'un point, le report de coups frichés — ceux que la
+ * Boule suivante reprendrait en plus de ses coups frichés configurés —, et la
+ * règle d'arrondi de ses totaux.
  */
 const configurationDuTableau = (
   ordreJoueurs: readonly string[],
@@ -492,6 +493,9 @@ const configurationDuTableau = (
   // Le report tel qu'il est suivi pendant la Boule, pas sa seule croissance.
   coupsFrichesEnPlus: boule === null ? null : reportEnCours(boule, coupsFrichesDepart),
   valeurPoint,
+  // Réf. docs/REGLES.md § « Fin de la Boule » : `null` pour une Boule créée
+  // avant l'arrondi vers zéro, qui garde l'ancienne règle.
+  regleArrondi: boule?.regleArrondi ?? null,
 });
 
 /** Les coups archivés, tels que l'historique les montre. */

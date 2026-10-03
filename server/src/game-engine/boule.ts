@@ -71,6 +71,7 @@ export const initialiserBoule = (
     nombreCoupsFriches,
     frichesGeneralisees: 0,
     reportDeFriches: reportHerite,
+    regleArrondi: 'vers-zero',
     coupEnCours: null,
     historique: [],
     scoresCumules,

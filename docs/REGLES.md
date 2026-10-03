@@ -101,6 +101,8 @@
 - Autre exemple : un joueur termine à -80 points (négatif, le plus bas), les autres à 450, 700, 650 → son score final devient -80 - 200 = -280 points.
 - Ensuite, on applique les pénalités de "croix" accumulées par chaque joueur pendant la Boule (-100 points par croix), à leur score final individuel (après le bonus de victoire éventuel).
 - Enfin, on calcule l'écart de points entre chaque paire de joueurs (score final de chacun, croix incluses). Ces écarts servent de base à un enjeu financier optionnel (ex : 1€ par point d'écart). Les croix impactent donc aussi ces écarts entre joueurs, pas seulement le classement individuel.
+- Le total de chaque joueur (ce que la table lui doit, ou ce qu'il doit, en points ou en monnaie) s'arrondit à la dizaine VERS ZÉRO : un joueur qui doit 25 paie 20, un joueur à qui l'on doit 25 reçoit 20. Si la somme des arrondis ne fait plus zéro, on ajuste d'une dizaine à la fois, le moins possible : si les perdants paient plus que les gagnants ne reçoivent, le gagnant le plus proche de sa dizaine supérieure la reçoit ; si les gagnants reçoivent trop, le gagnant le plus proche de sa dizaine inférieure en rend une. Un perdant ne paie ainsi jamais plus que son dû. À égalité, le plus gros montant, puis l'ordre de la table. Exemple : Bibi 9, Vous -34,5, Banban 25,5 s'arrondissent à 0 / -30 / 20, soit une somme de -10 ; Bibi, à 1 de sa dizaine, la reçoit : 10 / -30 / 20. Autre exemple : +50 / -25 / -25 donnent 50 / -20 / -20, les gagnants reçoivent 10 de trop : 40 / -20 / -20.
+- Cette règle vaut pour les Boules créées à partir du 30/09/2026. Une Boule créée avant garde l'arrondi de son époque (à la dizaine la plus proche, l'écart reporté sur le total le plus bas) : ses chiffres archivés ne changent pas.
 
 ---
 

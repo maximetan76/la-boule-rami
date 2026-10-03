@@ -144,6 +144,14 @@ export interface Boule {
    * enregistrée avant ce suivi.
    */
   reportDeFriches?: number;
+  /**
+   * Règle d'arrondi des totaux du tableau de fin de Boule, fixée à la création
+   * de la Boule — l'app, qui fait ce calcul, la lit dans l'historique. Réf.
+   * docs/REGLES.md § « Fin de la Boule ». Absent d'une Boule créée avant :
+   * elle garde l'ancienne règle (à la dizaine la plus proche), ses chiffres
+   * archivés ne changent pas.
+   */
+  regleArrondi?: 'vers-zero';
   coupEnCours: Coup | null;
   historique: ResultatCoup[];
   /** Somme des scores de chaque joueur sur les coups déjà joués. */

@@ -91,6 +91,20 @@ describe('serialisation de la Boule', () => {
     );
   });
 
+  it('garde la regle d arrondi d une Boule nouvelle, et n en invente pas pour une ancienne', () => {
+    const nouvelle = bouleJouee();
+    expect(nouvelle.regleArrondi).toBe('vers-zero');
+    expect(deserialiserBoule(JSON.parse(JSON.stringify(serialiserBoule(nouvelle)))).regleArrondi).toBe('vers-zero');
+
+    // Écrite avant la règle : aucune marque, l'ancienne règle reste la sienne.
+    const { regleArrondi: _, ...ancienne } = serialiserBoule(nouvelle);
+    expect(deserialiserBoule(ancienne).regleArrondi).toBeUndefined();
+
+    expect(() => deserialiserBoule({ ...serialiserBoule(nouvelle), regleArrondi: 'au-plus-proche' })).toThrow(
+      /regleArrondi/,
+    );
+  });
+
   it('refuse un historique dont un coup est incoherent', () => {
     const valide = serialiserBoule(bouleJouee());
     const abime = {

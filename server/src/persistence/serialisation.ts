@@ -38,6 +38,8 @@ export interface EtatBoulePersiste {
   readonly frichesGeneralisees?: number;
   /** Absent d'un état écrit avant le suivi du report. */
   readonly reportDeFriches?: number;
+  /** Absent d'un état écrit avant l'arrondi vers zéro : ancienne règle. */
+  readonly regleArrondi?: 'vers-zero';
   /** Absent d'un état écrit avant qu'on mesure le temps de jeu. */
   readonly tempsDeJeu?: Record<JoueurId, number>;
   readonly scoresCumules: Record<JoueurId, number>;
@@ -90,6 +92,7 @@ export const serialiserBoule = (boule: Boule, enCours?: EnCoursPersiste): EtatBo
   nombreCoupsFriches: boule.nombreCoupsFriches,
   ...(boule.frichesGeneralisees === undefined ? {} : { frichesGeneralisees: boule.frichesGeneralisees }),
   ...(boule.reportDeFriches === undefined ? {} : { reportDeFriches: boule.reportDeFriches }),
+  ...(boule.regleArrondi === undefined ? {} : { regleArrondi: boule.regleArrondi }),
   ...(boule.tempsDeJeu === undefined ? {} : { tempsDeJeu: { ...boule.tempsDeJeu } }),
   scoresCumules: { ...boule.scoresCumules },
   croix: { ...boule.croix },
@@ -120,6 +123,12 @@ const entier = (valeur: unknown, chemin: string): number => {
 
 const texte = (valeur: unknown, chemin: string): string => {
   if (typeof valeur !== 'string') throw new EtatIllisibleError(`${chemin} n'est pas une chaine`);
+  return valeur;
+};
+
+/** Une règle inconnue est refusée : jamais d'arrondi deviné. */
+const regleArrondi = (valeur: unknown): 'vers-zero' => {
+  if (valeur !== 'vers-zero') throw new EtatIllisibleError('etat.regleArrondi inconnue');
   return valeur;
 };
 
@@ -200,6 +209,7 @@ export const deserialiserBoule = (valeur: unknown): Boule => {
     ...(brut['reportDeFriches'] === undefined
       ? {}
       : { reportDeFriches: entier(brut['reportDeFriches'], 'etat.reportDeFriches') }),
+    ...(brut['regleArrondi'] === undefined ? {} : { regleArrondi: regleArrondi(brut['regleArrondi']) }),
     ...(brut['tempsDeJeu'] === undefined ? {} : { tempsDeJeu: scores(brut['tempsDeJeu'], 'etat.tempsDeJeu') }),
     // Le coup en cours vit sur la table, pas dans la Boule : `lireEnCours`.
     coupEnCours: null,
