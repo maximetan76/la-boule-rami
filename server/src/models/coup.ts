@@ -40,6 +40,34 @@ export interface RecapJoueurCoup {
   aAjouteSurCombinaisonAutrui: boolean;
 }
 
+/**
+ * Ce que le dernier tour joué a changé sur la table, tel que les autres
+ * joueurs doivent le voir.
+ *
+ * Les bandeaux (« Bo a pris le 7♣ à la défausse », jokers repris, carré
+ * fermé) et le souligné des cartes fraîchement posées se calculaient jusqu'ici
+ * en comparant deux états reçus à la suite : un joueur qui se connecte après
+ * coup, ou dont la connexion se rétablit, n'avait aucun état d'avant et ne
+ * voyait rien. Le serveur le garde donc lui-même, jusqu'au premier geste du
+ * joueur suivant — le délai qu'avaient déjà ces indications.
+ *
+ * Tout y est public : la table montre déjà chacun de ces éléments à tous.
+ */
+export interface DernierTour {
+  /** Propre à ce tour : l'app s'en sert pour ne montrer qu'une fois ce qu'elle a déjà montré. */
+  readonly id: string;
+  /** Qui a joué ce tour. */
+  readonly joueurId: JoueurId;
+  /** La carte qu'il a prise à la défausse et gardée pour ce tour, s'il en a pris une. */
+  readonly priseEnDefausse: Carte | null;
+  /** Les jokers qu'il a repris sur la table, chacun avec la vraie carte donnée en échange. */
+  readonly jokersRepris: readonly { readonly joker: Carte; readonly carteFournie: Carte }[];
+  /** Les carrés que ce tour a fermés : quatre cartes réelles, sans joker ni coucou. */
+  readonly carresFermes: readonly string[];
+  /** Les cartes arrivées sur la table ce tour-ci, pour les souligner. */
+  readonly cartesPosees: readonly string[];
+}
+
 export interface Coup {
   /** Numéro du coup dans la Boule, à partir de 1. */
   readonly numero: number;
@@ -96,4 +124,9 @@ export interface Coup {
    * l'on interroge encore quand son tour revient. Il risque le chocolat.
    */
   engageId?: JoueurId | null;
+  /**
+   * Le dernier tour joué, tant que le joueur suivant n'a pas fait son premier
+   * geste. Absent sinon, et quand ce tour n'a rien changé qui se montre.
+   */
+  dernierTour?: DernierTour;
 }

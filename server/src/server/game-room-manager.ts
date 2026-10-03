@@ -54,6 +54,7 @@ import {
   numeroCoupCourant,
   numeroMancheCourant,
   redistribuerApresFricheGeneralisee,
+  avecDernierTour,
   tirerSiegesEtDonneurInitial,
 } from '../game-engine/index.js';
 import { estJoker } from '../game-engine/cartes.js';
@@ -1351,7 +1352,8 @@ const redistribuerManchePanier = (table: Table): Coup => {
   const { mains, pioche } = distribuerLePanier(joueurs, paquet);
 
   const rejoue: Coup = {
-    ...coup,
+    // Une autre donne : ce que disait le dernier tour ne vaut plus.
+    ...avecDernierTour(coup, undefined),
     phase: 'annonces',
     annonces: {},
     mains,
@@ -1396,7 +1398,8 @@ export const redistribuerCoup = (table: Table): Coup => {
   );
 
   const rejoue: Coup = {
-    ...coup,
+    // Une autre donne : ce que disait le dernier tour ne vaut plus.
+    ...avecDernierTour(coup, undefined),
     // Le numéro de coup et le donneur sont inchangés : même place, même donneur.
     phase: 'annonces',
     annonces: {},

@@ -21,6 +21,7 @@ import type {
   Carte,
   Combinaison,
   Coup,
+  DernierTour,
   JoueurId,
   PhaseCoup,
 } from '../models/index.js';
@@ -218,6 +219,15 @@ export interface EtatCoupFiltre {
     readonly engageId: JoueurId | null;
     /** Ancien nom de `engageId`, pour les versions antérieures de l'app. */
     readonly dernierJeJoue: JoueurId | null;
+    /**
+     * Ce que le dernier tour a changé sur la table, jusqu'au premier geste du
+     * joueur suivant : de quoi montrer à qui se connecte après coup ce qu'un
+     * état d'avant lui aurait dit. Public, comme tout ce qui est sur la table.
+     * Toujours présent, `tour` valant `null` quand ce tour n'a rien changé qui
+     * se montre : l'app y reconnaît un serveur qui le tient — un plus ancien n'en
+     * parle pas —, et sait alors que ne rien voir veut dire que rien n'est à dire.
+     */
+    readonly dernierTour: { readonly tour: DernierTour | null };
   };
   readonly defausse: DefausseVisible;
   readonly combinaisons: Combinaison[];
@@ -378,6 +388,7 @@ export const filtrerEtatPourJoueur = (
       enAttente: [...(coup.enAttente ?? [])],
       engageId: coup.engageId ?? null,
       dernierJeJoue: coup.engageId ?? null,
+      dernierTour: { tour: coup.dernierTour ?? null },
     },
     // Pour qui l'a prise, la carte a quitté la pile : elle est dans son jeu,
     // jusqu'à ce qu'il la pose ou la rende. Sa pile montre la

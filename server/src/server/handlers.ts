@@ -30,6 +30,7 @@ import type {
   ScoreCoup,
   Valeur,
 } from '../models/index.js';
+import { randomUUID } from 'node:crypto';
 import {
   calculerScoreCoup,
   detecterDoubleOuTriple,
@@ -44,6 +45,8 @@ import {
   reformerTalon,
   annoncer,
   apresTour,
+  avecDernierTour,
+  decrireDernierTour,
   joueurQuiParle,
   enregistrerResultatManche,
   estMatchTermine,
@@ -221,6 +224,22 @@ const coupEnCours = (table: Table): Coup => {
   if (table.coup === null) throw new Error("Aucun coup en cours sur cette table");
   return table.coup;
 };
+
+/**
+ * Le coup une fois le tour de `joueurId` joué, avec ce que ce tour a changé sur
+ * la table — gardé jusqu'au premier geste du joueur suivant, pour que même un
+ * joueur qui se connecte après coup le voie. Une fin de coup n'en garde rien :
+ * l'écran de fin montre tout.
+ */
+const apresLeTour = (
+  avant: Coup,
+  suite: Coup,
+  tour: { readonly joueurId: JoueurId; readonly source: 'pioche' | 'defausse'; readonly cartePiochee: Carte },
+): Coup =>
+  avecDernierTour(
+    suite,
+    suite.gagnantId !== null ? undefined : decrireDernierTour(avant, suite, { id: randomUUID(), ...tour }),
+  );
 
 /**
  * Le joueur que la table attend, selon la phase : celui qui doit parler pendant
@@ -640,7 +659,7 @@ const abandonnerTour = (table: Table, joueurId: JoueurId): Coup | null => {
     table.alea,
   );
 
-  const suite = apresTour(apres, joueurId);
+  const suite = apresLeTour(coup, apresTour(apres, joueurId), { joueurId, source: 'pioche', cartePiochee: piochee });
   table.coup = suite;
   table.tourEnCours = null;
   return suite;
@@ -954,7 +973,7 @@ const jouerLeTourDuRobot = (
     return suite === null ? null : { coup: suite, poseFinale: [] };
   }
 
-  const suite = apresTour(apres, botId);
+  const suite = apresLeTour(coup, apresTour(apres, botId), { joueurId: botId, source, cartePiochee: carte });
   table.coup = suite;
   table.tourEnCours = null;
   return { coup: suite, poseFinale };
@@ -1179,6 +1198,11 @@ export const enregistrerHandlers = (
         }
         if (cartePiochee === undefined) throw new Error('Aucune carte a piocher');
 
+        // Le premier geste du joueur suivant éteint ce que disait le dernier tour.
+        // Sur place, comme le talon juste au-dessus : un nouvel objet vaudrait une
+        // écriture, et une pioche n'en vaut pas — ce tour-là, rien ne se sauvegarde.
+        delete coup.dernierTour;
+
         // La source est verrouillee : on ne peut pas regarder le talon puis se
         // raviser pour la defausse.
         table.tourEnCours = {
@@ -1387,7 +1411,11 @@ export const enregistrerHandlers = (
 
         // Après un tour sans pose, le suivant doit d'abord parler : la parole
         // tourne tant que personne n'a posé.
-        table.coup = apresTour(apres, joueurId);
+        table.coup = apresLeTour(coup, apresTour(apres, joueurId), {
+          joueurId,
+          source: tour.source,
+          cartePiochee: tour.cartePiochee,
+        });
         table.tourEnCours = null;
         if (apres.gagnantId !== null) {
           // Ce que le gagnant vient d'engager pour finir : c'est ce que chacun

@@ -18,6 +18,7 @@ import type {
   CarteId,
   Combinaison,
   Coup,
+  DernierTour,
   JoueurId,
   MatchPanier,
   ResultatCoup,
@@ -354,6 +355,25 @@ const mainsParJoueur = (valeur: unknown, chemin: string): Record<JoueurId, Carte
   return resultat;
 };
 
+/** Le dernier tour d'un coup en cours : absent d'un état écrit avant qu'on le retienne. */
+const dernierTour = (valeur: unknown, chemin: string): DernierTour => {
+  const brut = objet(valeur, chemin);
+  return {
+    id: texte(brut['id'], `${chemin}.id`),
+    joueurId: texte(brut['joueurId'], `${chemin}.joueurId`),
+    priseEnDefausse: brut['priseEnDefausse'] === null ? null : carte(brut['priseEnDefausse'], `${chemin}.priseEnDefausse`),
+    jokersRepris: liste(brut['jokersRepris'], `${chemin}.jokersRepris`).map((reprise, index) => {
+      const r = objet(reprise, `${chemin}.jokersRepris[${String(index)}]`);
+      return {
+        joker: carte(r['joker'], `${chemin}.jokersRepris[${String(index)}].joker`),
+        carteFournie: carte(r['carteFournie'], `${chemin}.jokersRepris[${String(index)}].carteFournie`),
+      };
+    }),
+    carresFermes: listeDeTextes(brut['carresFermes'], `${chemin}.carresFermes`),
+    cartesPosees: listeDeTextes(brut['cartesPosees'], `${chemin}.cartesPosees`),
+  };
+};
+
 const PHASES: readonly string[] = ['annonces', 'jeu', 'termine'];
 const ANNONCES: readonly string[] = ['friche', 'je-joue'];
 
@@ -414,6 +434,7 @@ const coup = (valeur: unknown, chemin: string): Coup => {
       ? {}
       : { variante: texte(brut['variante'], `${chemin}.variante`) as NonNullable<Coup['variante']> }),
     ...(brut['engageId'] === undefined ? {} : { engageId: texteOuNul(brut['engageId'], `${chemin}.engageId`) }),
+    ...(brut['dernierTour'] === undefined ? {} : { dernierTour: dernierTour(brut['dernierTour'], `${chemin}.dernierTour`) }),
   };
 };
 

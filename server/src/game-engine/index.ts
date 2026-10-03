@@ -55,6 +55,7 @@ export {
 } from './distribution.js';
 export { orchestrerPhaseFricheOuJoue } from './annonces.js';
 export { annoncer, apresTour, engageInterroge, frichePossible, joueurQuiParle } from './parole.js';
+export { avecDernierTour, decrireDernierTour, estCarreFerme } from './dernier-tour.js';
 export type { ResultatAnnonce } from './parole.js';
 export type { ResultatAnnonces } from './annonces.js';
 export { verifierFinDeCoupSpeciale } from './pose.js';

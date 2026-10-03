@@ -271,7 +271,66 @@ describe('redemarrage du serveur en pleine partie', () => {
     for (const inscrit of joueurs) expect(etats.get(inscrit.id)?.moi.main).toEqual(avant.coup?.mains[inscrit.id]);
   }, 20_000);
 
-  it('l entracte : le decompte et les joueurs deja prets reviennent, et la suite se distribue', async () => {
+  describe('le dernier tour, pour qui se connecte apres coup', () => {
+    /** Le panier à deux : le premier joue un tour, le second prend la défausse et la garde. */
+    const priseEnDefausse = async () => {
+      const joueurs = JOUEURS.slice(0, 2);
+      const partie = await partieEnCours({ variante: 'panier', joueurs });
+      await ouvrirLeJeu(partie.table, partie.socketDe);
+      await jouerUnTour(partie.table, partie.socketDe);
+
+      const preneur = partie.table().coup?.joueurActifId as string;
+      expect((await emettre(partie.socketDe(preneur), 'piocher', { source: 'defausse' })).ok).toBe(true);
+      const prise = partie.table().tourEnCours?.cartePiochee as Carte;
+      const aJeter = (partie.table().coup?.mains[preneur] ?? []).find((carte) => carte.type === 'normale');
+      expect((await emettre(partie.socketDe(preneur), 'defausser', { carteId: aJeter?.id })).ok).toBe(true);
+      await patienter(60);
+      return { ...partie, joueurs, preneur, prise };
+    };
+
+    it('une prise en defausse : tous les joueurs la lisent dans l etat, jusqu au premier geste du suivant', async () => {
+      const { etats, joueurs, preneur, prise, table, socketDe } = await priseEnDefausse();
+      const autre = joueurs.find((joueur) => joueur.id !== preneur)?.id as string;
+
+      for (const inscrit of joueurs) {
+        const dernier = etats.get(inscrit.id)?.coup.dernierTour.tour;
+        expect(dernier?.joueurId).toBe(preneur);
+        expect(dernier?.priseEnDefausse).toEqual(prise);
+      }
+
+      // Le suivant touche la pioche : ce que disait le dernier tour s'éteint pour tous.
+      expect((await emettre(socketDe(autre), 'piocher', { source: 'pioche' })).ok).toBe(true);
+      await patienter(60);
+      expect(table().coup?.dernierTour).toBeUndefined();
+      for (const inscrit of joueurs) expect(etats.get(inscrit.id)?.coup.dernierTour).toEqual({ tour: null });
+    }, 20_000);
+
+    it('un tour ordinaire : rien a dire, le champ est present mais vide', async () => {
+      const joueurs = JOUEURS.slice(0, 2);
+      const { etats, table, socketDe } = await partieEnCours({ variante: 'panier', joueurs });
+      await ouvrirLeJeu(table, socketDe);
+      await jouerUnTour(table, socketDe);
+      await patienter(60);
+      for (const inscrit of joueurs) expect(etats.get(inscrit.id)?.coup.dernierTour).toEqual({ tour: null });
+    }, 20_000);
+
+    it('un joueur qui se connecte apres coup, ou apres un redemarrage, le lit encore', async () => {
+      const { depot, premier, tableId, table, joueurs, preneur, prise } = await priseEnDefausse();
+      const avant = table().coup?.dernierTour;
+      expect(avant?.priseEnDefausse).toEqual(prise);
+
+      // Redéploiement : l'ancien serveur s'arrête, le nouveau reprend la base ; chacun se reconnecte.
+      await arreter(premier.serveur);
+      const second = await demarrer(depot);
+      const { etats } = await connecterTous(second.base, tableId, joueurs);
+
+      expect(second.serveur.manager.table(tableId).coup?.dernierTour).toEqual(avant);
+      const autre = joueurs.find((joueur) => joueur.id !== preneur)?.id as string;
+      expect(etats.get(autre)?.coup.dernierTour.tour).toEqual(avant);
+    }, 20_000);
+  });
+
+  it('l entracte : le decompte revient, les clics deja donnes expirent avec le serveur, et la suite se distribue', async () => {
     const { depot, premier, tableId, table, socketDe } = await partieEnCours();
     await ouvrirLeJeu(table, socketDe);
 
@@ -388,5 +447,18 @@ describe('lecture de ce qui se jouait', () => {
     expect(lire({ ...coupValide, joueurActifId: 'z' })).toThrow(/pas assis/);
     expect(lire({ ...coupValide, annonces: { a: 'peut-etre' } })).toThrow(EtatIllisibleError);
     expect(lire({ ...coupValide, pioche: [{ type: 'dragon', id: 'y' }] })).toThrow(/type inconnu/);
+
+    // Le dernier tour : relu tel quel, et refusé s'il est abîmé.
+    const sept = { type: 'normale', id: 'sept', couleur: 'trefle', valeur: 7 };
+    const dernierTour = {
+      id: 't-1', joueurId: 'b', priseEnDefausse: sept,
+      jokersRepris: [{ joker: { type: 'joker', id: 'j' }, carteFournie: sept }],
+      carresFermes: ['comb-1'], cartesPosees: ['sept'],
+    };
+    expect(lire({ ...coupValide, dernierTour })()?.coup).toEqual({ ...coupValide, dernierTour });
+    expect(lire({ ...coupValide, dernierTour: { ...dernierTour, priseEnDefausse: null } })()?.coup?.dernierTour?.priseEnDefausse).toBeNull();
+    expect(lire({ ...coupValide, dernierTour: { ...dernierTour, id: 7 } })).toThrow(EtatIllisibleError);
+    expect(lire({ ...coupValide, dernierTour: { ...dernierTour, carresFermes: 'comb-1' } })).toThrow(/carresFermes/);
+    expect(lire({ ...coupValide, dernierTour: { ...dernierTour, priseEnDefausse: { type: 'dragon', id: 'y' } } })).toThrow(/type inconnu/);
   });
 });

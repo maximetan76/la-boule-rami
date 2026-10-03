@@ -15,7 +15,7 @@ export { TIERCE_LONGUEUR_MAX, TIERCE_LONGUEUR_MIN } from './combinaison.js';
 
 export type { Joueur, JoueurId } from './joueur.js';
 
-export type { Annonce, Coup, PhaseCoup, RecapJoueurCoup } from './coup.js';
+export type { Annonce, Coup, DernierTour, PhaseCoup, RecapJoueurCoup } from './coup.js';
 
 export type {
   Boule,
