@@ -67,6 +67,14 @@ export interface ResultatCoupFiltre {
   readonly rejouer: JoueurId[];
   /** Dernier coup : qui a choisi de terminer plutôt que de rejouer. */
   readonly rejouerAnnulePar: JoueurId | null;
+  /**
+   * Le délai collectif de confirmation, tant qu'il court : il part du premier
+   * clic humain et n'est jamais relancé par les suivants. `null` : personne n'a
+   * encore confirmé.
+   */
+  readonly echeance: EcheanceDeSuiteFiltree | null;
+  /** Ceux dont la confirmation vient d'expirer, jusqu'à ce qu'ils confirment de nouveau. */
+  readonly expirees: JoueurId[];
   readonly numero: number;
   readonly gagnantId: JoueurId;
   readonly typeVictoire: string;
@@ -137,6 +145,13 @@ export interface TirageOuvertureFiltre {
   readonly donneurInitial: JoueurId | null;
   /** Jokers tirés, gardés pour la première donne : vide tant que tout n'est pas retourné. */
   readonly jokersConserves: Record<JoueurId, Carte[]>;
+}
+
+/** Le délai collectif de l'entracte, tel que chacun le voit. */
+export interface EcheanceDeSuiteFiltree {
+  /** Ce qu'il reste, en millisecondes, à l'envoi de cet état. */
+  readonly restantMs: number;
+  readonly dureeMs: number;
 }
 
 /** Le délai qui court pour le joueur attendu, tel que chacun le voit. */

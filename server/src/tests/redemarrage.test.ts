@@ -357,12 +357,16 @@ describe('redemarrage du serveur en pleine partie', () => {
     const { etats, socketDe: socketDuSecond } = await connecterTous(second.base, tableId);
     const reprise = () => second.serveur.manager.table(tableId);
 
-    expect(instantane(reprise())).toEqual(avant);
+    // Le délai de 2 minutes n'a plus de point de départ : le clic d'Ana, donné
+    // avant l'arrêt, est tombé — tout le reste du décompte est revenu intact.
+    const apres = instantane(reprise());
+    expect(apres.resultat?.prets).toEqual([]);
+    expect({ ...apres, resultat: { ...apres.resultat, prets: ['p-ana'] } }).toEqual(avant);
     // Chacun retrouve l'écran du décompte, pas une donne neuve.
     for (const inscrit of JOUEURS) expect(etats.get(inscrit.id)?.resultat?.numero).toBe(1);
 
-    // Les deux autres demandent la suite : le coup 2 est distribué.
-    for (const id of ['p-bo', 'p-cy']) {
+    // Les trois confirment de nouveau : le coup 2 est distribué.
+    for (const id of ['p-ana', 'p-bo', 'p-cy']) {
       expect((await emettre(socketDuSecond(id), 'pret-pour-suivant', { numero: 1 })).ok).toBe(true);
     }
     await patienter(20);

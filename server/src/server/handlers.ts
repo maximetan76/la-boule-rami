@@ -54,7 +54,7 @@ import {
 import { verifierJetonSession, type ConfigSession } from '../auth/session.js';
 import { filtrerEtatPourJoueur } from './etat-filtre.js';
 import type { EcheanceFiltree, ResultatCoupFiltre, TirageOuvertureFiltre, VueEchanges } from './etat-filtre.js';
-import type { AttenteDeJeu, ResultatCoupEnAttente, TourEnCours } from './game-room-manager.js';
+import type { AttenteDeJeu, AttenteDeSuite, ResultatCoupEnAttente, TourEnCours } from './game-room-manager.js';
 import {
   filtrerTirage,
   joueursARetourner,
@@ -420,6 +420,15 @@ const resultatFiltre = (table: Table): ResultatCoupFiltre | null => {
     carteDefaussee: resultat.carteDefaussee ?? null,
     rejouer: [...resultat.rejouer],
     rejouerAnnulePar: resultat.rejouerAnnulePar,
+    echeance:
+      table.attenteDeSuite === null || table.attenteDeSuite.numero !== resultat.numero
+        ? null
+        : {
+            restantMs: Math.max(0, table.attenteDeSuite.finLe - Date.now()),
+            dureeMs: DELAI_CONFIRMATION_MS,
+          },
+    expirees:
+      table.confirmationsExpirees?.numero === resultat.numero ? [...table.confirmationsExpirees.joueurs] : [],
     ...(resultat.matchPanier === undefined
       ? {}
       : {
@@ -728,6 +737,69 @@ const reevaluerSursis = (io: Server, manager: GameRoomManager, table: Table): vo
         // table reste en l'état et le joueur peut encore revenir.
       });
   }, dureeMs);
+};
+
+/**
+ * Le temps que les joueurs ont, ensemble, pour confirmer la suite : « Continuer »
+ * entre deux coups, « Rejouer avec ce groupe » en fin de Boule.
+ */
+export const DELAI_CONFIRMATION_MS = 2 * 60 * 1000;
+
+/**
+ * Arme, garde ou désarme le délai collectif de l'entracte.
+ *
+ * Il part du tout premier clic humain et ne bouge plus : les clics suivants ne
+ * le relancent pas. Un joueur qui confirme puis s'absente ne peut donc pas
+ * déclencher la donne au retour, longtemps après, sans que chacun soit là au
+ * même moment. À l'échéance, les clics des humains tombent ; les robots, eux,
+ * ne comptent pas pour le premier clic et ne sont jamais effacés.
+ */
+const reevaluerAttenteDeSuite = (io: Server, manager: GameRoomManager, table: Table): void => {
+  const resultat = table.resultatCoup;
+  const clicsHumains =
+    resultat === null
+      ? []
+      : [...new Set([...resultat.prets, ...resultat.rejouer])].filter((joueurId) => !table.bots.has(joueurId));
+
+  // Ce qui a expiré se lit jusqu'à la prochaine confirmation de chacun, et ne
+  // survit pas au coup : un autre décompte, une autre histoire.
+  if (table.confirmationsExpirees !== null) {
+    const restants = table.confirmationsExpirees.joueurs.filter((joueurId) => !clicsHumains.includes(joueurId));
+    table.confirmationsExpirees =
+      resultat === null || table.confirmationsExpirees.numero !== resultat.numero || restants.length === 0
+        ? null
+        : { numero: table.confirmationsExpirees.numero, joueurs: restants };
+  }
+
+  const attente = table.attenteDeSuite;
+  if (attente !== null && (resultat === null || attente.numero !== resultat.numero || clicsHumains.length === 0)) {
+    attente.annuler();
+    table.attenteDeSuite = null;
+  }
+  if (resultat === null || clicsHumains.length === 0 || table.attenteDeSuite !== null) return;
+
+  const numero = resultat.numero;
+  const nouvelle: AttenteDeSuite = {
+    numero,
+    finLe: Date.now() + DELAI_CONFIRMATION_MS,
+    annuler: () => undefined,
+  };
+  nouvelle.annuler = manager.minuteur.programmer(() => {
+    if (table.attenteDeSuite !== nouvelle) return;
+    table.attenteDeSuite = null;
+    const encore = table.resultatCoup;
+    if (encore === null || encore.numero !== numero) return;
+
+    const expires = [...new Set([...encore.prets, ...encore.rejouer])].filter(
+      (joueurId) => !table.bots.has(joueurId),
+    );
+    // De nouvelles listes : c'est ce qui fait écrire la table.
+    encore.prets = encore.prets.filter((joueurId) => table.bots.has(joueurId));
+    encore.rejouer = encore.rejouer.filter((joueurId) => table.bots.has(joueurId));
+    table.confirmationsExpirees = { numero, joueurs: expires };
+    publier(io, manager, table);
+  }, DELAI_CONFIRMATION_MS);
+  table.attenteDeSuite = nouvelle;
 };
 
 /**
@@ -1069,6 +1141,7 @@ const publier = (io: Server, manager: GameRoomManager, table: Table): void => {
   mesurerLeTempsDeJeu(table);
   reevaluerSursis(io, manager, table);
   reevaluerDelaiDeJeu(io, manager, table);
+  reevaluerAttenteDeSuite(io, manager, table);
   reevaluerLesBots(io, manager, table);
   diffuserEtat(io, manager, table);
   // Tout ce qui fait avancer une partie passe par ici : une donne, une

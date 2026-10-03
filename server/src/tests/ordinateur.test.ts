@@ -5,6 +5,7 @@ import { creerServeur, type Serveur } from '../server/index.js';
 import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
 import { GameRoomManager, type Minuteur } from '../server/game-room-manager.js';
+import { DELAI_CONFIRMATION_MS } from '../server/handlers.js';
 import type { EtatCoupFiltre } from '../server/etat-filtre.js';
 import type { Coup } from '../models/index.js';
 
@@ -19,10 +20,10 @@ const SESSION = { secret: secretDepuisTexte('secret-de-test-de-l-ordinateur') };
 
 /** Un minuteur qu'on déclenche à la main : les gestes de l'ordinateur, un à un. */
 const minuteurFactice = () => {
-  const programmes: { callback: () => void; annule: boolean }[] = [];
+  const programmes: { callback: () => void; delaiMs: number; annule: boolean }[] = [];
   const minuteur: Minuteur = {
-    programmer(callback) {
-      const entree = { callback, annule: false };
+    programmer(callback, delaiMs) {
+      const entree = { callback, delaiMs, annule: false };
       programmes.push(entree);
       return () => {
         entree.annule = true;
@@ -31,7 +32,9 @@ const minuteurFactice = () => {
   };
   const declencher = () => {
     for (const entree of [...programmes]) {
-      if (!entree.annule) {
+      // Le délai de 2 minutes de la confirmation collective est celui des
+      // humains : ce que ce test fait avancer, ce sont les gestes du robot.
+      if (!entree.annule && entree.delaiMs !== DELAI_CONFIRMATION_MS) {
         entree.annule = true;
         entree.callback();
       }

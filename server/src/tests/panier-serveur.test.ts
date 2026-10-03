@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { creerServeur, type Serveur } from '../server/index.js';
 import { secretDepuisTexte, signerJetonSession } from '../auth/session.js';
 import { DepotMemoire } from '../persistence/depot-memoire.js';
+import { DELAI_CONFIRMATION_MS } from '../server/handlers.js';
 import { ouvrirTablePleine } from './aide-table.js';
 import { c, joker } from './fixtures.js';
 import { estJoker } from '../game-engine/cartes.js';
@@ -248,6 +249,56 @@ describe('le panier, par la socket', () => {
       ],
     };
   };
+
+  it('la confirmation de la manche suivante a la meme limite de 2 minutes, et expire pour les deux joueurs', async () => {
+    // Le minuteur du serveur est observé, pas remplacé : on lit ce qu'il arme et
+    // on fait expirer le délai de la confirmation à la main.
+    const armes: { callback: () => void; delaiMs: number }[] = [];
+    const vrai = serveur.manager.minuteur.programmer.bind(serveur.manager.minuteur);
+    const espionne = vi.spyOn(serveur.manager.minuteur, 'programmer').mockImplementation((callback, delaiMs) => {
+      armes.push({ callback, delaiMs });
+      return delaiMs === DELAI_CONFIRMATION_MS ? () => undefined : vrai(callback, delaiMs);
+    });
+    try {
+      const { coupReel, espion, table } = await ouvrirPanier({ manchesAGagner: 2 });
+      const coup = coupReel();
+      const parleur = coup.aParler as JoueurId;
+      const gagnante = mainGagnante();
+      coup.mains[parleur] = gagnante.main;
+      expect((await agir(espion(parleur), 'annoncer', { annonce: 'je-joue' })).ok).toBe(true);
+      expect((await agir(espion(parleur), 'piocher', { source: 'pioche' })).ok).toBe(true);
+      const piochee = table.tourEnCours?.cartePiochee as Carte;
+      expect((await emettre(espion(parleur).socket, 'poser', { poses: gagnante.poses })).ok).toBe(true);
+      expect(await agir(espion(parleur), 'defausser', { carteId: piochee.id })).toEqual({ ok: true });
+      expect(table.resultatCoup?.numero).toBe(1);
+      await attendreLeDecompte(espion('p-ana'));
+      await attendreLeDecompte(espion('p-bo'));
+      const delaisDeLaConfirmation = () => armes.filter((arme) => arme.delaiMs === DELAI_CONFIRMATION_MS);
+      expect(delaisDeLaConfirmation()).toHaveLength(0);
+
+      // Le premier clic, de n'importe lequel des deux, lance les 2 minutes.
+      expect((await agir(espion('p-ana'), 'pret-pour-suivant', { numero: 1 })).ok).toBe(true);
+      expect(delaisDeLaConfirmation()).toHaveLength(1);
+      expect(espion('p-bo').dernierEtat?.resultat?.echeance?.dureeMs).toBe(DELAI_CONFIRMATION_MS);
+
+      // L'échéance : le clic d'Ana tombe, la manche suivante ne part pas.
+      (delaisDeLaConfirmation()[0] as { callback: () => void }).callback();
+      await patienter(30);
+      expect(table.resultatCoup?.prets).toEqual([]);
+      expect(coupReel().numero).toBe(1);
+      expect(espion('p-bo').dernierEtat?.resultat?.expirees).toEqual(['p-ana']);
+
+      // Les deux confirment à temps : la manche 2 est distribuée.
+      expect((await agir(espion('p-ana'), 'pret-pour-suivant', { numero: 1 })).ok).toBe(true);
+      expect(delaisDeLaConfirmation()).toHaveLength(2);
+      expect((await agir(espion('p-bo'), 'pret-pour-suivant', { numero: 1 })).ok).toBe(true);
+      await patienter(30);
+      expect(table.resultatCoup).toBeNull();
+      expect(coupReel().numero).toBe(2);
+    } finally {
+      espionne.mockRestore();
+    }
+  });
 
   it('finir un coup : les 14 cartes en combinaisons, sans 51 points ni tierce franche', async () => {
     const { coupReel, espion, table } = await ouvrirPanier({ manchesAGagner: 2 });

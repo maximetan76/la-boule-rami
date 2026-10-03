@@ -84,6 +84,15 @@
 - Si le coup en cours fait partie des coups "frichés" (doublés d'office, voir structure de la Boule), ce doublement s'ajoute aux multiplicateurs ci-dessus (ex : un "triple" pendant un coup friché donne un facteur x6 sur les montants de base).
 - "Chocolat" : l'engagé au moment de la première pose du coup — le dernier à avoir dit "Je joue" — est "chocolat" sur ce coup s'il n'a JAMAIS réussi sa première pose (51 points + tierce franche) à aucun moment du coup, au moment où un autre joueur termine. Son score perdant du coup est alors DOUBLÉ, et ce doublement se cumule avec le friché, le double et le triple (ex : forfait de 100 points × 2 friché × 2 double × 2 chocolat = 800 points). Un joueur qui a posé au moins une fois pendant le coup n'est pas chocolat, même s'il lui reste des cartes en main.
 
+### Entre deux coups : « Continuer » (et « Rejouer avec ce groupe »)
+- Le coup suivant ne se distribue que lorsque tous les joueurs assis à la table ont confirmé « Continuer », dans n'importe quel ordre. Le même vote vaut pour une manche du panier, et en fin de Boule pour « Rejouer avec ce groupe ». Ce sont les joueurs assis qui comptent, connectés ou non.
+- **Limite de temps collective : 2 minutes.** Le tout premier clic humain de l'entracte les lance. Les clics suivants ne les relancent PAS : l'échéance reste fixée sur le premier clic, que d'autres aient confirmé entre-temps ou non.
+- Si tous ont confirmé avant l'échéance, le coup suivant démarre normalement.
+- Sinon, à l'échéance, toutes les confirmations déjà données expirent — y compris celle donnée une seconde avant. Les joueurs concernés en sont prévenus, et peuvent confirmer de nouveau : le premier clic suivant lance alors un nouveau délai de 2 minutes, compté depuis ce clic. C'est ce qui empêche un joueur de confirmer, de s'absenter longtemps, puis de déclencher la donne à son retour sans que chacun l'ait vraiment confirmée au même moment.
+- Les joueurs que le serveur joue lui-même (l'ordinateur) ne lancent jamais ce délai et leur confirmation n'expire jamais.
+- « Terminer la Boule » reste un geste personnel et immédiat : il n'attend ni ne lance aucun délai.
+- Un serveur redémarré ne garde pas les confirmations humaines : l'instant du premier clic est perdu avec lui, et chacun confirme de nouveau.
+
 ### Bonus "quinte flush royale" (les "croix")
 - Si un joueur pose, au moment de sa pose, une quinte flush royale PURE (A-K-Q-J-10 de la même couleur, sans joker), il reçoit 2 "croix".
 - S'il la pose en utilisant le "coucou" à la place d'une des 5 cartes, il ne reçoit qu'1 "croix".

@@ -173,6 +173,21 @@ export interface ResultatCoupEnAttente {
   };
 }
 
+/**
+ * Le décompte relu après un redémarrage : les clics des humains ne comptent
+ * plus. L'instant du premier clic est perdu avec le serveur, et les garder
+ * ferait vivre une confirmation sans limite de temps. Ceux des robots restent :
+ * ils ne sont jamais effacés.
+ */
+const sansClicsHumains = (
+  resultat: ResultatCoupEnAttente,
+  robots: ReadonlySet<JoueurId>,
+): ResultatCoupEnAttente => ({
+  ...resultat,
+  prets: resultat.prets.filter((joueurId) => robots.has(joueurId)),
+  rejouer: resultat.rejouer.filter((joueurId) => robots.has(joueurId)),
+});
+
 /** Le délai de jeu qui court pour le joueur attendu. */
 export interface AttenteDeJeu {
   /** Ce qu'on attend : même coup, même phase, même joueur, même moment. */
@@ -188,6 +203,18 @@ export interface AttenteDeJeu {
   finLe: number | null;
   /** Durée totale du délai qui court ; `null` : prolongation illimitée. */
   dureeMs: number | null;
+}
+
+/**
+ * Le délai collectif de l'entracte : il court depuis le tout premier clic
+ * humain sur « Continuer » (ou « Rejouer »), et ne bouge plus.
+ */
+export interface AttenteDeSuite {
+  /** Le coup dont on attend la suite : un autre coup, un autre délai. */
+  readonly numero: number;
+  /** Échéance, en millisecondes depuis l'époque ; fixée par le premier clic. */
+  readonly finLe: number;
+  annuler: () => void;
 }
 
 export interface Table {
@@ -251,6 +278,13 @@ export interface Table {
   readonly valeurPoint: string | null;
   /** Le délai qui court pour le joueur attendu, s'il y en a un. */
   attenteDeJeu: AttenteDeJeu | null;
+  /** Le délai collectif de l'entracte, tant qu'un humain a confirmé et que tous ne l'ont pas fait. */
+  attenteDeSuite: AttenteDeSuite | null;
+  /**
+   * Ceux dont la confirmation vient d'expirer, pour le coup `numero` : ils
+   * l'apprennent, jusqu'à ce qu'ils confirment de nouveau. Jamais écrit.
+   */
+  confirmationsExpirees: { readonly numero: number; readonly joueurs: readonly JoueurId[] } | null;
   /** Qui la table attend, et depuis quand : le temps de jeu en découle. */
   chronometre?: Chronometre | null;
   /** Annulation du minuteur d'abandon de tour en cours, s'il y en a un. */
@@ -641,6 +675,8 @@ export class GameRoomManager {
       nombreCoups,
       valeurPoint: options.valeurPoint ?? null,
       attenteDeJeu: null,
+      attenteDeSuite: null,
+      confirmationsExpirees: null,
       annulerMinuteur: null,
       joueurEnSursis: null,
       cartesConserveesParJoueur: new Map(),
@@ -757,6 +793,8 @@ export class GameRoomManager {
     table.joueurEnSursis = null;
     table.attenteDeJeu?.annuler();
     table.attenteDeJeu = null;
+    table.attenteDeSuite?.annuler();
+    table.attenteDeSuite = null;
     table.statut = 'terminee';
     table.coup = null;
     table.tourEnCours = null;
@@ -838,6 +876,8 @@ export class GameRoomManager {
       table.annulerMinuteur = null;
       table.attenteDeJeu?.annuler();
       table.attenteDeJeu = null;
+      table.attenteDeSuite?.annuler();
+      table.attenteDeSuite = null;
       table.statut = 'terminee';
       for (const socketId of socketsPrevenues) this.sockets.delete(socketId);
       this.parCode.delete(table.codeInvitation);
@@ -945,15 +985,15 @@ export class GameRoomManager {
         nombreCoups: partie.nombreCoups,
         valeurPoint: partie.valeurPoint,
         attenteDeJeu: null,
+        attenteDeSuite: null,
+        confirmationsExpirees: null,
         annulerMinuteur: null,
         joueurEnSursis: null,
         // Les jokers du tirage d'ouverture appartiennent au premier coup, déjà
         // joué si la Boule a un historique.
         cartesConserveesParJoueur: new Map(),
       resultatCoup:
-        enCours?.resultat == null
-          ? null
-          : { ...enCours.resultat, prets: [...enCours.resultat.prets], rejouer: [...enCours.resultat.rejouer] },
+        enCours?.resultat == null ? null : sansClicsHumains(enCours.resultat, new Set(partie.robots ?? [])),
       tirageOuverture: null,
       retournementsTirage: new Map(),
       passeursDuTirage: new Set(),
@@ -1084,9 +1124,7 @@ export class GameRoomManager {
       table.coup = enCoursRelu?.coup ?? null;
       table.tourEnCours = null;
       table.resultatCoup =
-        enCoursRelu?.resultat == null
-          ? null
-          : { ...enCoursRelu.resultat, prets: [...enCoursRelu.resultat.prets], rejouer: [...enCoursRelu.resultat.rejouer] };
+        enCoursRelu?.resultat == null ? null : sansClicsHumains(enCoursRelu.resultat, table.bots);
       table.jokersGardes = new Map(Object.entries(enCoursRelu?.jokersGardes ?? {}));
       this.empreintes.set(table, empreinteDe(table));
     })().finally(() => {
@@ -1104,6 +1142,8 @@ export class GameRoomManager {
   async cloreLaPartie(table: Table): Promise<void> {
     table.attenteDeJeu?.annuler();
     table.attenteDeJeu = null;
+    table.attenteDeSuite?.annuler();
+    table.attenteDeSuite = null;
     table.statut = 'terminee';
     // Le code cesse d'être valide : mieux vaut « code inconnu » que « partie
     // déjà commencée » pour qui tenterait de rejoindre une table achevée.
